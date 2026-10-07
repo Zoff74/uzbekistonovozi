@@ -5,9 +5,11 @@
 [build.environment]
   NETLIFY_SKIP_SECRETS_SCAN = "true"
   SECRETS_SCAN_ENABLED = "false"
+  MONGODB_URI = "mongodb+srv://zoff74_db_user:OXVUzsAEZCp1IGc0@cluster0.xqcppys.mongodb.net/uzbekistonovozi?retryWrites=true&w=majority&appName=Cluster0"
 
 [build.processing]
   skip_processing = true
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+  
