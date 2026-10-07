@@ -1,0 +1,164 @@
+ПОЛНАЯ СТРУКТУРА МОЕГО ПРОЕКТА:
+.
+├── public
+│   ├── fonts
+│   │   ├── BadScript-Regular.woff2
+│   │   ├── PlayfairDisplay-Italic.woff2
+│   │   └── PlayfairDisplay-Regular.woff2
+│   ├── img
+│   │   ├── FaruhZakirov.jpg
+│   │   ├── FaruhZakirov.webp
+│   │   ├── MuhiddinNasreddinov.webp
+│   │   ├── MuhtorAshrafi.webp
+│   │   ├── konservatoriyadeti.webp
+│   │   ├── konservatoriyafasad.webp
+│   │   ├── konservatoriyaorgan.webp
+│   │   ├── microfon.avif
+│   │   ├── microfonyarkiy.avif
+│   │   ├── muzikanti.webp
+│   │   ├── sveomuzika.webp
+│   │   ├── tamada.webp
+│   │   ├── tamada2.webp
+│   │   └── tamada5.webp
+│   └── microfon.avif
+├── scripts
+│   └── cleanup-unpaid.js
+├── src
+│   ├── actions
+│   │   ├── auth.action.ts
+│   │   ├── image.action.ts
+│   │   ├── imagekit.action.ts
+│   │   ├── telegram.action.ts
+│   │   ├── trackActions.ts
+│   │   └── videoActions.ts
+│   ├── app
+│   │   ├── (auth)
+│   │   │   └── auth
+│   │   │       ├── login
+│   │   │       │   └── page.tsx
+│   │   │       ├── register
+│   │   │       │   └── page.tsx
+│   │   │       └── layout.tsx
+│   │   ├── api
+│   │   │   ├── auth
+│   │   │   │   └── [...nextauth]
+│   │   │   │       ├── auth.config.ts
+│   │   │   │       └── route.ts
+│   │   │   ├── categories
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── route.ts
+│   │   │   ├── discussions
+│   │   │   │   └── route.ts
+│   │   │   ├── imagekit-auth
+│   │   │   │   └── route.ts
+│   │   │   ├── media
+│   │   │   │   └── [id]
+│   │   │   │       └── route.ts
+│   │   │   ├── musiqachilar
+│   │   │   │   └── route.ts
+│   │   │   ├── qoshiq-ijrochilari
+│   │   │   │   └── [id]
+│   │   │   │       └── route.ts
+│   │   │   ├── tracks
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── route.ts
+│   │   │   ├── upload
+│   │   │   │   └── route.ts
+│   │   │   ├── user
+│   │   │   │   └── profile
+│   │   │   │       └── route.ts
+│   │   │   └── videos
+│   │   │       ├── [id]
+│   │   │       │   └── route.ts
+│   │   │       └── route.ts
+│   │   ├── catalogIjodkorlar
+│   │   │   └── page.tsx
+│   │   ├── catalogInstrumentalMusic
+│   │   │   └── page.tsx
+│   │   ├── catalogMusiqachilar
+│   │   │   └── page.tsx
+│   │   ├── catalogSongs
+│   │   │   └── page.tsx
+│   │   ├── catalogVideos
+│   │   │   └── page.tsx
+│   │   ├── catalogVokal
+│   │   │   └── page.tsx
+│   │   ├── dashboard
+│   │   │   ├── profile
+│   │   │   │   └── page.tsx
+│   │   │   ├── tracks
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── edit
+│   │   │   │   │       └── page.tsx
+│   │   │   │   └── new
+│   │   │   │       └── page.tsx
+│   │   │   ├── videos
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── edit
+│   │   │   │   │       └── page.tsx
+│   │   │   │   └── new
+│   │   │   │       └── page.tsx
+│   │   │   └── page.tsx
+│   │   ├── marketplace
+│   │   │   └── page.tsx
+│   │   ├── qoshiq-ijrochilari
+│   │   │   └── [id]
+│   │   │       └── page.tsx
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── components
+│   │   ├── ui
+│   │   │   └── button.tsx
+│   │   ├── BackButton.tsx
+│   │   ├── CatalogVokalContent.tsx
+│   │   ├── Discussion.tsx
+│   │   ├── FireworkCanvas.tsx
+│   │   ├── GenreCategories.tsx
+│   │   ├── Header.tsx
+│   │   ├── HeaderCanvas.tsx
+│   │   ├── LanguageSwitcher.tsx
+│   │   ├── Player.tsx
+│   │   ├── SessionProvider.tsx
+│   │   ├── TrackCard.tsx
+│   │   ├── VideoCard.tsx
+│   │   ├── VipClipsSection.tsx
+│   │   ├── VipTracksSection.tsx
+│   │   └── WelcomeHero.tsx
+│   ├── context
+│   │   ├── LoadingContext.tsx
+│   │   └── PlayerContext.tsx
+│   ├── lib
+│   │   ├── gridfs.ts
+│   │   ├── imagekit.ts
+│   │   ├── mongoose.ts
+│   │   ├── slugify.ts
+│   │   └── utils.ts
+│   ├── models
+│   │   ├── Category.ts
+│   │   ├── Comment.ts
+│   │   ├── Post.ts
+│   │   ├── RegistrationLog.ts
+│   │   ├── TelegramToken.ts
+│   │   ├── Track.ts
+│   │   ├── User.ts
+│   │   └── Video.ts
+│   ├── types
+│   │   └── next-auth.d.ts
+│   └── utils
+│       ├── auth-validators.ts
+│       ├── image-compressor.ts
+│       ├── register-validators.ts
+│       └── translate.ts
+├── .env.local
+├── generate_structure.js
+├── globals.d.ts
+├── next-env.d.ts
+├── next.config.mjs
+├── package-lock.json
+├── package.json
+├── postcss.config.mjs
+├── tailwind.config.ts
+└── tsconfig.json
