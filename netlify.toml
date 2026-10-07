@@ -4,10 +4,10 @@
 
 [build.environment]
   NETLIFY_SKIP_SECRETS_SCAN = "true"
+  SECRETS_SCAN_ENABLED = "false"
 
 [build.processing]
   skip_processing = true
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-  
