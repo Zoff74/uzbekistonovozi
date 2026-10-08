@@ -1,4 +1,4 @@
-ПОЛНАЯ СТРУКТУРА МОЕГО ПРОЕКТА:
+ПОЛНАЯ СТРУКТУРА ПРОЕКТА:
 .
 ├── public
 │   ├── fonts
@@ -10,6 +10,7 @@
 │   │   ├── FaruhZakirov.webp
 │   │   ├── MuhiddinNasreddinov.webp
 │   │   ├── MuhtorAshrafi.webp
+│   │   ├── avatar.webp
 │   │   ├── konservatoriyadeti.webp
 │   │   ├── konservatoriyafasad.webp
 │   │   ├── konservatoriyaorgan.webp
@@ -153,8 +154,11 @@
 │       ├── register-validators.ts
 │       └── translate.ts
 ├── .env.local
+├── .gitignore
 ├── generate_structure.js
 ├── globals.d.ts
+├── migrate.js
+├── netlify.toml
 ├── next-env.d.ts
 ├── next.config.mjs
 ├── package-lock.json

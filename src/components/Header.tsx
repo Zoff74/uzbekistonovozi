@@ -92,6 +92,11 @@ export default function Header() {
               <span className="text-[11px] sm:text-[10px] tracking-widest text-emerald-400 font-bold uppercase block mt-0.5">
                 New Sound System
               </span>
+
+              <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
+                  {tr("Ўзбекистон хонанда ва мусиқачилари \nучун ҳамкорлик платформаси", "O'zbekiston honanda va musiqachilari uchun \nhamkorlik platformasi", "Профессиональная платформа \nколлабораций для музыкантов Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
+                </span>
+
             </div>
           </div>
           
