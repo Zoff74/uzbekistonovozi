@@ -23,7 +23,8 @@
 │   │   └── tamada5.webp
 │   └── microfon.avif
 ├── scripts
-│   └── cleanup-unpaid.js
+│   ├── cleanup-unpaid.js
+│   └── migrate.js
 ├── src
 │   ├── actions
 │   │   ├── auth.action.ts
@@ -104,6 +105,9 @@
 │   │   │   └── page.tsx
 │   │   ├── marketplace
 │   │   │   └── page.tsx
+│   │   ├── musiqachilar
+│   │   │   └── [id]
+│   │   │       └── page.tsx
 │   │   ├── qoshiq-ijrochilari
 │   │   │   └── [id]
 │   │   │       └── page.tsx
@@ -157,7 +161,6 @@
 ├── .gitignore
 ├── generate_structure.js
 ├── globals.d.ts
-├── migrate.js
 ├── netlify.toml
 ├── next-env.d.ts
 ├── next.config.mjs

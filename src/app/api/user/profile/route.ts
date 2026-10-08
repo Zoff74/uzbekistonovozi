@@ -6,7 +6,6 @@ import { dbConnect } from "@/lib/mongoose";
 import User from "@/models/User";
 import ImageKit from "imagekit";
 
-// Инициализируем ImageKit для зачистки старых аватарок
 const imagekit = new ImageKit({
     publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "",
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "",
@@ -21,15 +20,46 @@ interface SessionData {
     };
 }
 
-// GET: Получение данных текущего пользователя
-export async function GET() {
+// GET: Получение данных (либо по ID из query для публичного профиля, либо текущего юзера)
+export async function GET(req: Request) {
     try {
+        await dbConnect();
+        
+        const { searchParams } = new URL(req.url);
+        const userId = searchParams.get("id");
+
+        // Если передан ID в строке запроса -> отдаем публичный профиль музыканта/творца
+        if (userId) {
+            const user = await User.findById(userId)
+                .select("username image occupation bio phone telegram email location")
+                .lean();
+
+            if (!user) {
+                return NextResponse.json({ success: false, message: "User not found" }, { status: 404 });
+            }
+
+            // Маппим под формат, который ожидает фронтенд профиля
+            const formattedUser = {
+                _id: user._id,
+                name: user.username,
+                image: user.image,
+                occupation: user.occupation,
+                bio: (user as any).bio,
+                phone: (user as any).phone,
+                telegram: (user as any).telegram,
+                email: (user as any).email,
+                location: (user as any).location,
+            };
+
+            return NextResponse.json({ success: true, user: formattedUser });
+        }
+
+        // Иначе работаем как раньше для личного кабинета (требуется сессия)
         const session = (await getServerSession(authOptions)) as SessionData | null;
         if (!session || !session.user?.id) {
             return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
         }
 
-        await dbConnect();
         const user = await User.findById(session.user.id).select("username email image imageFileId").lean();
 
         if (!user) {
@@ -42,7 +72,7 @@ export async function GET() {
     }
 }
 
-// PUT: Обновление профиля + УДАЛЕНИЕ СТАРОГО МУСОРА ИЗ IMAGEKIT ПО `imageFileId`
+// PUT: Обновление профиля остается без изменений
 export async function PUT(req: Request) {
     try {
         const session = (await getServerSession(authOptions)) as SessionData | null;
@@ -55,13 +85,11 @@ export async function PUT(req: Request) {
 
         await dbConnect();
 
-        // 1. Находим пользователя ДО обновления, чтобы забрать его старый imageFileId из базы
         const currentUser = await User.findById(session.user.id);
         if (!currentUser) {
             return NextResponse.json({ success: false, message: "User not found" }, { status: 404 });
         }
 
-        // 2. Если прилетел новый файл (avatarFileId) и у юзера РАНЬШЕ был другой файл в ImageKit — удаляем его
         if (
             avatarFileId && 
             currentUser.imageFileId && 
@@ -74,13 +102,11 @@ export async function PUT(req: Request) {
             }
         }
 
-        // 3. Формируем данные для обновления
         const updateData: any = {};
         if (name !== undefined) updateData.username = name;
         if (avatarUrl !== undefined) updateData.image = avatarUrl;
         if (avatarFileId !== undefined) updateData.imageFileId = avatarFileId;
 
-        // 4. Обновляем юзера в базе
         const updatedUser = await User.findByIdAndUpdate(
             session.user.id,
             updateData,

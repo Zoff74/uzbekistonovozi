@@ -94,7 +94,7 @@ export default function Header() {
               </span>
 
               <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
-                  {tr("Ўзбекистон хонанда ва мусиқачилари \nучун ҳамкорлик платформаси", "O'zbekiston honanda va musiqachilari uchun \nhamkorlik platformasi", "Профессиональная платформа \nколлабораций для музыкантов Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
+                  {tr("Ўзбекистон мусиқа бизнесининг \nҳамкорлик платформаси", "O'zbekiston musiqa biznesining \nhamkorlik platformasi", "Профессиональная платформа \nколлабораций для музыкального бизнеса Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
                 </span>
 
             </div>
@@ -154,7 +154,7 @@ export default function Header() {
                 onClick={() => setIsVokalOpen((prev) => !prev)}
                 className="text-slate-300 hover:text-[#39FF14] transition flex items-center gap-1 py-2 focus:outline-none cursor-pointer"
               >
-                {tr("Тоза Вокал", "Toza Vokal", "Чистый Вокал", "Vocals")}
+                {tr("Мусиқасиз Вокал", "Musiqasiz Vokal", "Вокал без музыки", "Vocals")}
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isVokalOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
               </button>
 

@@ -94,7 +94,7 @@ export default function WelcomeHero() {
               </span>
             </div>
             
-            <h1 className="text-base sm:text-2xl font-bold tracking-tight leading-snug">
+            <h1 className="text-base sm:text-xl font-bold tracking-tight leading-snug">
               {tr(
                 <>Тошкент Давлат Консерваторияси ва Истеъдодларга бой {" "}<span style={{ fontSize: 32, fontFamily: "system-ui", fontWeight: 400, fontStyle: "normal" }}>Ў</span>збекистоннинг Янги Мусиқий Талантларини кашф этинг!</> as any, 
                 "Toshkent Davlat Konservatoriyasi va Istedodlarga boy O'zbekistonning Yangi Musiqiy Talantlarini kashf eting!",
@@ -107,25 +107,25 @@ export default function WelcomeHero() {
               {tr(
                 <>
                   'Мухтор Ашрафи' Консерваториясини битирганлар ва ҳозирги кунда <span style={{ fontFamily: "system-ui" }}>Ў</span>збекистон Давлат Консерваториясида таълим олаётган қобилиятли талабаларининг, ҳамда Табиий Истеъдоди орқали ижод қилиб келаётган минглаб мусиқачи, хонанда, бастакор ва қўшиқ матни муаллифлари ўз асарларини жойлаштириш, ўз кучи ва қобилиятини синаш ва мукофот сифатида моддий маблағ олиши учун мўлжалланган <span style={{ fontFamily: "system-ui" }}>Ў</span>збекистондаги Ягона Маркетплейс !!!{'\n'}
-                  Агарда Сиз Мусиқа ижодкорлигига ёки Мусиқа саноатига алоқадор бўлсангиз, ижод маҳсулларингизни жойланг ва нафақат МАБЛА<span style={{fontSize: 22, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ғ</span>, балки Эътироф, Талабгирлик ва Машҳурлик топинг!
+                  Агарда Сиз Мусиқа ижодкорлигига ёки Мусиқа саноатига алоқадор бўлсангиз, ижод маҳсулларингизни жойланг ва МАБЛА<span style={{fontSize: 22, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ғ</span>дан ташқари, Эътироф, Талабгирлик ва Машҳурлик топинг!
                 </> as any,
                 
-                "'Muxtor Ashrafi' Konservatoriyasini bitirganlar va hozirgi kunda O'zbekiston Davlat Konservatoriyasida ta'lim olayotgan qobiliyatli talabalarining, hamda Tabiiy Iste'dodi orqali ijod qilib kelayotgan minglab musiqachi, xonanda, bastakor va qo'shiq matni mualliflari o'z asarlarini joylashtirishi va o'z kuchi va qobiliyatini sinash va mukofot sifatida moddiy mablag olishi uchun mo'ljallangan Uzbekistondagi Yagona Marketpleys !!!\nAgarda Siz Musiqa ijodkorlik sanoatiga aloqador bo'lsangiz, Ijod mahsullaringizni jovlang va nafaqat MABLAG, balki E'tirof, Talabgarlik va Mashhurlik toping!",
+                "'Muxtor Ashrafi' Konservatoriyasini bitirganlar va hozirgi kunda O'zbekiston Davlat Konservatoriyasida ta'lim olayotgan qobiliyatli talabalarining, hamda Tabiiy Iste'dodi orqali ijod qilib kelayotgan minglab musiqachi, xonanda, bastakor va qo'shiq matni mualliflari o'z asarlarini joylashtirishi va o'z kuchi va qobiliyatini sinash va mukofot sifatida moddiy mablag olishi uchun mo'ljallangan Uzbekistondagi Yagona Marketpleys !!!\nAgarda Siz Musiqa ijodkorlik sanoatiga aloqador bo'lsangiz, Ijod mahsullaringizni jovlang va MABLAGdan tashqari, E'tirof, Talabgarlik va Mashhurlik toping!",
                 
                 "Единый маркетплейс для жителей Узбекистана от выпускников Ташкентской Консерватории 'Мухтара Ашрафи' и учащихся Государственной Консерватории Узбекистана, а также тысяч пока не известных музыкантов, певцов, композиторов и авторов текстов, создающих творчество благодаря своему Природному Таланту.\nЕсли Вы талантливы и хотите поведать миру свои произведения или имеете отношение к музыкальной индустрии, РАЗМЕЩАЙТЕ свои услуги, продукты своего творчества — и Вы получите не только МАТЕРИАЛЬНЫЕ СРЕДСТВА, но также обретете Признание, Востребованность и Известность!",
                 
                 "A Single Marketplace designed for graduates and students of the State Conservatory of Uzbekistan, as well as thousands of musicians, singers, composers and lyricists creating through their natural talent.\nUPLOAD your creative products and gain not only FUNDS, but also Recognition, Demand and Fame!"
               )} 
               <span 
-                className="text-center text-emerald-400 font-semibold block mt-1.5 text-[11px] sm:text-[14px]"
+                className="text-center text-emerald-400 font-semibold block mt-1.5 text-[9px] sm:text-[12px]"
                 style={{ letterSpacing: '1px' }}
               >
                 {tr(
                   <>
-                    НАФА<span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Қ</span>АТ <span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ў</span>ЗБЕКИСТОНЛИКЛАР, БАЛКИ БУТУН ДУНЁ СИЗНИНГ МАХОРАТИНГИЗНИ К<span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ў</span>РСИН, СИЗНИ ТИНГЛАСИН, СИЗ БИЛАН <span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ҳ</span>АЙРАТЛАНСИН ва СИЗНИНГ ИЖОДИНГИЗ БИЛАН ЗАВ<span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Қ</span>ЛАНСИН!
+                    НАФА<span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Қ</span>АТ <span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ў</span>ЗБЕКИСТОНЛИКЛАР, БАЛКИ БУТУН ДУНЁ СИЗНИНГ МАХОРАТИНГИЗНИ К<span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ў</span>РСИН, СИЗНИ ТИНГЛАСИН, СИЗ БИЛАН <span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ҳ</span>АЙРАТЛАНСИН ВА СИЗНИНГ ИЖОДИНГИЗ БИЛАН ЗАВ<span style={{ fontSize: 18, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Қ</span>ЛАНСИН!
                   </> as any,
-                  "NAFAQAT O'ZBEKISTONLIKLAR, BALKI BUTUN DUNYO SIZNING MAXORATINGIZNI KO'RSIN, SIZNI TINGLASIN, SIZ BILAN HAYRATLANSIN va SIZNING IJODINGIZ BILAN ZAVQLANSIN!",
-                  "ПУСТЬ НЕ ТОЛЬКО НАРОД УЗБЕКИСТАНА, НО И ЛЮДИ ВСЕГО МИРА ВИДИТ ВАС, СЛУШАЮТ ВАС, УДИВЛЯЮТСЯ ВАМИ и НАСЛАЖДАЮТСЯ ВАШИМ ТВОРЧЕСТВОМ!",
+                  "NAFAQAT O'ZBEKISTONLIKLAR, BALKI BUTUN DUNYO SIZNING MAXORATINGIZNI KO'RSIN, SIZNI TINGLASIN, SIZ BILAN HAYRATLANSIN VA SIZNING IJODINGIZ BILAN ZAVQLANSIN!",
+                  "ПУСТЬ НЕ ТОЛЬКО НАРОД УЗБЕКИСТАНА, НО И ЛЮДИ ВСЕГО МИРА ВИДИТ ВАС, СЛУШАЮТ ВАС, УДИВЛЯЮТСЯ ВАМИ И НАСЛАЖДАЮТСЯ ВАШИМ ТВОРЧЕСТВОМ!",
                   "Let the people of Uzbekistan and the whole world see you, listen and enjoy your creativity!"
                 )}
               </span>
