@@ -94,7 +94,7 @@ export default function Header() {
               </span>
 
               <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
-                  {tr("Ўзбекистон мусиқа бизнесининг \nҳамкорлик платформаси", "O'zbekiston musiqa biznesining \nhamkorlik platformasi", "Профессиональная платформа \nколлабораций для музыкального бизнеса Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
+                  {tr("Ўзбекистон Мусиқа Бизнесининг \nҲамкорлик Платформаси", "O'zbekiston Musiqa Biznesining \nHamkorlik Platformasi", "Профессиональная Платформа \nКоллабораций для Музыкального Бизнеса Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
                 </span>
 
             </div>
