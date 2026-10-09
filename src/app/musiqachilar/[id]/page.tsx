@@ -1,4 +1,5 @@
 "use client";
+
 // src/app/musiqachilar/[id]/page.tsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -28,8 +29,7 @@ export default function MusicianProfilePage() {
   useEffect(() => {
     if (!id) return;
 
-    // Загружаем данные конкретного пользователя/музыканта через API
-    fetch(`/api/user/profile?id=${id}`) // либо вы можете создать отдельный API-роут или использовать существующий
+    fetch(`/api/user/profile?id=${id}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.user) {
@@ -114,8 +114,8 @@ export default function MusicianProfilePage() {
             <div className="flex-grow text-center sm:text-left space-y-3">
               <div>
                 <span className="inline-block px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold uppercase tracking-wider mb-2">
-                  {musician.occupation || tr("Мусиқачи / Созанда", "Musiqachi / Sozanda", "Музыкант / Инструменталист", "Musician")}
-                </span>
+  {musician.occupation || tr("Мусиқачи", "Musiqachi", "Музыкант", "Musician")}
+</span>
                 <h1 className="text-2xl sm:text-3xl font-black text-white">{musician.name}</h1>
               </div>
 

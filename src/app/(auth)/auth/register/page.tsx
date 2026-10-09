@@ -304,21 +304,21 @@ function RegisterForm() {
                                     <label htmlFor="r_role" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
                                         {tr("Ким сифатида рўйхатдан ўтмоқчисиз?", "Kim sifatida ro'yxatdan o'tmoqchisiz?", "Кем вы хотите зарегистрироваться?", "What role would you like to register as?")}
                                     </label>
-                                    <select 
-                                        id="r_role" 
-                                        value={role} 
-                                        onChange={(e) => setRole(e.target.value)} 
-                                        disabled={loading} 
-                                        className={`${inputBaseClass} ${inputBorderClass} text-[15px]`}
-                                    >
-                                        <option value="musiqachi">{tr("Мусиқачи", "Musiqachi", "Музыкант", "Musician")}</option>
-                                        <option value="xonanda">{tr("Хонанда", "Xonanda", "Певец / Певица", "Singer")}</option>
-                                        <option value="kompozitor">{tr("Композитор", "Kompozitor", "Композитор", "Composer")}</option>
-                                        <option value="bastakor">{tr("Бастакор", "Bastakor", "Бастакор (Композитор)", "Bastakor")}</option>
-                                        <option value="qo'shiq matni muallifi">{tr("Қўшиқ матни муаллифи", "Qo'shiq matni muallifi", "Автор текста песни", "Lyricist")}</option>
-                                        <option value="aranjirovka ustasi">{tr("Аранжировка устаси", "Aranjirovka ustasi", "Аранжировщик", "Arranger")}</option>
-                                        <option value="other">{tr("✍️ Ўз вариантингизни ёзинг", "✍️ O'z variantingizni yozing", "✍️ Напишите свой вариант", "✍️ Write your own option")}</option>
-                                    </select>
+<select 
+    id="r_role" 
+    value={role} 
+    onChange={(e) => setRole(e.target.value)} 
+    disabled={loading} 
+    className={`${inputBaseClass} ${inputBorderClass} text-[15px]`}
+>
+    <option value="musiqachi">{tr("Музыкант (Инструменталист)", "Musiqachi (Instrumentalchi)", "Музыкант (Инструменталист)", "Musician (Instrumentalist)")}</option>
+    <option value="xonanda">{tr("Певец / Вокалист", "Xonanda / Vokalist", "Певец / Вокалист", "Singer / Vocalist")}</option>
+    <option value="kompozitor">{tr("Композитор", "Kompozitor", "Композитор", "Composer")}</option>
+    <option value="bastakor">{tr("Бастакор", "Bastakor", "Бастакор", "Bastakor")}</option>
+    <option value="qo'shiq matni muallifi">{tr("Автор текста песни", "Qo'shiq matni muallifi", "Автор текста песни", "Lyricist")}</option>
+    <option value="aranjirovka ustasi">{tr("Аранжировщик", "Aranjirovka ustasi", "Аранжировщик", "Arranger")}</option>
+    <option value="other">{tr("✍️ Ўз вариантингиз", "✍️ O'z variantingiz", "✍️ Свой вариант", "✍️ Write your own option")}</option>
+</select>
                                 </div>
 
                                 {role === "other" && (

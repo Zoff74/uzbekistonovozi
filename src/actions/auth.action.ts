@@ -35,18 +35,14 @@ export async function registerUser(formData: FormData) {
             ""
         ) as string; 
         
-        // Получаем роль/профессию из формы
-        const rawRole = (formData.get("role") as string) || 'tinglovchi';
+        // Получаем профессию из формы (учитываем вариант "other" и кастомный ввод)
+        const rawOccupation = (formData.get("occupation") as string) || 'tinglovchi';
         const customOccupation = (formData.get("customOccupation") as string)?.trim();
         
-        // Если выбран "other" и вписан свой вариант, сохраняем его, иначе берем стандартное значение из селекта
-        const selectedOccupation = rawRole === 'other' && customOccupation ? customOccupation : rawRole;
+        const selectedOccupation = rawOccupation === 'other' && customOccupation ? customOccupation : rawOccupation;
         
-        // Если это не просто слушатель ('tinglovchi'), под капотом выдаем статус продавца (savdogar) для загрузки треков/видео
-        let systemRole = 'user'; 
-        if (selectedOccupation !== 'tinglovchi') {
-            systemRole = 'savdogar'; 
-        }
+        // Логика: Тингловчи и User — это одно и то же. Если это не тингловчи, то он становится продавцом (savdogar).
+        const systemRole = selectedOccupation === 'tinglovchi' ? 'user' : 'savdogar';
 
         const avatarFile = formData.get("avatar") as File | null;
 

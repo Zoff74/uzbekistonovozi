@@ -5,7 +5,6 @@ import mongoose from "mongoose";
 
 export const dynamic = 'force-dynamic'; // <--- ЗАПРЕЩАЕМ NEXT.JS КЭШИРОВАТЬ ЭТОТ РОУТ
 
-// src/app/api/categories/route.ts
 export async function GET() {
     try {
         await dbConnect();

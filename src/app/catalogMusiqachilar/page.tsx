@@ -1,6 +1,6 @@
 "use client";
-// src/app/catalogMusiqachilar/page.tsx
 
+// src/app/catalogMusiqachilar/page.tsx
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, User, Music, Search } from "lucide-react";
@@ -71,10 +71,10 @@ export default function CatalogMusiqachilarPage() {
           <div>
             <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">
               {tr(
-                "Мусиқачилар ва созандалар",
-                "Musiqachilar va sozandalar",
-                "Музыканты и инструменталисты",
-                "Musicians & Instrumentalists"
+                "Мусиқачилар",
+                "Musiqachilar",
+                "Музыканты",
+                "Musicians"
               )}
             </span>
             <h1 className="text-2xl sm:text-4xl font-black mt-1">
@@ -87,10 +87,10 @@ export default function CatalogMusiqachilarPage() {
             </h1>
             <p className="text-slate-400 text-xs sm:text-sm mt-2">
               {tr(
-                "Барча истеъдодли мусиқачилар ва созандалар рўйхати.",
-                "Barcha iste'dodli musiqachilar va sozandalar ro'yxati.",
-                "Список всех талантливых музыкантов и инструменталистов.",
-                "List of all talented musicians and instrumentalists."
+                "Барча истеъдодли мусиқачилар рўйхати.",
+                "Barcha iste'dodli musiqachilar ro'yxati.",
+                "Список всех талантливых музыкантов.",
+                "List of all talented musicians."
               )}
             </p>
           </div>
@@ -105,7 +105,7 @@ export default function CatalogMusiqachilarPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
             <input
               type="text"
-              placeholder={tr("Мусиқачи ёки созандани қидириш...", "Musiqachini qidirish...", "Поиск музыканта...", "Search musician...")}
+              placeholder={tr("Мусиқачини қидириш...", "Musiqachini qidirish...", "Поиск музыканта...", "Search musician...")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-900/80 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition"
@@ -117,8 +117,8 @@ export default function CatalogMusiqachilarPage() {
         <div className="space-y-4">
           <h2 className="text-lg font-bold">
             {tr(
-              "Барча созандалар",
-              "Barcha sozandalar",
+              "Барча мусиқачилар",
+              "Barcha musiqachilar",
               "Все музыканты",
               "All musicians"
             )}
@@ -163,7 +163,7 @@ export default function CatalogMusiqachilarPage() {
                   </h3>
                   <p className="text-[10px] text-slate-400 mt-0.5 truncate w-full">
                     {musician.role ||
-                      tr("Созанда", "Sozanda", "Музыкант", "Musician")}
+                      tr("Мусиқачи", "Musiqachi", "Музыкант", "Musician")}
                   </p>
                 </Link>
               ))}
