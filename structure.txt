@@ -58,6 +58,8 @@
 │   │   │   │   └── [id]
 │   │   │   │       └── route.ts
 │   │   │   ├── musiqachilar
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── route.ts
 │   │   │   │   └── route.ts
 │   │   │   ├── qoshiq-ijrochilari
 │   │   │   │   └── [id]

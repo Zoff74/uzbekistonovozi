@@ -1,5 +1,5 @@
 "use client";
-// src\components\Header.tsx
+// src/components/Header.tsx
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { LogIn, ChevronDown, User, LogOut, Music, Sparkles } from "lucide-react";
@@ -10,16 +10,21 @@ import { useSession, signOut } from "next-auth/react";
 export default function Header() {
   const { data: session } = useSession();
 
-  // Состояния для выпадающих меню (Вокал, Ижодкорлар и Меню пользователя)
+  // Состояния для выпадающих меню (десктоп)
   const [isVokalOpen, setIsVokalOpen] = useState(false);
   const [isIjodkorOpen, setIsIjodkorOpen] = useState(false);
+  
+  // Состояния для мобильного раскрытия аккордеона
+  const [isMobileIjodkorOpen, setIsMobileIjodkorOpen] = useState(false);
+  const [isMobileVokalOpen, setIsMobileVokalOpen] = useState(false);
+
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   
-  // Отдельные рефы для десктопной и мобильной версий аватара
+  // Рефы для аватарок
   const desktopAvatarMenuRef = useRef<HTMLDivElement>(null);
   const mobileAvatarMenuRef = useRef<HTMLDivElement>(null);
   
-  // Рефы для отслеживания кликов вне десктопных меню
+  // Рефы для десктопных меню
   const desktopVokalRef = useRef<HTMLDivElement>(null);
   const desktopIjodkorRef = useRef<HTMLDivElement>(null);
 
@@ -45,12 +50,12 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Функция для проверки авторизации: неавторизованных отправляем на регистрацию
+  // Функция для проверки авторизации
   const getHref = (path: string) => {
     return session?.user ? path : "/auth/register";
   };
 
-  // Безопасное получение URL аватара с защитой от кэширования
+  // Безопасное получение URL аватара
   const getAvatarUrl = () => {
     const rawImage = session?.user?.image;
     if (!rawImage) return "/img/avatar.webp";
@@ -59,7 +64,7 @@ export default function Header() {
 
   return (
     <>
-      {/* Шапка увеличенной высоты (py-6) для десктопа и планшетов */}
+      {/* 1. ДЕСКТОПНАЯ ШАПКА (ОРИГИНАЛЬНАЯ И НЕЗАТРОНУТАЯ) */}
       <header className="border-b border-white/5 bg-[#030712]/90 backdrop-blur-xl z-50 py-6 flex items-center w-full flex-shrink-0">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 w-full flex items-center justify-between">
           <div className="flex items-center space-x-3 sm:space-x-3">
@@ -94,13 +99,12 @@ export default function Header() {
               </span>
 
               <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
-                  {tr("Ўзбекистон Мусиқа Бизнесининг \nҲамкорлик Платформаси", "O'zbekiston Musiqa Biznesining \nHamkorlik Platformasi", "Профессиональная Платформа \nКоллабораций для Музыкального Бизнеса Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
-                </span>
-
+                {tr("Ўзбекистон Мусиқа Бизнесининг \nҲамкорлик Платформаси", "O'zbekiston Musiqa Biznesining \nHamkorlik Platformasi", "Профессиональная Платформа \nКоллабораций для Музыкального \nБизнеса Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
+              </span>
             </div>
           </div>
           
-          {/* ШАПКА НАВИГАЦИИ для ДЕСКТОПА */}
+          {/* ШАПКА НАВИГАЦИИ ДЛЯ ДЕСКТОПА */}
           <nav className="hidden xl:flex items-center space-x-3 text-xs font-semibold">
             <Link href="/" className="text-slate-300 hover:text-[#39FF14] transition py-2">{tr("Бош саҳифа", "Bosh sahifa", "Главная", "Home")}</Link>
 
@@ -108,7 +112,7 @@ export default function Header() {
               {tr("Мусиқачилар", "Musiqachilar", "Музыканты", "Musicians")}
             </Link>
 
-            {/* Раскрывающийся список для Творцев / Ижодкорлар (Десктоп) */}
+            {/* Ижодкорлар (Десктоп) */}
             <div 
               ref={desktopIjodkorRef}
               className="relative"
@@ -143,7 +147,7 @@ export default function Header() {
               )}
             </div>
             
-            {/* Раскрывающийся список для Вокала (Десктоп) */}
+            {/* Вокал (Десктоп) */}
             <div 
               ref={desktopVokalRef}
               className="relative"
@@ -201,8 +205,8 @@ export default function Header() {
             </Link>
 
             <Link href={getHref("/marketplace")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
-              <span>{tr("Умумий", "Umumiy", "Единый", "All")}</span>
-              <span>{tr("Маркетплейс", "Marketpleys", "Маркетплейс", "Marketplace")}</span>
+              <span>{tr("Мусиқий", "Musiqiy", "Музыкальные", "Music")}</span>
+              <span>{tr("асбоблар", "asboblar", "инструменты", "instrument")}</span>
             </Link>
           </nav>
 
@@ -323,7 +327,131 @@ export default function Header() {
         </div>
       </header>
 
-      {/* Мобильная шапка: переключатель языков и аватар/вход */}
+      {/* 2. МОБИЛЬНЫЙ БЛОК НАВИГАЦИИ (ИНТЕРАКТИВНЫЙ АККОРДЕОН БЕЗ CSS-ОБРЕЗАНИЯ) */}
+      <div className="xl:hidden w-full bg-[#030712]/95 border-b border-white/10 px-3 py-2 flex flex-col gap-2 shrink-0">
+        <div className="flex items-center space-x-2.5 overflow-x-auto text-xs font-semibold scrollbar-none py-1">
+          <Link 
+            href="/" 
+            className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
+          >
+            {tr("Бош саҳифа", "Bosh sahifa", "Главная", "Home")}
+          </Link>
+
+          <Link 
+            href={getHref("/catalogMusiqachilar")} 
+            className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
+          >
+            {tr("Мусиқачилар", "Musiqachilar", "Музыканты", "Musicians")}
+          </Link>
+
+          {/* Кнопка открытия Ижодкорлар */}
+          <button 
+            type="button"
+            onClick={() => {
+              setIsMobileIjodkorOpen(!isMobileIjodkorOpen);
+              setIsMobileVokalOpen(false);
+            }}
+            className={`bg-white/5 border px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer ${
+              isMobileIjodkorOpen ? "border-[#39FF14] text-[#39FF14]" : "border-white/10 text-slate-300"
+            }`}
+          >
+            {tr("Ижодкорлар", "Ijodkorlar", "Творцы", "Creators")}
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isMobileIjodkorOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
+          </button>
+
+          {/* Кнопка открытия Мусиқасиз Вокал */}
+          <button 
+            type="button"
+            onClick={() => {
+              setIsMobileVokalOpen(!isMobileVokalOpen);
+              setIsMobileIjodkorOpen(false);
+            }}
+            className={`bg-white/5 border px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer ${
+              isMobileVokalOpen ? "border-[#39FF14] text-[#39FF14]" : "border-white/10 text-slate-300"
+            }`}
+          >
+            {tr("Мусиқасиз Вокал", "Musiqasiz Vokal", "Вокал без музыки", "Vocals")}
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isMobileVokalOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
+          </button>
+
+          <Link 
+            href={getHref("/catalogMusic")} 
+            className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
+          >
+            {tr("Таёр Мусиқа", "Tayor Musiqa", "Готовая Музыка", "Ready Music")}
+          </Link>
+
+          <Link 
+            href={getHref("/catalogSongs")} 
+            className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
+          >
+            {tr("Таёр Қўшиқлар", "Tayor Qo'shiqlar", "Готовые Песни", "Ready Songs")}
+          </Link>
+
+          <Link 
+            href={getHref("/catalogVideos")} 
+            className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
+          >
+            {tr("Таёр Клиплар", "Tayor Kliplar", "Готовые Клипы", "Ready Clips")}
+          </Link>
+
+          <Link 
+            href={getHref("/marketplace")} 
+            className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
+          >
+            {tr("Мусиқий асбоблар", "Musiqiy asboblar", "Музыкальные инструменты", "Music Instruments")}
+          </Link>
+        </div>
+
+        {/* Выпадающий подблок «Ижодкорлар» на мобильных */}
+        {isMobileIjodkorOpen && (
+          <div className="w-full bg-slate-900/90 border border-[#39FF14]/30 rounded-xl p-2 flex flex-col gap-1 text-xs animate-in fade-in slide-in-from-top-1">
+            <Link 
+              href={getHref("/catalogIjodkorlar?category=poets")} 
+              onClick={() => setIsMobileIjodkorOpen(false)}
+              className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
+            >
+              • {tr("Матн муаллифлари", "Matn mualliflari", "Авторы текстов", "Lyricists")}
+            </Link>
+            <Link 
+              href={getHref("/catalogIjodkorlar?category=composers")} 
+              onClick={() => setIsMobileIjodkorOpen(false)}
+              className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
+            >
+              • {tr("Композиторлар", "Kompozitorlar", "Композиторы", "Composers")}
+            </Link>
+          </div>
+        )}
+
+        {/* Выпадающий подблок «Мусиқасиз Вокал» на мобильных */}
+        {isMobileVokalOpen && (
+          <div className="w-full bg-slate-900/90 border border-[#39FF14]/30 rounded-xl p-2 flex flex-col gap-1 text-xs animate-in fade-in slide-in-from-top-1">
+            <Link 
+              href={getHref("/catalogVokal?category=akapella")} 
+              onClick={() => setIsMobileVokalOpen(false)}
+              className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
+            >
+              • {tr("Акапелла", "Akapella", "Акапелла", "Akapella")}
+            </Link>
+            <Link 
+              href={getHref("/catalogVokal?category=opera")} 
+              onClick={() => setIsMobileVokalOpen(false)}
+              className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
+            >
+              • {tr("Опера", "Opera", "Опера", "Opera")}
+            </Link>
+            <Link 
+              href={getHref("/catalogVokal?category=estrada")} 
+              onClick={() => setIsMobileVokalOpen(false)}
+              className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
+            >
+              • {tr("Эстрада", "Estrada", "Эстрада", "Estrada")}
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* 3. МОБИЛЬНАЯ ПОДЛОЖКА (ЯЗЫК И АВТОРИЗАЦИЯ) */}
       <div className="xl:hidden flex items-center justify-between bg-black/80 border-b border-white/5 px-4 py-3 flex-shrink-0">
         <div className="relative w-[130px] h-[36px] group flex items-center justify-center">
           <div 
@@ -395,7 +523,7 @@ export default function Header() {
                     onClick={() => setAvatarMenuOpen(false)}
                     className="w-full px-4 py-2 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 flex items-center gap-2.5 transition"
                   >
-                    <Sparkles className="w-4 h-4" /> {tr("Контент яратиш ва бошқариш", "Kontent yaratish va boshqarish", "Создать и управлять контентом", "Create and manage content")}
+                    <Sparkles className="w-4 h-4" /> {tr("Контент яратиш ва бошқариш", "Kontent yaratish ва boshqarish", "Создать и управлять контентом", "Create and manage content")}
                   </Link>
                 </div>
 

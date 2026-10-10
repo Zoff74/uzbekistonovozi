@@ -96,25 +96,25 @@ export default function WelcomeHero() {
             
             <h1 className="text-base sm:text-xl font-bold tracking-tight leading-snug">
               {tr(
-                <>Тошкент Давлат Консерваторияси ва Истеъдодларга бой {" "}<span style={{ fontSize: 32, fontFamily: "system-ui", fontWeight: 400, fontStyle: "normal" }}>Ў</span>збекистоннинг Янги Мусиқий Талантларини кашф этинг!</> as any, 
-                "Toshkent Davlat Konservatoriyasi va Istedodlarga boy O'zbekistonning Yangi Musiqiy Talantlarini kashf eting!",
-                "Откройте для себя новые музыкальные таланты Ташкентской Государственной Консерватории и всего Узбекистана!", 
-                "Discover new musical talents of the Tashkent Conservatory and all of Uzbekistan!" 
+                <>Истеъдодларга бой {" "}<span style={{ fontSize: 32, fontFamily: "system-ui", fontWeight: 400, fontStyle: "normal" }}>Ў</span>збекистоннинг Янги Мусиқий Талантларини кашф этинг!</> as any, 
+                "Istedodlarga boy O'zbekistonning Yangi Musiqiy Talantlarini kashf eting!",
+                "Откройте для себя новые музыкальные таланты Узбекистана!", 
+                "Discover new musical talents from all over Uzbekistan!" 
               )}
             </h1>
             
             <p className="font-badscript text-slate-300 leading-relaxed text-[18px] sm:text-[18px]" style={{ lineHeight: '1.2', whiteSpace: 'pre-line' }}>
               {tr(
                 <>
-                  'Мухтор Ашрафи' Консерваториясини битирганлар ва ҳозирги кунда <span style={{ fontFamily: "system-ui" }}>Ў</span>збекистон Давлат Консерваториясида таълим олаётган қобилиятли талабаларининг, ҳамда Табиий Истеъдоди орқали ижод қилиб келаётган минглаб мусиқачи, хонанда, бастакор ва қўшиқ матни муаллифлари ўз асарларини жойлаштириш, ўз кучи ва қобилиятини синаш ва мукофот сифатида моддий маблағ олиши учун мўлжалланган <span style={{ fontFamily: "system-ui" }}>Ў</span>збекистондаги Ягона Маркетплейс !!!{'\n'}
-                  Агарда Сиз Мусиқа ижодкорлигига ёки Мусиқа саноатига алоқадор бўлсангиз, ижод маҳсулларингизни жойланг ва МАБЛА<span style={{fontSize: 22, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ғ</span>дан ташқари, Эътироф, Талабгирлик ва Машҳурлик топинг!
+                  'Мухтор Ашрафи' номидаги Республика Давлат Консерваторияси, "Хамза" номидаги Республика мусиқа ва санъат коллежи ва "В.A.Успенский" номидаги Республика ихтисослаштирилган мусиқа мактабини битирган ва ҳозирги кунда таълим олаётган талабаларининг, ҳамда Табиий Истеъдоди орқали ижод қилиб келаётган минглаб мусиқачи, хонанда, бастакор ва қўшиқ матни муаллифлари ўз асарларини жойлаштириш, ўз кучи ва қобилиятини синаш ва мукофот сифатида моддий маблағ олиши учун мўлжалланган <span style={{ fontFamily: "system-ui" }}>Ў</span>збекистондаги Ягона Маркетплейс !!!{'\n'}
+                  Агарда Сиз Мусиқа ижодкорлигига ёки Мусиқа саноатига алоқадор бўлсангиз, ижод маҳсулларингизни жойланг ва МАБЛА<span style={{fontSize: 22, fontFamily: "system-ui, sans-serif", fontStyle: "italic" }}>Ғ</span> билан бирга, Эътироф, Талабгирлик ва Машҳурлик топинг!
                 </> as any,
                 
-                "'Muxtor Ashrafi' Konservatoriyasini bitirganlar va hozirgi kunda O'zbekiston Davlat Konservatoriyasida ta'lim olayotgan qobiliyatli talabalarining, hamda Tabiiy Iste'dodi orqali ijod qilib kelayotgan minglab musiqachi, xonanda, bastakor va qo'shiq matni mualliflari o'z asarlarini joylashtirishi va o'z kuchi va qobiliyatini sinash va mukofot sifatida moddiy mablag olishi uchun mo'ljallangan Uzbekistondagi Yagona Marketpleys !!!\nAgarda Siz Musiqa ijodkorlik sanoatiga aloqador bo'lsangiz, Ijod mahsullaringizni jovlang va MABLAGdan tashqari, E'tirof, Talabgarlik va Mashhurlik toping!",
+                "'Muxtor Ashrafi' nomidagi Respublika Davlat konservatoriyasi, 'Xamza' nomidagi Respublika musiqa va san'at kolleji va 'V.A.Uspenskiy' nomidagi Respublika ixtisoslashtirilgan musiqa maktabini bitirgan va hozirgi kunda ta'lim olayotgan talabalarining, hamda tabiiy iste'dodi orqali ijod qilib kelayotgan minglab musiqachi, xonanda, bastakor va qo'shiq matni mualliflari o'z asarlarini joylashtirish, o'z kuchi va qobiliyatini sinash va mukofot sifatida moddiy mablag'olishi uchun mo'ljallangan Uzbekistondagi Yagona Marketpleys !!!\nAgarda Siz Musiqa ijodkorlik sanoatiga aloqador bo'lsangiz, Ijod mahsullaringizni jovlang va MABLAG bilan birga, E'tirof, Talabgarlik va Mashhurlik toping!",
                 
-                "Единый маркетплейс для жителей Узбекистана от выпускников Ташкентской Консерватории 'Мухтара Ашрафи' и учащихся Государственной Консерватории Узбекистана, а также тысяч пока не известных музыкантов, певцов, композиторов и авторов текстов, создающих творчество благодаря своему Природному Таланту.\nЕсли Вы талантливы и хотите поведать миру свои произведения или имеете отношение к музыкальной индустрии, РАЗМЕЩАЙТЕ свои услуги, продукты своего творчества — и Вы получите не только МАТЕРИАЛЬНЫЕ СРЕДСТВА, но также обретете Признание, Востребованность и Известность!",
+                "Единый маркетплейс для жителей Узбекистана от выпускников и учащихся Ташкентской Государственной Консерватории Узбекистана имени 'Мухтара Ашрафи', Республиканского Музыкального Колледжа имени 'Хамзы', Республиканской специализированной музыкальной школы имени 'В. А. Успенского', а также тысяч пока не известных музыкантов, певцов, композиторов и авторов текстов, создающих творчество благодаря своему Природному Таланту.\nЕсли Вы талантливы и хотите поведать миру свои произведения или имеете отношение к музыкальной индустрии, РАЗМЕЩАЙТЕ свои услуги, продукты своего творчества — и Вы получите не только МАТЕРИАЛЬНЫЕ СРЕДСТВА, но также обретете Признание, Востребованность и Известность!",
                 
-                "A Single Marketplace designed for graduates and students of the State Conservatory of Uzbekistan, as well as thousands of musicians, singers, composers and lyricists creating through their natural talent.\nUPLOAD your creative products and gain not only FUNDS, but also Recognition, Demand and Fame!"
+                "A single marketplace for residents of Uzbekistan from graduates and students of the 'Mukhtar Ashrafi' Tashkent State Conservatory of Uzbekistan, the 'Khamza' Republican College of Music, the 'V. A. Uspensky' Republican Specialized Music School, as well as thousands of yet unknown musicians, singers, composers and lyricists who create creativity thanks to their Natural Talent.\nUPLOAD your creative products and gain not only FUNDS, but also Recognition, Demand and Fame!"
               )} 
               <span 
                 className="text-center text-emerald-400 font-semibold block mt-1.5 text-[9px] sm:text-[12px]"

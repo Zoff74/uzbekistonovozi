@@ -208,8 +208,8 @@ function RegisterForm() {
         ) : (
             <>
                 {tr(
-                    "Санъаткорлар Дунёсига Хуш Келибсиз!\n\nСанъатга ва Санъат бизнесига алоқадор экансиз,\nформани тўлдиринг...",
-                    "San'atkorlar Dunyosiga Xush Kelibsiz!\n\nSan'atga va San'at biznesiga aloqador ekansiz,\nformani to'ldiring...",
+                    "Санъат Дунёсига Хуш Келибсиз!\n\nСанъат ва Санъат бизнесига алоқадор экансиз,\nформани тўлдиринг...",
+                    "San'at Dunyosiga Xush Kelibsiz!\n\nSan'at va San'at biznesiga aloqador ekansiz,\nformani to'ldiring...",
                     "Представьте свое искусство миру!",
                     "Showcase your art to the world!"
                 )}
@@ -311,12 +311,12 @@ function RegisterForm() {
     disabled={loading} 
     className={`${inputBaseClass} ${inputBorderClass} text-[15px]`}
 >
-    <option value="musiqachi">{tr("Музыкант (Инструменталист)", "Musiqachi (Instrumentalchi)", "Музыкант (Инструменталист)", "Musician (Instrumentalist)")}</option>
-    <option value="xonanda">{tr("Певец / Вокалист", "Xonanda / Vokalist", "Певец / Вокалист", "Singer / Vocalist")}</option>
+    <option value="musiqachi">{tr("Мусиқачи (Инструментал)", "Musiqachi (Instrumental)", "Музыкант (Инструменталист)", "Musician (Instrumentalist)")}</option>
+    <option value="xonanda">{tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}</option>
     <option value="kompozitor">{tr("Композитор", "Kompozitor", "Композитор", "Composer")}</option>
     <option value="bastakor">{tr("Бастакор", "Bastakor", "Бастакор", "Bastakor")}</option>
-    <option value="qo'shiq matni muallifi">{tr("Автор текста песни", "Qo'shiq matni muallifi", "Автор текста песни", "Lyricist")}</option>
-    <option value="aranjirovka ustasi">{tr("Аранжировщик", "Aranjirovka ustasi", "Аранжировщик", "Arranger")}</option>
+    <option value="qo'shiq matni muallifi">{tr("Қўшиқ матни муалифи", "Qo'shiq matni muallifi", "Автор текста песни", "Lyricist")}</option>
+    <option value="aranjirovka ustasi">{tr("Аранжировка устаси", "Aranjirovka ustasi", "Аранжировщик", "Arranger")}</option>
     <option value="other">{tr("✍️ Ўз вариантингиз", "✍️ O'z variantingiz", "✍️ Свой вариант", "✍️ Write your own option")}</option>
 </select>
                                 </div>
