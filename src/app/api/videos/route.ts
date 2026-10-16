@@ -6,23 +6,43 @@ import Category from "@/models/Category";
 import User from "@/models/User";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
-import { getGridFSBuckets } from "@/lib/gridfs"; // Импортируем GridFS хелпер
+import { getGridFSBuckets } from "@/lib/gridfs";
 import { Readable } from "stream";
 import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export const maxDuration = 120;
+export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     console.log("[VIDEO GET] Запрос на получение списка видео получен");
     try {
         console.log("[VIDEO GET] Подключение к базе данных...");
         await dbConnect();
         
+        const searchParams = req.nextUrl.searchParams;
+        const authorId = searchParams.get("author") || searchParams.get("userId");
+
+        let filter: any = {};
+        if (authorId) {
+            filter.$or = [
+                { authorId: authorId },
+                { author: authorId },
+                { userId: authorId }
+            ];
+            if (Types.ObjectId.isValid(authorId)) {
+                filter.$or.push({ authorId: new Types.ObjectId(authorId) });
+                filter.$or.push({ author: new Types.ObjectId(authorId) });
+                filter.$or.push({ userId: new Types.ObjectId(authorId) });
+            }
+            console.log(`[VIDEO GET] Фильтрация видео по автору: ${authorId}`);
+        } else {
+            console.log("[VIDEO GET] Параметр автора не передан. Загрузка общего каталога видео (общий котел).");
+        }
+        
         console.log("[VIDEO GET] Запрос видео из MongoDB...");
-        const videos = await (Video as any).find({}).lean();
+        const videos = await (Video as any).find(filter).sort({ createdAt: -1 }).lean();
         console.log(`[VIDEO GET] Успешно получено видео: ${videos.length} шт.`);
         
         return NextResponse.json({ success: true, videos });
@@ -33,7 +53,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-    console.log("[VIDEO POST] Получен запрос на создание/загрузку нового видео через GridFS");
+    console.log("[VIDEO POST] Получен запрос на сохранение метаданных нового видео в БД");
     try {
         console.log("[VIDEO POST] Подключение к базе данных...");
         await dbConnect();
@@ -74,47 +94,41 @@ export async function POST(req: NextRequest) {
         const isAdmin = currentUser.role === 'admin';
         console.log(`[VIDEO POST USER] Роль: ${currentUser.role}, Администратор: ${isAdmin}`);
 
-        console.log("[VIDEO POST FORMDATA] Чтение данных из FormData...");
+        console.log("[VIDEO POST FORMDATA] Чтение метаданных и fileId из формы...");
         const formData = await req.formData();
         const title = formData.get("title") as string;
         const singer = formData.get("singer") as string;
         const genre = formData.get("genre") as string;
         const duration = (formData.get("duration") as string) || "0:00";
         const coverFile = formData.get("cover") as File | null;
-        const videoFile = formData.get("video") as File | null;
+        const videoFileId = formData.get("videoFileId") as string;
+        const videoUrlFromClient = formData.get("videoUrl") as string;
 
-        console.log(`[VIDEO POST FORMDATA] Данные формы: title="${title}", singer="${singer}", genre="${genre}", duration="${duration}"`);
-        console.log(`[VIDEO POST FORMDATA] Файлы: coverFile=${coverFile ? coverFile.name + ' (' + coverFile.size + ' bytes)' : 'отсутствует'}, videoFile=${videoFile ? videoFile.name + ' (' + videoFile.size + ' bytes)' : 'отсутствует'}`);
+        console.log(`[VIDEO POST FORMDATA] Данные: title="${title}", singer="${singer}", genre="${genre}", duration="${duration}", videoFileId="${videoFileId}"`);
 
-        if (!title || !singer || !videoFile) {
-            console.warn("[VIDEO POST VALIDATION] Ошибка: Обязательные поля (название, исполнитель или видеофайл) не заполнены");
+        if (!title || !singer || !videoFileId) {
+            console.warn("[VIDEO POST VALIDATION] Ошибка: Обязательные поля (название, исполнитель или videoFileId) не заполнены");
             return NextResponse.json({ 
                 success: false, 
                 message: tr(
-                    "Сарлавҳа, ижрочи ва видеофайлни тўлдиринг",
-                    "Sarlavha, ijrochi va videofaylni to'ldiring",
-                    "Заполните название, исполнителя и видеофайл",
-                    "Fill in the title, singer, and video file"
+                    "Сарлавҳа, ижрочи ва видео идентификатори тўлдиринг",
+                    "Sarlavha, ijrochi va video identifikatori to'ldiring",
+                    "Заполните название, исполнителя и ID видео",
+                    "Fill in the title, singer, and video ID"
                 ) 
             }, { status: 400 });
         }
 
         let coverUrl = "/default-cover.webp";
-        let videoUrl = "";
-
-        // Инициализируем GridFS bucket
         const { bucket } = await getGridFSBuckets();
 
-        // 1. Загрузка обложки в GridFS
+        // 1. Обработка обложки (картинки маленькие, храним в GridFS)
         if (coverFile && coverFile.size > 0) {
             console.log("[VIDEO POST COVER] Начало обработки обложки для GridFS...");
             const bytes = await coverFile.arrayBuffer();
             const buffer = Buffer.from(bytes);
-            console.log(`[VIDEO POST COVER] Обложка сконвертирована в Buffer. Размер: ${buffer.length} байт`);
-
+            
             const coverFilename = `video_cover_${Date.now()}_${coverFile.name.replace(/\s+/g, '_')}`;
-            console.log(`[VIDEO POST COVER] Запись обложки в GridFS... Имя файла: ${coverFilename}`);
-
             const coverUploadStream = bucket.openUploadStream(coverFilename, {
                 contentType: coverFile.type,
             });
@@ -128,33 +142,6 @@ export async function POST(req: NextRequest) {
 
             coverUrl = `/api/media/${coverUploadStream.id}`;
             console.log(`[VIDEO POST COVER] Обложка успешно сохранена в GridFS. Ссылка: ${coverUrl}`);
-        } else {
-            console.log("[VIDEO POST COVER] Обложка не передана, используется дефолтная.");
-        }
-
-        // 2. Загрузка видеофайла в GridFS
-        if (videoFile && videoFile.size > 0) {
-            console.log("[VIDEO POST VIDEO] Начало обработки видеофайла для GridFS...");
-            const bytes = await videoFile.arrayBuffer();
-            const buffer = Buffer.from(bytes);
-            console.log(`[VIDEO POST VIDEO] Видеофайл сконвертирован в Buffer. Размер: ${buffer.length} байт`);
-
-            const videoFilename = `video_${Date.now()}_${videoFile.name.replace(/\s+/g, '_')}`;
-            console.log(`[VIDEO POST VIDEO] Запись видео в GridFS... Имя файла: ${videoFilename}`);
-
-            const videoUploadStream = bucket.openUploadStream(videoFilename, {
-                contentType: videoFile.type,
-            });
-
-            Readable.from(buffer).pipe(videoUploadStream);
-
-            await new Promise((resolve, reject) => {
-                videoUploadStream.on("finish", resolve);
-                videoUploadStream.on("error", reject);
-            });
-
-            videoUrl = `/api/media/${videoUploadStream.id}`;
-            console.log(`[VIDEO POST VIDEO] Видео успешно сохранено в GridFS. Ссылка: ${videoUrl}`);
         }
 
         const selectedGenre = genre || "Pop";
@@ -162,13 +149,10 @@ export async function POST(req: NextRequest) {
         const matchedCategory = await Category.findOne({
             name: selectedGenre
         }).lean();
-        console.log(`[VIDEO POST CATEGORY] Найденная категория ID: ${matchedCategory ? (matchedCategory as any)._id : 'не найдена (undefined)'}`);
 
-        // Устанавливаем общий срок жизни видео на сайте — 30 дней
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        console.log(`[VIDEO POST EXPIRATION] Установлен общий срок жизни видео на сайте до: ${expiresAt}`);
-
         const cleanUserId = userId.toString();
+
         console.log(`[VIDEO POST DB] Создание документа видео в базе данных MongoDB для автора: ${cleanUserId}`);
 
         const newVideo = await (Video as any).create({
@@ -178,7 +162,8 @@ export async function POST(req: NextRequest) {
             categoryId: matchedCategory ? (matchedCategory as any)._id : undefined,
             duration,
             cover: coverUrl,
-            videoUrl: videoUrl,
+            videoUrl: videoUrlFromClient || `/api/videos/stream/${videoFileId}`,
+            videoFileId: videoFileId, // Сохраняем Telegram file_id
             authorId: Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId,
             status: 'ACTIVE',
             expiresAt: expiresAt,
@@ -186,9 +171,10 @@ export async function POST(req: NextRequest) {
             views: 0,
             downloadsCount: 0,
         });
-        console.log(`[VIDEO POST DB] Видео успешно сохранено в БД. ID видео: ${newVideo._id}`);
 
+        console.log(`[VIDEO POST DB] Видео успешно сохранено в БД. ID видео: ${newVideo._id}`);
         console.log("[VIDEO POST SUCCESS] Запрос успешно завершен, возвращаем ответ клиенту.");
+        
         return NextResponse.json({ success: true, video: newVideo }, { status: 201 });
     } catch (error: any) {
         console.error("[VIDEO POST ERROR] Произошла критическая ошибка при создании клипа:", error);

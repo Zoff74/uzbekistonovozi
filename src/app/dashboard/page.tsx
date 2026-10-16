@@ -1,4 +1,4 @@
-//src\app\dashboard\page.tsx
+// src/app/dashboard/page.tsx
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
 import { Video } from "@/models/Video";
@@ -9,7 +9,7 @@ import Link from "next/link";
 import { ArrowLeft, Plus, Film, Music, Settings } from "lucide-react";
 import TrackCard from "@/components/TrackCard";
 import VideoCard from "@/components/VideoCard";
-import { Types } from "mongoose";
+import { Types, isValidObjectId } from "mongoose";
 import { tr } from "@/utils/translate";
 
 interface SessionUser {
@@ -33,15 +33,25 @@ export default async function DashboardPage() {
 
     const userId = session.user.id;
 
-    // Параллельный запрос треков и видеоклипов пользователя
+    // Формируем безопасный массив условий для поиска строго по нашему ID (поддерживает строковые ID и ObjectId, а также разные варианты названий полей автора)
+    const authorConditions = [
+        { authorId: userId },
+        { author: userId },
+        { userId: userId },
+    ];
+
+    if (isValidObjectId(userId)) {
+        authorConditions.push(
+            { authorId: new Types.ObjectId(userId) } as any,
+            { author: new Types.ObjectId(userId) } as any,
+            { userId: new Types.ObjectId(userId) } as any
+        );
+    }
+
+    // Параллельный запрос треков и видеоклипов пользователя исключительно по его ID
     const [rawTracks, rawVideos] = await Promise.all([
-        (Track as any).find({ authorId: userId }).sort({ createdAt: -1 }).lean(),
-        (Video as any).find({ 
-            $or: [
-                { authorId: userId },
-                { authorId: new Types.ObjectId(userId) }
-            ]
-        }).sort({ createdAt: -1 }).lean(),
+        (Track as any).find({ $or: authorConditions }).sort({ createdAt: -1 }).lean(),
+        (Video as any).find({ $or: authorConditions }).sort({ createdAt: -1 }).lean(),
     ]);
 
     // Сериализация документов Mongoose для клиентских компонентов

@@ -111,7 +111,7 @@ export default function Discussion({ targetId, targetType = "track" }: Discussio
           </div>
         ) : comments.length === 0 ? (
           <div className="text-center text-xs text-neutral-500 my-auto">
-            {tr("Ҳали фикрлар йўқ. Биринчи бўлиб ёзинг!", "Hali fikrlar yo'q. Birinchi bo'lib yozing!", "Пока нет комментариев. Будьте первыми!", "No comments yet. Be the first!")}
+            {tr("Ҳали изох - коментлар йўқ. Биринчи бўлиб ёзинг!", "Hali izoh - kommentlar yo'q. Birinchi bo'lib yozing!", "Пока нет комментариев. Будьте первыми!", "No comments yet. Be the first!")}
           </div>
         ) : (
           comments.map((item) => (

@@ -1,3 +1,4 @@
+// src/app/api/tracks/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
@@ -14,14 +15,34 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 120;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     console.log("[TRACK GET] Запрос на получение списка треков получен");
     try {
         console.log("[TRACK GET] Подключение к базе данных...");
         await dbConnect();
         
+        const searchParams = req.nextUrl.searchParams;
+        const authorId = searchParams.get("author") || searchParams.get("userId");
+
+        let filter: any = {};
+        if (authorId) {
+            filter.$or = [
+                { authorId: authorId },
+                { author: authorId },
+                { userId: authorId }
+            ];
+            if (Types.ObjectId.isValid(authorId)) {
+                filter.$or.push({ authorId: new Types.ObjectId(authorId) });
+                filter.$or.push({ author: new Types.ObjectId(authorId) });
+                filter.$or.push({ userId: new Types.ObjectId(authorId) });
+            }
+            console.log(`[TRACK GET] Фильтрация треков по автору: ${authorId}`);
+        } else {
+            console.log("[TRACK GET] Параметр автора не передан. Загрузка общего каталога треков (общий котел).");
+        }
+        
         console.log("[TRACK GET] Запрос треков из MongoDB...");
-        const tracks = await (Track as any).find({}).lean();
+        const tracks = await (Track as any).find(filter).sort({ createdAt: -1 }).lean();
         console.log(`[TRACK GET] Успешно получено треков: ${tracks.length} шт.`);
         
         return NextResponse.json({ success: true, tracks });
@@ -101,10 +122,8 @@ export async function POST(req: NextRequest) {
         let coverUrl = "/default-cover.webp";
         let audioUrl = "";
 
-        // Инициализируем GridFS bucket
         const { bucket } = await getGridFSBuckets();
 
-        // 1. Загрузка обложки в GridFS
         if (coverFile && coverFile.size > 0) {
             console.log("[TRACK POST COVER] Начало обработки обложки для GridFS...");
             const coverBuffer = Buffer.from(await coverFile.arrayBuffer());
@@ -128,7 +147,6 @@ export async function POST(req: NextRequest) {
             console.log("[TRACK POST COVER] Обложка не передана, используется дефолтная.");
         }
 
-        // 2. Загрузка аудиофайла в GridFS
         if (audioFile && audioFile.size > 0) {
             console.log("[TRACK POST AUDIO] Начало обработки аудиофайла для GridFS...");
             const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
@@ -160,7 +178,6 @@ export async function POST(req: NextRequest) {
         }).lean();
         console.log(`[TRACK POST CATEGORY] Найдена категория ID: ${matchedCategory ? (matchedCategory as any)._id : 'не найдена'}`);
 
-        // Устанавливаем общий срок жизни контента на сайте — 30 дней (чтобы контент наполнял каталог)
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         console.log(`[TRACK POST EXPIRATION] Установлен общий срок жизни трека на сайте до: ${expiresAt}`);
 

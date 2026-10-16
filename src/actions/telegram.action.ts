@@ -7,6 +7,7 @@ import TelegramToken from '@/models/TelegramToken';
 import User from '@/models/User';
 import { dbConnect } from '@/lib/mongoose';
 import { nanoid } from 'nanoid';
+import { Readable } from 'stream';
 
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'UzbekistonOvoziBot';
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
@@ -145,7 +146,7 @@ export async function verifyAndLinkTelegram(token: string, chatId: string): Prom
             await TelegramToken.deleteOne({ token });
             return { success: false, message: "Срок истек." };
         }
-        await User.updateMany({ telegramChatId: chatId }, { $unset: { telegramChatId: 1 }, $set: { isTelegramVerified: false } }).exec();
+        await User.updateMany({ telegramChatId: chatId }, { $unset: { telegramChatId: 1 },$set: { isTelegramVerified: false } }).exec();
         const user = await User.findByIdAndUpdate(telegramToken.userId, { $set: { telegramChatId: chatId, isTelegramVerified: true, 'settings.receiveTelegramNotifications': true } }, { new: true }).exec();
         await TelegramToken.deleteOne({ token });
         
@@ -181,10 +182,58 @@ export async function checkMailingBotAccess(chatId: string): Promise<boolean> {
     }
 }
 
-/**
- * Уведомление автора о продаже трека / зачислении гонорара (50/50)
- */
 export async function notifyAuthorAboutSale(chatId: string, trackTitle: string, earnedAmount: number): Promise<boolean> {
     const message = `💰 <b>ЯНГИ СОТУВ!</b>\n\nСизнинг <b>«${trackTitle}»</b>  харид қилинди.\n💵 Балансингизга гонорар қўшилди: <b>${earnedAmount.toLocaleString()} сум</b>`;
     return sendTelegramNotification(chatId, message, 'HTML', undefined, false);
+}
+
+/**
+ * Загрузка видеофайла через локальный Docker-сервер Telegram Bot API (без лимита 50МБ)
+ */
+export async function uploadVideoToTelegramStorage(
+    videoBuffer: Buffer,
+    fileName: string,
+    caption: string
+): Promise<{ success: boolean; fileId?: string; error?: string }> {
+    const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+    const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
+
+    if (!BOT_TOKEN || !storageChatId) {
+        return { success: false, error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" };
+    }
+
+    try {
+        const formData = new globalThis.FormData();
+        formData.append('chat_id', storageChatId);
+        
+        const uint8Array = new Uint8Array(videoBuffer);
+        const blob = new Blob([uint8Array]);
+        
+        formData.append('document', blob, fileName || 'video.mp4');
+        formData.append('caption', caption);
+        formData.append('parse_mode', 'HTML');
+
+        // Отправляем запрос на локальный сервер Docker (localhost:8081) вместо api.telegram.org
+        const localApiUrl = process.env.TELEGRAM_LOCAL_API_URL || 'http://localhost:8081';
+        const response = await fetch(`${localApiUrl}/bot${BOT_TOKEN}/sendDocument`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data && data.ok && data.result && data.result.document) {
+            return {
+                success: true,
+                fileId: data.result.document.file_id,
+            };
+        }
+
+        const errorMsg = data.description || "Неизвестная ошибка Telegram API";
+        console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", errorMsg);
+        return { success: false, error: errorMsg };
+    } catch (error: any) {
+        console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", error.message || error);
+        return { success: false, error: error.message || "Ошибка сети" };
+    }
 }

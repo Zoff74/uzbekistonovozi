@@ -1,8 +1,13 @@
+// src/models/User.ts
 import mongoose, { Schema, Document, Model, HydratedDocument, Types } from "mongoose";
 
 export interface IUser extends Document {
     username: string;
     occupation?: string | null;
+    instrument?: string | null;      // Музыкальный инструмент (старый / основной для обратной совместимости)
+    instrumentId?: string | null;    // Слаг для поиска инструмента
+    instruments: string[];           // Массив музыкальных инструментов для мультиинструменталистов
+    instrumentIds: string[];         // Массив слагов инструментов
     image: string;
     imageFileId?: string | null;
     email: string;
@@ -35,8 +40,8 @@ export interface IUser extends Document {
     isFirstReportUsed: boolean;
     isFirstPostGiftUsed: boolean;
     freeCategoriesClaimed: string[];
-    freeTracksCount: number; // 👈 Счетчик использованных бесплатных треков (максимум 3)
-    freeVideosCount: number; // 👈 Счетчик использованных бесплатных видео (максимум 3)
+    freeTracksCount: number; 
+    freeVideosCount: number; 
     role: 'user' | 'admin' | 'savdogar';
     dailyViewCount: number;
     lastViewDate?: Date | null;
@@ -56,6 +61,10 @@ export interface IUser extends Document {
 const userSchema = new Schema<IUser>({
     username: { type: String, required: true, trim: true },
     occupation: { type: String, required: false, trim: true, default: "", maxlength: 100 },
+    instrument: { type: String, required: false, trim: true, default: "" },
+    instrumentId: { type: String, required: false, trim: true, default: "" },
+    instruments: { type: [String], required: true, default: [] },
+    instrumentIds: { type: [String], required: true, default: [] },
     image: { type: String, required: true, default: "/img/avatar.webp", set: (v: string) => (v && v.trim() !== "" ? v : "/img/avatar.webp")},
     imageFileId: { type: String, required: false },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -63,7 +72,7 @@ const userSchema = new Schema<IUser>({
     balance: { type: Number, required: true, default: 0 },
     followers: [{ type: Schema.Types.ObjectId, ref: "User" }],
     following: [{ type: Schema.Types.ObjectId, ref: "User" }],
-    bio: { type: String, required: false, trim: true, maxlength: 280 },
+    bio: { type: String, required: false, trim: true, maxlength: 1000 },
     location: { type: String, required: false, trim: true, maxlength: 50 },
     address: {
         region: { type: String, required: false, trim: true, default: "" },
@@ -91,8 +100,8 @@ const userSchema = new Schema<IUser>({
     isFirstReportUsed: { type: Boolean, required: true, default: false },
     isFirstPostGiftUsed: { type: Boolean, required: true, default: false },
     freeCategoriesClaimed: { type: [String], required: true, default: [] },
-    freeTracksCount: { type: Number, required: true, default: 0 }, // 👈 Инициализация счетчика треков
-    freeVideosCount: { type: Number, required: true, default: 0 }, // 👈 Инициализация счетчика видео
+    freeTracksCount: { type: Number, required: true, default: 0 },
+    freeVideosCount: { type: Number, required: true, default: 0 },
     role: { 
         type: String, 
         required: true, 

@@ -1,6 +1,8 @@
-// src/app/api/upload/route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const maxDuration = 300; // До 5 минут ожидания для тяжелых видео
+export const runtime = 'nodejs';
+
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "imagekit";
 import { getServerSession } from "next-auth";
@@ -8,6 +10,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import { Track } from "@/models/Track";
+import { uploadVideoToTelegramStorage } from "@/actions/telegram.action";
 
 const imagekit = new ImageKit({
     publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "",
@@ -15,7 +18,6 @@ const imagekit = new ImageKit({
     urlEndpoint: process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT || "",
 });
 
-// 1. Обработка POST-запросов (Загрузка файлов / аватаров в ImageKit)
 export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
@@ -23,49 +25,89 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
         }
 
-        const formData = await request.formData();
-        const file = formData.get("file") as File | null;
-        const oldFileId = formData.get("oldFileId") as string | null;
+        const contentType = request.headers.get("content-type") || "";
+        const uploadType = request.headers.get("x-upload-type") || "video";
 
-        if (!file) {
-            return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
+        let buffer: Buffer;
+        let originalName = "video.mp4";
+        let oldFileId: string | null = null;
+
+        // Если это обычные картинки/обложки (через formData), обрабатываем стандартно
+        if (contentType.includes("multipart/form-data") && uploadType !== "video") {
+            const formData = await request.formData();
+            const file = formData.get("file") as File | null;
+            oldFileId = formData.get("oldFileId") as string | null;
+
+            if (!file) {
+                return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
+            }
+
+            originalName = file.name || "media";
+            buffer = Buffer.from(await file.arrayBuffer());
+
+            const uniqueFileName = `${Date.now()}_${originalName}`;
+            const mainFolder = process.env.NEXT_PUBLIC_IMAGEKIT_FOLDER || "";
+            const defaultFolder = mainFolder ? `/${mainFolder}/avatars` : "/avatars";
+            const folder = (formData.get("folder") as string) || defaultFolder;
+
+            const uploadResponse = await imagekit.upload({
+                file: buffer,
+                fileName: uniqueFileName,
+                folder: folder,
+            });
+
+            if (oldFileId && !oldFileId.startsWith("BAACAg")) {
+                try {
+                    await imagekit.deleteFile(oldFileId);
+                } catch (err) {
+                    console.error("Ошибка при удалении старого файла из ImageKit:", err);
+                }
+            }
+
+            return NextResponse.json({
+                success: true,
+                fileId: uploadResponse.fileId,
+                url: uploadResponse.url,
+                name: uploadResponse.name,
+            });
+        } 
+        
+        // Для тяжелых ВИДЕО принимаем поток байтов напрямую из тела запроса (в обход лимитов formData и 413 ошибок)
+        const arrayBuffer = await request.arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+        
+        const headerName = request.headers.get("x-file-name");
+        if (headerName) {
+            try {
+                originalName = decodeURIComponent(headerName);
+            } catch {
+                originalName = headerName;
+            }
         }
 
-        // Генерируем уникальное имя файла на основе миллисекунд (createdAt)
-        const originalName = file.name || "avatar";
-        const uniqueFileName = `${Date.now()}_${originalName}`;
+        if (buffer.length === 0) {
+            return NextResponse.json({ error: "Файл пустой или не передан" }, { status: 400 });
+        }
 
-        const mainFolder = process.env.NEXT_PUBLIC_IMAGEKIT_FOLDER || "";
-        const defaultFolder = mainFolder ? `/${mainFolder}/avatars` : "/avatars";
-        const folder = (formData.get("folder") as string) || defaultFolder;
+        const tgResult = await uploadVideoToTelegramStorage(
+            buffer,
+            originalName,
+            `🎥 Видео от пользователя: ${(session.user as any).name || (session.user as any).id}`
+        );
 
-        // Конвертируем файл в Buffer для загрузки в ImageKit
-        const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-
-        const uploadResponse = await imagekit.upload({
-            file: buffer,
-            fileName: uniqueFileName,
-            folder: folder,
-        });
-
-        // Жестко удаляем старый файл из ImageKit, чтобы не оставлять мусор в хранилище
-        if (oldFileId) {
-            try {
-                await imagekit.deleteFile(oldFileId);
-            } catch (err) {
-                console.error("Ошибка при удалении старого файла из ImageKit:", err);
-            }
+        if (!tgResult.success) {
+            return NextResponse.json({ error: tgResult.error || "Ошибка загрузки видео в Telegram" }, { status: 500 });
         }
 
         return NextResponse.json({
             success: true,
-            fileId: uploadResponse.fileId,
-            url: uploadResponse.url,
-            name: uploadResponse.name,
+            fileId: tgResult.fileId,
+            url: `/api/videos/stream/${tgResult.fileId}`,
+            name: originalName,
         });
+
     } catch (error: any) {
-        console.error("ImageKit upload error:", error);
+        console.error("Upload error:", error);
         return NextResponse.json(
             { error: error.message || "Ошибка при загрузке файла" },
             { status: 500 }
@@ -73,7 +115,6 @@ export async function POST(request: NextRequest) {
     }
 }
 
-// 2. Обработка DELETE-запросов (Удаление файлов)
 export async function DELETE(request: Request) {
     try {
         const session = await getServerSession(authOptions);
@@ -93,10 +134,8 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: "fileId или fileUrl не передан" }, { status: 400 });
         }
 
-        // Если пользователь не админ, проверяем владение файлом в базе данных
         if (!isAdmin) {
             await dbConnect();
-
             const orConditions: any[] = [];
             if (fileId) {
                 orConditions.push(
@@ -116,18 +155,11 @@ export async function DELETE(request: Request) {
                 );
             }
 
-            const videoResults = await (Video as any).find({
-                authorId: userId,
-                $or: orConditions
-            }).limit(1).lean();
-
+            const videoResults = await (Video as any).find({ authorId: userId, $or: orConditions }).limit(1).lean();
             let ownedItem = videoResults[0];
 
             if (!ownedItem) {
-                const trackResults = await (Track as any).find({
-                    authorId: userId,
-                    $or: orConditions
-                }).limit(1).lean();
+                const trackResults = await (Track as any).find({ authorId: userId, $or: orConditions }).limit(1).lean();
                 ownedItem = trackResults[0];
             }
 
@@ -136,17 +168,13 @@ export async function DELETE(request: Request) {
             }
         }
 
-        // Если это админ или подтвержденный владелец — удаляем файл из ImageKit
-        if (fileId) {
+        if (fileId && !fileId.startsWith("BAACAg")) {
             await imagekit.deleteFile(fileId);
         }
 
         return NextResponse.json({ success: true, message: "Файл успешно удален из хранилища" });
     } catch (error: any) {
-        console.error("ImageKit delete error:", error);
-        return NextResponse.json(
-            { error: error.message || "Ошибка при удалении файла" },
-            { status: 500 }
-        );
+        console.error("Delete error:", error);
+        return NextResponse.json({ error: error.message || "Ошибка при удалении файла" }, { status: 500 });
     }
 }

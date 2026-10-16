@@ -2,7 +2,7 @@
 // src/app/marketplace/page.tsx
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { ShoppingBag, Loader2, Store, Tag, ArrowRight } from "lucide-react";
+import { ShoppingBag, Loader2, Store, Tag, ArrowRight, Plus } from "lucide-react";
 import { getOptimizedImageUrl } from "@/lib/imagekit";
 import { tr } from "@/utils/translate";
 
@@ -25,7 +25,7 @@ export default function MarketplacePage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          setProducts(data.products);
+          setProducts(data.products || []);
         }
       })
       .catch((err) => console.error("Ошибка загрузки маркетплейса:", err))
@@ -41,15 +41,26 @@ export default function MarketplacePage() {
 
       {/* Шапка */}
       <header className="border-b border-white/5 bg-[#030712]/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center space-x-3">
-            <span className="text-base font-black tracking-widest bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent">
+            <span className="text-sm sm:text-base font-black tracking-widest bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent">
               {tr("«ЎЗБЕКИСТОН ОВОЗИ»", "«O'ZBEKISTON OVOZI»", "«УЗБЕКИСТОН ОВОЗИ»", "«UZBEKISTON OVOZI»")} — {tr("МАРКЕТПЛЕЙС", "MARKETPLEYS", "МАРКЕТПЛЕЙС", "MARKETPLACE")}
             </span>
           </Link>
-          <Link href="/" className="text-sm text-slate-400 hover:text-white transition">
-            ← {tr("Бош саҳифага қайтиш", "Bosh sahifaga qaytish", "Вернуться на главную", "Back to home")}
-          </Link>
+          
+          <div className="flex items-center gap-3">
+            <Link
+              href="/marketplace/new"
+              className="px-3.5 py-2 bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">{tr("Эълон бериш", "E'lon berish", "Продать инструмент", "Sell instrument")}</span>
+            </Link>
+
+            <Link href="/" className="text-xs sm:text-sm text-slate-400 hover:text-white transition">
+              ← <span className="hidden md:inline">{tr("Бош саҳифага қайтиш", "Bosh sahifaga qaytish", "Вернуться на главную", "Back to home")}</span>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -63,6 +74,14 @@ export default function MarketplacePage() {
               <Store className="w-6 h-6 text-emerald-400" /> {tr("Мусиқий Маркетплейс", "Musiqiy Marketpleys", "Музыкальный маркетплейс", "Musical Marketplace")}
             </h1>
           </div>
+
+          <Link
+            href="/marketplace/new"
+            className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500 hover:text-black text-emerald-400 text-xs font-bold rounded-xl transition flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            {tr("Сотишга қўйиш", "Sotishga qo'yish", "Выставить на продажу", "List item")}
+          </Link>
         </div>
 
         {loading ? (
@@ -70,8 +89,15 @@ export default function MarketplacePage() {
             <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
           </div>
         ) : products.length === 0 ? (
-          <div className="text-center py-20 text-slate-500 text-sm border border-white/5 rounded-3xl bg-slate-950/40">
-            {tr("Ҳозирча товарлар ва хизматлар мавжуд эмас. Қўшинг!", "Hozircha tovarlar va xizmatlar mavjud emas. Qo'shing!", "Пока нет товаров и услуг. Добавьте!", "No products or services available yet. Add some!")}
+          <div className="text-center py-20 text-slate-500 text-sm border border-white/5 rounded-3xl bg-slate-950/40 space-y-4">
+            <p>{tr("Ҳозирча товарлар ва хизматлар мавжуд эмас. Биринчи бўлиб қўшинг!", "Hozircha tovarlar va xizmatlar mavjud emas. Birinchi bo'lib qo'shing!", "Пока нет товаров и услуг. Добавьте первым!", "No products or services available yet. Be the first to add!")}</p>
+            <Link
+              href="/marketplace/new"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-black font-bold text-xs rounded-xl hover:bg-emerald-400 transition"
+            >
+              <Plus className="w-4 h-4" />
+              {tr("Эълон жойлаштириш", "E'lon joylashtirish", "Разместить объявление", "Post ad")}
+            </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -81,10 +107,10 @@ export default function MarketplacePage() {
                 className="group bg-gradient-to-b from-slate-900/50 to-slate-950/85 border border-white/5 hover:border-emerald-500/50 rounded-3xl p-4 transition-all duration-500 flex flex-col justify-between shadow-2xl hover:shadow-[0_0_30px_rgba(16,185,129,0.15)]"
               >
                 <div>
-                  {/* Картинка товара / бита */}
+                  {/* Картинка товара */}
                   <div className="relative aspect-video sm:aspect-[4/3] rounded-2xl overflow-hidden bg-slate-900 mb-4 shadow-xl">
                     <img 
-                      src={getOptimizedImageUrl(product.image, 600, 450, 75)} 
+                      src={getOptimizedImageUrl ? getOptimizedImageUrl(product.image, 600, 450, 75) : product.image} 
                       alt={product.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
@@ -98,7 +124,7 @@ export default function MarketplacePage() {
                   <p className="text-sm text-slate-400 truncate mt-0.5">{product.seller}</p>
                 </div>
                 
-                {/* Цена и кнопка действия */}
+                {/* Цена и кнопка */}
                 <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] text-slate-500 uppercase font-bold block">{tr("Нархи", "Narxi", "Цена", "Price")}</span>

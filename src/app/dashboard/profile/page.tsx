@@ -1,16 +1,15 @@
-// src/app/dashboard/profile/page.tsx
 "use client";
-
+// src/app/dashboard/profile/page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Save, User as UserIcon, Upload } from "lucide-react";
+import { ArrowLeft, Loader2, Save, User as UserIcon, Upload, Music, FileText, Phone, Send, Briefcase } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
 
 export default function ProfileSettingsPage() {
     const router = useRouter();
-    const { data: session, update } = useSession(); // 1. Достаем session для отслеживания смены пользователя
+    const { data: session, update } = useSession();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [uploadingImage, setUploadingImage] = useState(false);
@@ -19,12 +18,17 @@ export default function ProfileSettingsPage() {
     const [email, setEmail] = useState("");
     const [image, setImage] = useState("/img/avatar.webp");
     const [imageFileId, setImageFileId] = useState("");
+    
+    const [occupation, setOccupation] = useState(""); // Профессия/роль
+    const [instrument, setInstrument] = useState(""); // Музыкальный инструмент
+    const [bio, setBio] = useState("");
+    const [phone, setPhone] = useState("");
+    const [telegram, setTelegram] = useState("");
+
     const [message, setMessage] = useState({ text: "", type: "" });
 
-    // Уникальный идентификатор юзера из сессии для перезагрузки при смене аккаунта
     const userId = session?.user?.id || (session?.user as any)?.email;
 
-    // Загружаем данные пользователя при открытии страницы или смене юзера
     useEffect(() => {
         async function fetchProfile() {
             try {
@@ -42,6 +46,11 @@ export default function ProfileSettingsPage() {
                     setEmail(data.user.email || "");
                     setImage(data.user.image || "/img/avatar.webp");
                     setImageFileId(data.user.imageFileId || "");
+                    setOccupation(data.user.occupation || "");
+                    setInstrument(data.user.instrument || "");
+                    setBio(data.user.bio || "");
+                    setPhone(data.user.phone || "");
+                    setTelegram(data.user.telegram || "");
                 }
             } catch (err) {
                 console.error("Failed to load profile", err);
@@ -55,7 +64,6 @@ export default function ProfileSettingsPage() {
         }
     }, [userId]);
 
-    // Обработчик загрузки файла аватара
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -94,7 +102,6 @@ export default function ProfileSettingsPage() {
         }
     };
 
-    // Сохранение изменений
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaving(true);
@@ -108,13 +115,17 @@ export default function ProfileSettingsPage() {
                     name,
                     avatarUrl: image,
                     avatarFileId: imageFileId,
+                    occupation,
+                    instrument,
+                    bio,
+                    phone,
+                    telegram,
                 }),
             });
 
             const data = await res.json();
 
             if (data.success) {
-                // 2. ВАЖНО: Вызываем update для NextAuth, чтобы сессия мгновенно обновилась в шапке
                 await update({
                     user: {
                         ...session?.user,
@@ -125,7 +136,7 @@ export default function ProfileSettingsPage() {
                 });
 
                 setMessage({ 
-                    text: tr("Профил муваффақиятли янгиланди! Сабр қилинг...", "Profil muvaffaqiyatli yangilandi! Sabr qiling...", "Профиль успешно обновлен! Подождите немного...", "Profile updated successfully!"), 
+                    text: tr("Профил муваффақиятли янгиланди!", "Profil muvaffaqiyatli yangilandi!", "Профиль успешно обновлен!", "Profile updated successfully!"), 
                     type: "success" 
                 });
                 router.refresh();
@@ -159,11 +170,19 @@ export default function ProfileSettingsPage() {
         ? `${image}${image.includes("?") ? "&" : "?"}t=${Date.now()}` 
         : "/img/avatar.webp";
 
+    const inputClass = "w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition";
+
+    // Проверяем, является ли пользователь инструментальным музыкантом
+    const lowerOcc = occupation.toLowerCase();
+    const isInstrumentalist = lowerOcc.includes("мусиқачи") || 
+                              lowerOcc.includes("музыкант") || 
+                              lowerOcc.includes("instrument") ||
+                              lowerOcc.includes("солист");
+
     return (
         <div className="min-h-screen bg-neutral-950 text-white p-4 sm:p-6 md:p-12 font-sans">
             <div className="max-w-2xl mx-auto space-y-8">
                 
-                {/* Назад в кабинет */}
                 <div>
                     <Link
                         href="/dashboard"
@@ -187,27 +206,24 @@ export default function ProfileSettingsPage() {
                     </Link>
                 </div>
 
-                {/* Заголовок */}
                 <div>
                     <h1 className="text-xl sm:text-2xl text-emerald-400 font-medium">
                         {tr("Профил созламалари", "Profil sozlamalari", "Настройки профиля", "Profile settings")}
                     </h1>
                     <p className="text-sm text-neutral-400 mt-1">
-                        {tr("Шахсий маълумотларингиз ва аватарни бошқаринг", "Shaxsiy ma'lumotlaringiz va avatarni boshqaring", "Управляйте личными данными и аватаркой", "Manage your personal info and avatar")}
+                        {tr("Шахсий маълумотларингиз, ижодингиз ва аватарингизни бошқаринг", "Shaxsiy ma'lumotlaringiz, ijodingiz va avaturingizni boshqaring", "Управляйте личными данными, творчеством и аватаром", "Manage your personal info, art and avatar")}
                     </p>
                 </div>
 
-                {/* Сообщение статуса */}
                 {message.text && (
                     <div className={`p-4 rounded-xl text-sm ${message.type === "success" ? "bg-emerald-950/50 border border-emerald-800 text-emerald-300" : "bg-red-950/50 border border-red-800 text-red-300"}`}>
                         {message.text}
                     </div>
                 )}
 
-                {/* Форма настроек */}
                 <form onSubmit={handleSubmit} className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 space-y-6">
                     
-                    {/* Секция аватара */}
+                    {/* Аватар */}
                     <div className="flex flex-col sm:flex-row items-center gap-6 pb-6 border-b border-neutral-800">
                         <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-neutral-700 bg-neutral-950 shrink-0">
                             <img
@@ -229,7 +245,6 @@ export default function ProfileSettingsPage() {
                                 {tr("JPG, PNG ёки WEBP форматидаги расм юкланг.", "JPG, PNG yoki WEBP formatidagi rasm yuklang.", "Загрузите изображение в формате JPG, PNG или WEBP.", "Upload an image in JPG, PNG, or WEBP format.")}
                             </p>
                             
-                            {/* Кнопка выбора аватара */}
                             <label className={`group relative inline-flex items-center gap-2 bg-neutral-950 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition cursor-pointer ${uploadingImage ? 'opacity-40 pointer-events-none' : ''}`}>
                                 <span className="relative z-10 flex items-center gap-2">
                                     <Upload size={14} className="text-emerald-400" />
@@ -256,7 +271,7 @@ export default function ProfileSettingsPage() {
                         </div>
                     </div>
 
-                    {/* Поле Имя (Username) */}
+                    {/* Имя */}
                     <div className="space-y-2">
                         <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold">
                             {tr("Фойдаланувчи Исми", "Foydalanuvchi Ismi", "Имя пользователя", "Username")}
@@ -276,7 +291,85 @@ export default function ProfileSettingsPage() {
                         </div>
                     </div>
 
-                    {/* Поле Email (Только для чтения) */}
+                    {/* Профессия / Роль */}
+                    <div className="space-y-2">
+                        <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                            <Briefcase size={14} className="text-[#FFDA09]" />
+                            {tr("Касбингиз / Ролингиз", "Kasbingiz / Rolingiz", "Ваша профессия / Роль", "Your occupation / Role")}
+                        </label>
+                        <input
+                            type="text"
+                            value={occupation}
+                            onChange={(e) => setOccupation(e.target.value)}
+                            className={inputClass}
+                            placeholder={tr("Масалан: Хонанда, Аранжировщик, Композитор...", "Masalan: Xonanda, Aranjirovkachi, Kompozitor...", "Например: Певец, Аранжировщик, Композитор...", "e.g., Singer, Arranger, Composer...")}
+                        />
+                    </div>
+
+                    {/* Поле Инструмент — появляется ТОЛЬКО если пользователь инструментальный музыкант */}
+                    {isInstrumentalist && (
+                        <div className="space-y-2 animate-fadeIn">
+                            <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                                <Music size={14} className="text-emerald-400" />
+                                {tr("Ижро этадиган Мусиқа асбобингиз", "Ijro e'tadigan Musiqa asbobingiz", "Музыкальный инструмент", "Music Instrument")}
+                            </label>
+                            <input
+                                type="text"
+                                value={instrument}
+                                onChange={(e) => setInstrument(e.target.value)}
+                                className={inputClass}
+                                placeholder={tr("Масалан: Саксофон, Бас гитара, Пианино...", "Masalan: Saksofon, Bas gitara, Pianino...", "Например: Саксофон, Бас-гитара, Пианино...", "e.g., Saxophone, Bass guitar, Piano...")}
+                            />
+                        </div>
+                    )}
+
+                    {/* О себе / Биография */}
+                    <div className="space-y-2">
+                        <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                            <FileText size={14} className="text-[#FFDA09]" />
+                            {tr("Ўзингиз ва маҳоратингиз ҳақида", "O'zingiz va mahoratingiz haqida", "О себе и своем таланте (Биография)", "About your talent & bio")}
+                        </label>
+                        <textarea
+                            rows={4}
+                            value={bio}
+                            onChange={(e) => setBio(e.target.value)}
+                            className={`${inputClass} resize-y min-h-[100px]`}
+                            placeholder={tr("Тажрибангиз, ижро жанрларингиз ва ҳамкорлик шартларингиз...", "Tajribangiz, ijro janrlaringiz va hamkorlik shartlaringiz...", "Ваш опыт, жанры исполнения и условия сотрудничества...", "Your experience, genres and collaboration terms...")}
+                        />
+                    </div>
+
+                    {/* Контакты: Телефон и Telegram */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                                <Phone size={14} className="text-emerald-400" />
+                                {tr("Телефон рақамингиз", "Telefon raqamingiz", "Номер телефона", "Phone Number")}
+                            </label>
+                            <input
+                                type="tel"
+                                value={phone}
+                                onChange={(e) => setPhone(e.target.value)}
+                                className={inputClass}
+                                placeholder="+998 90 123 45 67"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                                <Send size={14} className="text-cyan-400" />
+                                Telegram
+                            </label>
+                            <input
+                                type="text"
+                                value={telegram}
+                                onChange={(e) => setTelegram(e.target.value)}
+                                className={inputClass}
+                                placeholder="@username"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Email (только чтение) */}
                     <div className="space-y-2">
                         <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold">
                             Email (Электрон почта)
@@ -287,9 +380,6 @@ export default function ProfileSettingsPage() {
                             disabled
                             className="w-full bg-neutral-950/50 border border-neutral-800/60 rounded-xl px-4 py-2.5 text-sm text-neutral-300 cursor-not-allowed"
                         />
-                        <p className="text-xs text-neutral-300">
-                            {tr("Электрон почтани ўзгартириб бўлмайди. Ўзгартириш учун Янги Профиль очиш керак", "Elektron pochtani o'zgartirib bo'lmaydi. O'zgartirish uchun Yangi Profil ochish kerak ", "Электронную почту нельзя изменить.", "Email cannot be changed.")}
-                        </p>
                     </div>
 
                     {/* Кнопка сохранения */}

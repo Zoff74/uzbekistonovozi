@@ -1,13 +1,10 @@
 "use client";
 
-//src\app\dashboard\videos\[id]\edit\page.tsx
-
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { uploadImage } from "@/actions/image.action";
 import { tr } from "@/utils/translate";
-import { Film, Image as ImageIcon, Loader2, Trash2 } from "lucide-react";
+import { Film, Image as ImageIcon, Loader2, Trash2, UploadCloud, Plus } from "lucide-react";
 
 export default function EditVideoPage() {
   const router = useRouter();
@@ -16,11 +13,15 @@ export default function EditVideoPage() {
 
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [saving, setSaving] = useState(false);
   const [freezing, setFreezing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Стейт для управления режимом ручного ввода жанра
+  const [isCustomGenre, setIsCustomGenre] = useState(false);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -36,11 +37,16 @@ export default function EditVideoPage() {
   const [videoMeta, setVideoMeta] = useState({
     createdAt: null as string | null,
     expiresAt: null as string | null,
-    status: "ACTIVE", // ACTIVE, FROZEN, EXPIRED
+    status: "ACTIVE",
   });
 
   const [canReplaceVideo, setCanReplaceVideo] = useState(true);
   const [timeLeftText, setTimeLeftText] = useState("");
+
+  const isLocked = saving || uploadingCover || uploadingVideo || freezing || deleting;
+
+  // Стандартные жанры
+  const defaultGenres = ["Клип", "Концерт", "Uzbek Estrada", "Pop", "Dance"];
 
   // Загружаем данные видео
   useEffect(() => {
@@ -58,14 +64,20 @@ export default function EditVideoPage() {
         const currentVideo = data.video || data.data || data;
 
         if (currentVideo && (currentVideo._id || currentVideo.id)) {
+          const loadedGenre = currentVideo.genre || "Pop";
           setFormData({
             title: currentVideo.title || "",
             singer: currentVideo.singer || "",
-            genre: currentVideo.genre || "Pop",
+            genre: loadedGenre,
             description: currentVideo.description || "",
             cover: currentVideo.cover || "",
             videoUrl: currentVideo.videoUrl || "",
           });
+
+          // Если жанр из базы не входит в список стандартных, сразу включаем режим ручного ввода
+          if (!defaultGenres.includes(loadedGenre)) {
+            setIsCustomGenre(true);
+          }
 
           setVideoFileId(currentVideo.videoFileId || currentVideo.fileId || null);
 
@@ -108,8 +120,8 @@ export default function EditVideoPage() {
       .finally(() => setFetching(false));
   }, [id]);
 
-  // Функция полного удаления видео из базы
   const handleDeleteVideo = async () => {
+    if (isLocked) return;
     if (!confirm(tr("Ҳақиқатан ҳам бу видеони ўчирмоқчимисиз?", "Haqiqatan ham bu videoni o'chirmoqchimisiz?", "Вы действительно хотите удалить это видео?", "Do you really want to delete this video?"))) return;
 
     setDeleting(true);
@@ -134,10 +146,10 @@ export default function EditVideoPage() {
     }
   };
 
-  // Функция удаления видеофайла из ImageKit
   const handleDeleteVideoFile = async () => {
+    if (isLocked) return;
     if (!videoFileId) {
-      alert(tr("У этого видео нет идентификатора файла (fileId) в ImageKit.", "Bu videoda ImageKit fayl identifikatori (fileId) yo'q.", "У этого видео нет идентификатора файла (fileId) в ImageKit.", "This video has no fileId in ImageKit."));
+      alert(tr("У этого видео нет идентификатора файла (fileId).", "Bu videoda fayl identifikatori (fileId) yo'q.", "У этого видео нет идентификатора файла (fileId).", "This video has no fileId."));
       return;
     }
 
@@ -162,8 +174,8 @@ export default function EditVideoPage() {
     }
   };
 
-  // Функция заморозки / разморозки видео
   const handleToggleFreeze = async () => {
+    if (isLocked) return;
     const newStatus = videoMeta.status === 'FROZEN' ? 'ACTIVE' : 'FROZEN';
     const confirmMessage = newStatus === 'FROZEN'
       ? tr("Видеоклипни вақтинча музлатиб қўймоқчимисиз? У сайтдан яширилади.", "Videoklipni vaqtincha muzlatib qo'ymoqchimisiz? U saytdan yashiriladi.", "Хотите временно заморозить клип? Он будет скрыт с сайта.", "Do you want to temporarily freeze the video clip? It will be hidden from the site.")
@@ -194,13 +206,12 @@ export default function EditVideoPage() {
     }
   };
 
-  // Загрузка файлов (обложка или видео)
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, fieldName: 'cover' | 'videoUrl') => {
+  const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLocked) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (fieldName === 'cover') setUploadingCover(true);
-    if (fieldName === 'videoUrl') setUploadingVideo(true);
+    setUploadingCover(true);
     setError(null);
 
     const reader = new FileReader();
@@ -209,35 +220,85 @@ export default function EditVideoPage() {
     reader.onload = async () => {
       try {
         const base64String = reader.result as string;
+        const { uploadImage } = await import("@/actions/image.action");
         const res = await uploadImage(base64String, file.name, 'post');
 
         if (!res.success || !res.url) {
           throw new Error(res.error || tr("Файлни юклаб бўлмади", "Faylni yuklab bo'lmadi", "Не удалось загрузить файл", "Failed to upload file"));
         }
 
-        setFormData((prev) => ({
-          ...prev,
-          [fieldName]: res.url!,
-        }));
+        setFormData((prev) => ({ ...prev, cover: res.url! }));
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : tr("Файлни юклашда хатолик", "Faylni yuklashda xatolik", "Ошибка загрузки файла", "Error uploading file");
         setError(errorMessage);
       } finally {
-        if (fieldName === 'cover') setUploadingCover(false);
-        if (fieldName === 'videoUrl') setUploadingVideo(false);
+        setUploadingCover(false);
         e.target.value = "";
       }
     };
+  };
 
-    reader.onerror = () => {
-      setError(tr("Файлни ўқишда хатолик", "Faylni o'qishda xatolik", "Ошибка чтения файла", "Error reading file"));
-      if (fieldName === 'cover') setUploadingCover(false);
-      if (fieldName === 'videoUrl') setUploadingVideo(false);
+  const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLocked) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingVideo(true);
+    setUploadProgress(0);
+    setError(null);
+
+    const dataForm = new FormData();
+    dataForm.append("file", file);
+    dataForm.append("type", "video");
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload", true);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percentComplete);
+      }
     };
+
+    xhr.onload = () => {
+      setUploadingVideo(false);
+      e.target.value = "";
+
+      if (xhr.status === 200) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          if (res.success && res.url) {
+            setFormData((prev) => ({ ...prev, videoUrl: res.url }));
+            if (res.fileId) setVideoFileId(res.fileId);
+          } else {
+            setError(res.error || tr("Видео юкланмади", "Video yuklanmadi", "Видео не загружено", "Video not uploaded"));
+          }
+        } catch {
+          setError(tr("Сервердан нотўғри жавоб", "Serverdan noto'g'ri javob", "Неверный ответ сервера", "Invalid server response"));
+        }
+      } else {
+        try {
+          const errRes = JSON.parse(xhr.responseText);
+          setError(errRes.error || tr("Видео юклашда хатолик", "Video yuklashda xatolik", "Ошибка загрузки видео", "Error uploading video"));
+        } catch {
+          setError(tr("Видео юклашда хатолик", "Video yuklashda xatolik", "Ошибка загрузки видео", "Error uploading video"));
+        }
+      }
+    };
+
+    xhr.onerror = () => {
+      setUploadingVideo(false);
+      setError(tr("Тармоқ хатолиги юз берди", "Tarmoq xatoligi yuz berdi", "Произошла сетевая ошибка", "Network error occurred"));
+      e.target.value = "";
+    };
+
+    xhr.send(dataForm);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) return;
     setSaving(true);
     setError(null);
 
@@ -277,8 +338,6 @@ export default function EditVideoPage() {
     return <div className="min-h-screen bg-neutral-950 text-white p-12 text-center text-sm">{tr("Юкланмоқда...", "Yuklanmoqda...", "Загрузка...", "Loading...")}</div>;
   }
 
-  const isLocked = saving || uploadingCover || uploadingVideo || freezing || deleting;
-
   const GradientBorder = () => (
     <div 
       className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
@@ -296,7 +355,7 @@ export default function EditVideoPage() {
     <div className="min-h-screen bg-neutral-950 text-white p-6 md:p-12 font-sans">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
-          {/* Кнопка 1: Назад */}
+          {/* Кнопка: Назад */}
           <div className={`relative rounded-xl inline-block group ${isLocked ? "opacity-50 pointer-events-none cursor-not-allowed" : ""}`}>
             <Link
               href="/dashboard"
@@ -308,8 +367,8 @@ export default function EditVideoPage() {
             <GradientBorder />
           </div>
 
-          {/* Кнопка: Полное удаление видео */}
-          <div className="relative rounded-xl inline-block group">
+          {/* Кнопка: Удаление видео */}
+          <div className={`relative rounded-xl inline-block group ${isLocked ? "opacity-50 pointer-events-none" : ""}`}>
             <button
               type="button"
               disabled={isLocked}
@@ -371,20 +430,56 @@ export default function EditVideoPage() {
               </div>
             </div>
 
+            {/* Выбор жанра с возможностью ручного ввода */}
             <div>
-              <label className="block text-sm font-medium text-neutral-300 mb-2">{tr("Жанр", "Janr", "Жанр", "Genre")}</label>
-              <select
-                value={formData.genre}
-                disabled={isLocked}
-                onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <option value="Клип">{tr("Клип (Clip)", "Klip (Clip)", "Клип (Clip)", "Clip")}</option>
-                <option value="Концерт">{tr("Концерт (Live)", "Konsert (Live)", "Концерт (Live)", "Live Concert")}</option>
-                <option value="Uzbek Estrada">{tr("Ўзбек эстрадаси", "O'zbek estradasi", "Узбекская эстрада", "Uzbek Estrada")}</option>
-                <option value="Pop">Pop</option>
-                <option value="Dance">Dance</option>
-              </select>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-neutral-300">{tr("Жанр", "Janr", "Жанр", "Genre")}</label>
+                <button
+                  type="button"
+                  disabled={isLocked}
+                  onClick={() => {
+                    setIsCustomGenre(!isCustomGenre);
+                    if (!isCustomGenre) {
+                      setFormData({ ...formData, genre: "" });
+                    } else {
+                      setFormData({ ...formData, genre: "Pop" });
+                    }
+                  }}
+                  className="text-xs text-amber-400 hover:text-amber-300 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>
+                    {isCustomGenre 
+                      ? tr("Руйхатдан танлаш", "Ro'yxatdan tanlash", "Выбрать из списка", "Select from list") 
+                      : tr("Бошқа жанр ёзиш", "Boshqa janr yozish", "Ввести свой жанр", "Enter custom genre")}
+                  </span>
+                </button>
+              </div>
+
+              {isCustomGenre ? (
+                <input
+                  type="text"
+                  required
+                  disabled={isLocked}
+                  placeholder={tr("Жанр номини киритинг...", "Janr nomini kiriting...", "Введите название жанра...", "Enter genre name...")}
+                  value={formData.genre}
+                  onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+              ) : (
+                <select
+                  value={formData.genre}
+                  disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <option value="Клип">{tr("Клип (Clip)", "Klip (Clip)", "Клип (Clip)", "Clip")}</option>
+                  <option value="Концерт">{tr("Концерт (Live)", "Konsert (Live)", "Концерт (Live)", "Live Concert")}</option>
+                  <option value="Uzbek Estrada">{tr("Ўзбек эстрадаси", "O'zbek estradasi", "Узбекская эстрада", "Uzbek Estrada")}</option>
+                  <option value="Pop">Pop</option>
+                  <option value="Dance">Dance</option>
+                </select>
+              )}
             </div>
 
             <div>
@@ -415,14 +510,14 @@ export default function EditVideoPage() {
                 </div>
 
                 <div className={`relative rounded-xl inline-block group ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <label className="relative z-10 cursor-pointer bg-neutral-950 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-block">
+                  <label className={`relative z-10 bg-neutral-950 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-block ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                     <span>{tr("Муқова танлаш", "Muqova tanlash", "Выбрать обложку", "Select cover")}</span>
                     <input
                       type="file"
                       accept="image/*"
                       disabled={isLocked}
                       className="hidden"
-                      onChange={(e) => handleFileChange(e, 'cover')}
+                      onChange={handleCoverChange}
                     />
                   </label>
                   <GradientBorder />
@@ -430,15 +525,17 @@ export default function EditVideoPage() {
               </div>
             </div>
 
-            {/* Видеофайл с защитой в 24 часа и кнопкой удаления */}
+            {/* Видеофайл с полной блокировкой во время сохранения */}
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
               <div className="flex items-center justify-between">
                 <label className="block text-sm font-medium text-neutral-300">
-                  {uploadingVideo ? tr("Видеофайл юкланмоқда...", "Videofayl yuklanmoqda...", "Видеофайл загружается...", "Uploading video file...") : tr("Видеоклип файли (Янгисига алмаштириш)", "Videoklip fayli (Yangiiga almashtirish)", "Видеофайл (Заменить новым)", "Video File (Replace)")}
+                  {uploadingVideo 
+                    ? tr(`Видео серверга юкланмоқда: ${uploadProgress}%`, `Video yuklanmoqda: ${uploadProgress}%`, `Загрузка видео: ${uploadProgress}%`, `Uploading video: ${uploadProgress}%`) 
+                    : tr("Видеоклип файли (Янгисига алмаштириш)", "Videoklip fayli (Yangiiga almashtirish)", "Видеофайл (Заменить новым)", "Video File (Replace)")}
                 </label>
 
                 {formData.videoUrl && videoFileId && (
-                  <div className="relative rounded-xl inline-block group">
+                  <div className={`relative rounded-xl inline-block group ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
                     <button
                       type="button"
                       disabled={isLocked}
@@ -461,19 +558,28 @@ export default function EditVideoPage() {
                 )}
               </div>
 
+              {uploadingVideo && (
+                <div className="w-full bg-neutral-900 rounded-full h-3 overflow-hidden border border-neutral-800">
+                  <div 
+                    className="bg-amber-400 h-full transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              )}
+
               {canReplaceVideo ? (
                 <div className="relative rounded-xl">
-                  <div className={`relative rounded-xl overflow-hidden group ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                    <label className="relative z-10 flex flex-col items-center justify-center w-full h-24 rounded-xl bg-neutral-950 cursor-pointer transition">
+                  <div className={`relative rounded-xl overflow-hidden group ${isLocked ? 'opacity-50 pointer-events-none cursor-not-allowed' : ''}`}>
+                    <label className={`relative z-10 flex flex-col items-center justify-center w-full h-24 rounded-xl bg-neutral-950 transition ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                       <div className="flex items-center gap-2 text-xs text-neutral-300 px-4 text-center">
-                        <Film className="w-5 h-5 text-amber-400 shrink-0" />
+                        <UploadCloud className="w-5 h-5 text-amber-400 shrink-0" />
                         <span>{tr("Янги видеофайл танлаш учун босинг", "Yangi videofayl tanlash uchun bosing", "Нажмите, чтобы выбрать новый видеофайл", "Click to select new video file")}</span>
                       </div>
                       <input
                         type="file"
                         accept="video/*"
                         disabled={isLocked}
-                        onChange={(e) => handleFileChange(e, 'videoUrl')}
+                        onChange={handleVideoChange}
                         className="hidden"
                       />
                     </label>
@@ -534,14 +640,14 @@ export default function EditVideoPage() {
                   <Link
                     href="/dashboard"
                     aria-disabled={isLocked}
-                    className="relative z-10 px-6 py-2.5 rounded-xl bg-neutral-950 text-neutral-400 hover:text-white transition text-sm inline-block text-center"
+                    className="relative z-15 px-6 py-2.5 rounded-xl bg-neutral-950 text-neutral-400 hover:text-white transition text-sm inline-block text-center"
                   >
                     <span>{tr("Бекор қилиш", "Bekor qilish", "Отмена", "Cancel")}</span>
                   </Link>
                   <GradientBorder />
                 </div>
 
-                <div className="relative rounded-xl inline-block group">
+                <div className={`relative rounded-xl inline-block group ${isLocked ? "opacity-50 pointer-events-none" : ""}`}>
                   <button
                     type="submit"
                     disabled={isLocked}

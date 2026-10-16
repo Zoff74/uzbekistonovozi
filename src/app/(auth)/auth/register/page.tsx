@@ -13,6 +13,7 @@ import { signIn } from "next-auth/react";
 import { compressImage } from "@/utils/image-compressor";
 import { tr } from "@/utils/translate";
 import { useLoading } from "@/context/LoadingContext"; 
+import InstrumentAutocomplete from "@/components/InstrumentAutocomplete";
 
 function RegisterForm() {
     const router = useRouter();
@@ -31,6 +32,11 @@ function RegisterForm() {
     const [telegram, setTelegram] = useState("");
     const [role, setRole] = useState(isListenerMode ? "tinglovchi" : "musiqachi");
     
+    // Динамический массив инструментов для мультиинструменталистов
+    const [instrumentsList, setInstrumentsList] = useState<{ name: string; id: string }[]>([
+        { name: "", id: "" }
+    ]);
+    
     useEffect(() => {
         if (isListenerMode) {
             setRole("tinglovchi");
@@ -48,6 +54,17 @@ function RegisterForm() {
     const [phoneError, setPhoneError] = useState("");
     const [telegramError, setTelegramError] = useState("");
     const [loading, setLoading] = useState(false);
+
+    // Добавление нового поля инструмента
+    const addInstrumentField = () => {
+        setInstrumentsList([...instrumentsList, { name: "", id: "" }]);
+    };
+
+    // Удаление поля инструмента
+    const removeInstrumentField = (index: number) => {
+        const updated = instrumentsList.filter((_, i) => i !== index);
+        setInstrumentsList(updated.length > 0 ? updated : [{ name: "", id: "" }]);
+    };
 
     // Очистка памяти превью при размонтировании или смене файла
     useEffect(() => {
@@ -114,8 +131,15 @@ function RegisterForm() {
                 return;
             }
 
-            const finalOccupation = isListenerMode ? "tinglovchi" : (role === "other" ? customOccupation.trim() : role);
-            const systemRole = finalOccupation === "tinglovchi" ? "user" : "savdogar";
+            // Определяем финальную профессию / роль
+            let finalOccupation = isListenerMode ? "tinglovchi" : role;
+            if (role === "marketplace_seller") {
+                finalOccupation = tr("Мусиқий асбоблар савдогари", "Musiqiy asboblar savdogari", "Продавец музыкальных инструментов", "Music Instruments Seller");
+            } else if (role === "other") {
+                finalOccupation = customOccupation.trim();
+            }
+
+            const systemRole = (finalOccupation === "tinglovchi") ? "user" : "savdogar";
 
             const formData = new FormData();
             formData.append("username", username);
@@ -124,6 +148,20 @@ function RegisterForm() {
             formData.append("phone", phone);
             formData.append("telegram", telegram);
             formData.append("occupation", finalOccupation);
+            
+            // Если выбран музыкант, передаем массив инструментов и слагов
+            if (role === "musiqachi") {
+                const validInstruments = instrumentsList.filter(i => i.name.trim());
+                if (validInstruments.length > 0) {
+                    formData.append("instruments", JSON.stringify(validInstruments.map(i => i.name.trim())));
+                    formData.append("instrumentIds", JSON.stringify(validInstruments.map(i => i.id || i.name.toLowerCase().replace(/\s+/g, '-'))));
+                    // Дублируем первый инструмент в старое поле для обратной совместимости
+                    formData.append("instrument", validInstruments[0].name.trim());
+                    formData.append("instrumentId", validInstruments[0].id || validInstruments[0].name.toLowerCase().replace(/\s+/g, '-'));
+                    formData.append("instrumentCategory", "musiqachi");
+                }
+            }
+
             formData.append("role", systemRole);
             formData.append("createdAt", new Date().toISOString());
             
@@ -188,11 +226,11 @@ function RegisterForm() {
 
             <div className="flex-1 flex shrink-0 items-center justify-center w-full py-16 max-[480px]:py-10 z-10">
                 <div className="flex flex-col items-center justify-center gap-5 p-10 rounded-[24px] bg-black relative overflow-hidden w-[90%] max-w-[420px] shadow-[0px_0px_25px_0px_rgba(57,255,20,0.15)] max-[480px]:m-0 max-[480px]:mx-auto max-[480px]:p-5 max-[480px]:w-[92%] max-[480px]:gap-[15px] max-[480px]:rounded-[16px]"
-                   style={{
-                       border: '2px solid transparent',
-                       borderImageSource: 'linear-gradient(to right, #030712, #39FF14, #030712)',
-                       borderImageSlice: 1
-                   }}>
+                    style={{
+                        border: '2px solid transparent',
+                        borderImageSource: 'linear-gradient(to right, #030712, #39FF14, #030712)',
+                        borderImageSlice: 1
+                    }}>
 
                     <Image alt="Logo" width={160} height={160} sizes="120px" src="/img/muzikanti.webp" priority />
 
@@ -222,7 +260,7 @@ function RegisterForm() {
                         
                         {/* Аватар */}
                         <div className="flex flex-col gap-1.5">
-                            <label className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px] whitespace-pre-line">
+                            <label className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px] whitespace-pre-line">
                                 {tr(
                                     "Профиль суратингиз",
                                     "Profil suratingiz",
@@ -259,7 +297,7 @@ function RegisterForm() {
 
                         {/* ФИО */}
                         <div className="flex flex-col gap-1.5">
-                            <label htmlFor="r_u_name" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
+                            <label htmlFor="r_u_name" className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px]">
                                 {tr("Фамилия ва Исмингиз", "Familiya va Ismingiz", "Фамилия и Имя", "Full Name")}
                             </label>
                             <input 
@@ -274,12 +312,12 @@ function RegisterForm() {
                                 disabled={loading} 
                                 className={`${inputBaseClass} ${usernameError ? errorInputClass : inputBorderClass}`} 
                             />
-                            {usernameError && <p className="text-[#39FF14] font-semibold text-[13px] text-center">{usernameError}</p>}
+                            {usernameError && <p className="text-[#39FF14] text-[13px] text-center">{usernameError}</p>}
                         </div>
 
                         {/* ТЕЛЕФОН */}
                         <div className="flex flex-col gap-1.5">
-                            <label htmlFor="r_phone_f" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
+                            <label htmlFor="r_phone_f" className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px]">
                                 {tr("Телефон рақамингиз", "Telefon raqamingiz", "Номер телефона", "Phone Number")}
                             </label>
                             <input 
@@ -294,37 +332,102 @@ function RegisterForm() {
                                 disabled={loading} 
                                 className={`${inputBaseClass} ${phoneError ? errorInputClass : inputBorderClass}`} 
                             />
-                            {phoneError && <p className="text-[#39FF14] font-semibold text-[13px] text-center">{phoneError}</p>}
+                            {phoneError && <p className="text-[#39FF14] text-[13px] text-center">{phoneError}</p>}
                         </div>
 
                         {/* РОЛЬ / ПРОФЕССИЯ */}
                         {!isListenerMode && (
                             <>
                                 <div className="flex flex-col gap-1.5">
-                                    <label htmlFor="r_role" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
+                                    <label htmlFor="r_role" className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px]">
                                         {tr("Ким сифатида рўйхатдан ўтмоқчисиз?", "Kim sifatida ro'yxatdan o'tmoqchisiz?", "Кем вы хотите зарегистрироваться?", "What role would you like to register as?")}
                                     </label>
-<select 
-    id="r_role" 
-    value={role} 
-    onChange={(e) => setRole(e.target.value)} 
-    disabled={loading} 
-    className={`${inputBaseClass} ${inputBorderClass} text-[15px]`}
->
-    <option value="musiqachi">{tr("Мусиқачи (Инструментал)", "Musiqachi (Instrumental)", "Музыкант (Инструменталист)", "Musician (Instrumentalist)")}</option>
-    <option value="xonanda">{tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}</option>
-    <option value="kompozitor">{tr("Композитор", "Kompozitor", "Композитор", "Composer")}</option>
-    <option value="bastakor">{tr("Бастакор", "Bastakor", "Бастакор", "Bastakor")}</option>
-    <option value="qo'shiq matni muallifi">{tr("Қўшиқ матни муалифи", "Qo'shiq matni muallifi", "Автор текста песни", "Lyricist")}</option>
-    <option value="aranjirovka ustasi">{tr("Аранжировка устаси", "Aranjirovka ustasi", "Аранжировщик", "Arranger")}</option>
-    <option value="other">{tr("✍️ Ўз вариантингиз", "✍️ O'z variantingiz", "✍️ Свой вариант", "✍️ Write your own option")}</option>
-</select>
+                                    <select 
+                                        id="r_role" 
+                                        value={role} 
+                                        onChange={(e) => setRole(e.target.value)} 
+                                        disabled={loading} 
+                                        className={`${inputBaseClass} ${inputBorderClass} text-[15px]`}
+                                    >
+                                        <option value="musiqachi">{tr("Мусиқачи (Инструментал)", "Musiqachi (Instrumental)", "Музыкант (Инструменталист)", "Musician (Instrumentalist)")}</option>
+                                        <option value="marketplace_seller">{tr("Мусиқий асбоблар савдогари", "Musiqiy asboblar savdogari", "Продавец музыкальных инструментов", "Music Instruments Seller")}</option>
+                                        <option value="xonanda">{tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}</option>
+                                        <option value="kompozitor">{tr("Композитор", "Kompozitor", "Композитор", "Composer")}</option>
+                                        <option value="bastakor">{tr("Бастакор", "Bastakor", "Бастакор", "Bastakor")}</option>
+                                        <option value="qo'shiq matni muallifi">{tr("Қўшиқ матни муалифи", "Qo'shiq matni muallifi", "Автор текста песни", "Lyricist")}</option>
+                                        <option value="aranjirovka ustasi">{tr("Аранжировка устаси", "Aranjirovka ustasi", "Аранжировщик", "Arranger")}</option>
+                                        <option value="other">{tr("✍️ Ўз вариантингиз", "✍️ O'z variantingiz", "✍️ Свой вариант", "✍️ Write your own option")}</option>
+                                    </select>
                                 </div>
+
+                                {/* Динамический список инструментов для мультиинструменталистов */}
+                                {role === "musiqachi" && (
+                                    <div className="flex flex-col gap-3 animate-fadeIn">
+                                        <label className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px]">
+                                            {tr("Қайси мусиқа асбобларида ижро этасиз?\nМасалан: Пианино", "Qaysi musiqa asboblarida ijro etasiz?\nMasalan: pianino", "На каких инструментах вы играете?\nНапример: Пианино", "What instruments do you play?\ne.g., Saxophone")}
+                                        </label>
+
+                                        {instrumentsList.map((item, index) => (
+                                            <div key={index} className="flex items-center gap-2">
+                                                <div className="flex-1">
+                                                    <InstrumentAutocomplete
+                                                        value={item.name}
+                                                        onChange={(name, slug) => {
+                                                            const updated = [...instrumentsList];
+                                                            updated[index] = { name, id: slug };
+                                                            setInstrumentsList(updated);
+                                                        }}
+                                                        placeholder="Пианино"
+                                                    />
+                                                </div>
+                                                {instrumentsList.length > 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeInstrumentField(index)}
+                                                        className="p-3 bg-red-950/40 border border-red-500/50 rounded-xl text-red-400 hover:text-red-300 transition shrink-0"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+
+                                        <button
+                                            type="button"
+                                            onClick={addInstrumentField}
+                                            className="self-start px-3 py-1.5 bg-[#39FF14]/10 border border-[#39FF14]/40 rounded-lg text-[#39FF14] text-xs font-semibold uppercase tracking-wider hover:bg-[#39FF14]/20 transition"
+                                        >
+                                            + {tr("Яна мусиқа асбоб қўшиш", "Yana musiqa asbob qo'shish", "Добавить еще музыкальный инструмент", "Add another instrument")}
+                                        </button>
+
+                                        <p className="text-[15px] text-gray-200">
+                                            {tr(
+                                                "Бу маълумот орқали бошқалар сизни қидириб топишади.",
+                                                "Bu ma'lumot orqali boshqalar sizni qidirib topishadi.",
+                                                "По этим инструментам другие пользователи смогут вас найти.",
+                                                "Other users will be able to find you by these instruments."
+                                            )}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {role === "marketplace_seller" && (
+                                    <div className="p-3 bg-emerald-950/20 border border-[#39FF14]/30 rounded-xl animate-fadeIn">
+                                        <p className="text-base text-emerald-300 leading-relaxed font-medium">
+                                            {tr(
+                                                "✨ Сиз «Мусиқий асбоблар олди-сотди бозори»да янги ва ишлатилган мусиқий асбобларни сотиш ҳуқуқини оласиз.",
+                                                "✨ Siz «Musiqiy asboblar oldi-sotdi bozori»da yangi va ishlatilgan musiqiy asboblarni sotish huquqini olasiz.",
+                                                "✨ Вы получите доступ к маркетплейсу музыкальных инструментов для продажи новых и б/у товаров.",
+                                                "✨ You will get access to the music instruments marketplace to sell new and used items."
+                                            )}
+                                        </p>
+                                    </div>
+                                )}
 
                                 {role === "other" && (
                                     <div className="flex flex-col gap-1.5 animate-fadeIn">
-                                        <label htmlFor="r_custom_occupation" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
-                                            {tr("Касбингизни ёзинг (Продюсер, Аранжировщик...)", "Kasbingizni yozing (Prodyuser, Aranjirovshchik...)", "Напишите вашу профессию (Продюсер, Аранжировщик...)", "Write your occupation (Producer, Arranger...)")}
+                                        <label htmlFor="r_custom_occupation" className="text-[13px]  text-[#FFDA09] uppercase tracking-[0.5px]">
+                                            {tr("Касбингизни ёзинг \n(Продюсер, Аранжировщик...)", "Kasbingizni yozing \n(Prodyuser, Aranjirovkachi...)", "Напишите вашу профессию \n(Продюсер, Аранжировщик...)", "Write your occupation \n(Producer, Arranger...)")}
                                         </label>
                                         <input 
                                             type="text" 
@@ -343,7 +446,7 @@ function RegisterForm() {
 
                         {/* ПОЧТА */}
                         <div className="flex flex-col gap-1.5">
-                            <label htmlFor="r_email_f" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
+                            <label htmlFor="r_email_f" className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px]">
                                 {tr("E-mail", "E-mail", "E-mail", "E-mail")}
                             </label>
                             <input 
@@ -358,12 +461,12 @@ function RegisterForm() {
                                 disabled={loading} 
                                 className={`${inputBaseClass} ${emailError ? errorInputClass : inputBorderClass}`} 
                             />
-                            {emailError && <p className="text-[#39FF14] font-semibold text-[13px] text-center">{emailError}</p>}
+                            {emailError && <p className="text-[#39FF14] text-[13px] text-center">{emailError}</p>}
                         </div>
 
                         {/* ТЕЛЕГРАМ */}
                         <div className="flex flex-col gap-1.5">
-                            <label htmlFor="r_tg_f" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
+                            <label htmlFor="r_tg_f" className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px]">
                                 {tr("Telegram", "Telegram", "Telegram", "Telegram")}
                             </label>
                             <input
@@ -380,12 +483,12 @@ function RegisterForm() {
                                 disabled={loading}
                                 className={`${inputBaseClass} ${telegramError ? errorInputClass : inputBorderClass}`}
                             />
-                            {telegramError && <p className="text-[#FFDA09] font-semibold text-[11px] text-center">{telegramError}</p>}
+                            {telegramError && <p className="text-[#FFDA09] text-[11px] text-center">{telegramError}</p>}
                         </div>
 
                         {/* ПАРОЛЬ */}
                         <div className="flex flex-col gap-1.5">
-                            <label htmlFor="r_pass_f" className="text-[13px] font-semibold text-[#FFDA09] uppercase tracking-[0.5px]">
+                            <label htmlFor="r_pass_f" className="text-[13px] text-[#FFDA09] uppercase tracking-[0.5px]">
                                 {tr("Пароль", "Parol", "Пароль", "Password")}
                             </label>
                             <div className="relative w-full">
@@ -410,7 +513,7 @@ function RegisterForm() {
                                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                 </button>
                             </div>
-                            {passwordError && <p className="text-[#39FF14] font-semibold text-[13px] text-center">{passwordError}</p>}
+                            {passwordError && <p className="text-[#39FF14] text-[13px] text-center">{passwordError}</p>}
                         </div>
 
                         {/* КНОПКА РЕГИСТРАЦИИ С ЛОАДЕРОМ */}
@@ -487,7 +590,7 @@ function RegisterForm() {
 
 export default function RegisterPage() {
     return (
-        <Suspense fallback={<div className="w-full min-h-screen bg-black flex items-center justify-center"><Loader2 className="animate-spin text-[#39FF14] w-8 h-8" /></div>}>
+        <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center text-[#39FF14]">Loading...</div>}>
             <RegisterForm />
         </Suspense>
     );

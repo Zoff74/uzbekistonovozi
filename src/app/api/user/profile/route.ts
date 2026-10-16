@@ -31,21 +31,21 @@ export async function GET(req: Request) {
         // Если передан ID в строке запроса -> отдаем публичный профиль музыканта/творца
         if (userId) {
             const user = await User.findById(userId)
-                .select("username image occupation bio phone telegram email location")
+                .select("username image occupation instrument bio phoneNumber telegram email location")
                 .lean();
 
             if (!user) {
                 return NextResponse.json({ success: false, message: "User not found" }, { status: 404 });
             }
 
-            // Маппим под формат, который ожидает фронтенд профиля
             const formattedUser = {
                 _id: user._id,
                 name: user.username,
                 image: user.image,
                 occupation: user.occupation,
+                instrument: (user as any).instrument,
                 bio: (user as any).bio,
-                phone: (user as any).phone,
+                phone: (user as any).phoneNumber,
                 telegram: (user as any).telegram,
                 email: (user as any).email,
                 location: (user as any).location,
@@ -54,25 +54,34 @@ export async function GET(req: Request) {
             return NextResponse.json({ success: true, user: formattedUser });
         }
 
-        // Иначе работаем как раньше для личного кабинета (требуется сессия)
+        // Для личного кабинета (требуется сессия)
         const session = (await getServerSession(authOptions)) as SessionData | null;
         if (!session || !session.user?.id) {
             return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
         }
 
-        const user = await User.findById(session.user.id).select("username email image imageFileId").lean();
+        // Добавили occupation в select
+        const user = await User.findById(session.user.id)
+            .select("username email image imageFileId occupation instrument bio phoneNumber telegram")
+            .lean();
 
         if (!user) {
             return NextResponse.json({ success: false, message: "User not found" }, { status: 404 });
         }
 
-        return NextResponse.json({ success: true, user });
+        // Маппим phoneNumber в phone для фронтенда, если требуется
+        const formattedUser = {
+            ...user,
+            phone: (user as any).phoneNumber || "",
+        };
+
+        return NextResponse.json({ success: true, user: formattedUser });
     } catch (error: any) {
         return NextResponse.json({ success: false, message: error.message || "Server error" }, { status: 500 });
     }
 }
 
-// PUT: Обновление профиля остается без изменений
+// PUT: Обновление профиля
 export async function PUT(req: Request) {
     try {
         const session = (await getServerSession(authOptions)) as SessionData | null;
@@ -81,7 +90,7 @@ export async function PUT(req: Request) {
         }
 
         const body = await req.json();
-        const { name, avatarUrl, avatarFileId } = body;
+        const { name, avatarUrl, avatarFileId, occupation, instrument, bio, phone, telegram } = body;
 
         await dbConnect();
 
@@ -106,14 +115,32 @@ export async function PUT(req: Request) {
         if (name !== undefined) updateData.username = name;
         if (avatarUrl !== undefined) updateData.image = avatarUrl;
         if (avatarFileId !== undefined) updateData.imageFileId = avatarFileId;
+        if (occupation !== undefined) updateData.occupation = occupation; // Добавили обновление профессии
+        
+        if (instrument !== undefined) {
+            updateData.instrument = instrument;
+            updateData.instrumentId = instrument
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9а-яўғқҳҷӯӣқçğşîâû -]/g, '');
+        }
+        if (bio !== undefined) updateData.bio = bio;
+        if (phone !== undefined) updateData.phoneNumber = phone; // В модели поле называется phoneNumber
+        if (telegram !== undefined) updateData.telegram = telegram;
 
         const updatedUser = await User.findByIdAndUpdate(
             session.user.id,
             updateData,
             { new: true }
-        ).select("username email image imageFileId");
+        ).select("username email image imageFileId occupation instrument bio phoneNumber telegram");
 
-        return NextResponse.json({ success: true, user: updatedUser });
+        const formattedUser = {
+            ...updatedUser.toObject(),
+            phone: updatedUser.phoneNumber || "",
+        };
+
+        return NextResponse.json({ success: true, user: formattedUser });
     } catch (error: any) {
         return NextResponse.json({ success: false, message: error.message || "Server error" }, { status: 500 });
     }

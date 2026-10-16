@@ -11,6 +11,7 @@ interface Musician {
   name: string;
   avatar: string;
   role: string;
+  instrument?: string;
 }
 
 export default function CatalogMusiqachilarPage() {
@@ -22,11 +23,14 @@ export default function CatalogMusiqachilarPage() {
     fetch("/api/musiqachilar")
       .then((res) => res.json())
       .then((data) => {
+        let rawList: Musician[] = [];
         if (Array.isArray(data)) {
-          setMusicians(data);
+          rawList = data;
         } else if (data.musicians) {
-          setMusicians(data.musicians);
+          rawList = data.musicians;
         }
+        // Бэкенд уже отдает строго инструменталистов, фильтрация на клиенте не требуется!
+        setMusicians(rawList);
       })
       .catch((err) =>
         console.error(
@@ -42,11 +46,12 @@ export default function CatalogMusiqachilarPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Фильтрация музыкантов только по текстовому поиску
+  // Фильтрация музыкантов по текстовому поиску (по имени или инструменту)
   const filteredMusicians = musicians.filter((musician) => {
     const matchesName = musician.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesRole = musician.role?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesName || matchesRole;
+    const matchesInstrument = musician.instrument?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesName || matchesRole || matchesInstrument;
   });
 
   return (
@@ -105,7 +110,7 @@ export default function CatalogMusiqachilarPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
             <input
               type="text"
-              placeholder={tr("Мусиқачини қидириш...", "Musiqachini qidirish...", "Поиск музыканта...", "Search musician...")}
+              placeholder={tr("Мусиқачини ёки асбобни қидириш...", "Musiqachini yoki asbobni qidirish...", "Поиск музыканта или инструмента...", "Search musician or instrument...")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-900/80 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition"
@@ -161,7 +166,7 @@ export default function CatalogMusiqachilarPage() {
                   <h3 className="font-bold text-sm text-white group-hover:text-cyan-400 transition truncate w-full">
                     {musician.name}
                   </h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5 truncate w-full">
+                  <p className="text-[10px] text-cyan-400 mt-0.5 truncate w-full uppercase font-semibold">
                     {musician.role ||
                       tr("Мусиқачи", "Musiqachi", "Музыкант", "Musician")}
                   </p>

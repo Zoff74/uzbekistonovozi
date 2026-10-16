@@ -1,4 +1,5 @@
 "use client";
+
 // src/app/catalogInstrumentalMusic/page.tsx
 
 import React, { useState, useEffect } from "react";
@@ -26,11 +27,40 @@ export default function CatalogInstrumentalMusicPage() {
     fetch("/api/tracks")
       .then((res) => res.json())
       .then((data) => {
+        let rawTracks: ITrackItem[] = [];
         if (data.success && Array.isArray(data.tracks)) {
-          setMusicTracks(data.tracks);
+          rawTracks = data.tracks;
         } else if (Array.isArray(data)) {
-          setMusicTracks(data);
+          rawTracks = data;
         }
+
+        // ЖЕСТКИЙ ФИЛЬТР: Оставляем только инструментальные треки
+        const instrumentalTracks = rawTracks.filter((track) => {
+          const g = (track.genre || "").toLowerCase();
+          const t = (track.title || "").toLowerCase();
+
+          // Если жанр или название содержат указание на вокал, песню или слова — исключаем
+          const isVocalOrSong = 
+            g.includes("vokal") || 
+            g.includes("вокал") || 
+            g.includes("qo'shiq") || 
+            g.includes("қўшиқ") || 
+            g.includes("песня") || 
+            g.includes("song") ||
+            g.includes("estrada") ||
+            g.includes("эстрада");
+
+          // Либо проверяем, что это явно инструментальная музыка
+          const isInstrumental = 
+            g.includes("instrumental") || 
+            g.includes("инструментал") || 
+            g.includes("мусиқа") ||
+            !g; // Если жанр вообще не указан, для безопасности можно оставить или отсеять (тут оставляем если нет признаков вокала)
+
+          return !isVocalOrSong;
+        });
+
+        setMusicTracks(instrumentalTracks);
       })
       .catch((err) =>
         console.error(

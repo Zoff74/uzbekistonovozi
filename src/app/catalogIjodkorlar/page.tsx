@@ -1,5 +1,6 @@
 "use client";
-//src\app\catalogIjodkorlar\page.tsx
+
+// src/app/catalogIjodkorlar/page.tsx
 import React, { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -15,7 +16,6 @@ interface Creator {
 
 function CatalogIjodkorlarContent() {
   const searchParams = useSearchParams();
-  // Если категория не передана, по умолчанию берем поэтов (или нужную вам категорию)
   const category = searchParams.get("category") || "poets";
 
   const [creators, setCreators] = useState<Creator[]>([]);
@@ -26,13 +26,42 @@ function CatalogIjodkorlarContent() {
     fetch(`/api/singers?type=${category}`)
       .then((res) => res.json())
       .then((data) => {
+        let rawList: Creator[] = [];
         if (Array.isArray(data)) {
-          setCreators(data);
+          rawList = data;
         } else if (data.singers) {
-          setCreators(data.singers);
-        } else {
-          setCreators([]);
+          rawList = data.singers;
         }
+
+        // ТОЧНАЯ ФИЛЬТРАЦИЯ ПО КАТЕГОРИИ
+        const filteredList = rawList.filter((item) => {
+          const r = (item.role || "").toLowerCase();
+
+          if (category === "poets") {
+            // Оставляем только авторов текстов, поэтов и т.д.
+            return (
+              r.includes("muallif") ||
+              r.includes("муаллиф") ||
+              r.includes("shoir") ||
+              r.includes("шоир") ||
+              r.includes("matn") ||
+              r.includes("матн") ||
+              r.includes("poet") ||
+              r.includes("lyric")
+            );
+          } else if (category === "composers") {
+            // Оставляем только композиторов и бастакоров
+            return (
+              r.includes("kompozitor") ||
+              r.includes("композитор") ||
+              r.includes("bastakor") ||
+              r.includes("бастакор")
+            );
+          }
+          return true;
+        });
+
+        setCreators(filteredList);
       })
       .catch((err) =>
         console.error(
@@ -64,7 +93,6 @@ function CatalogIjodkorlarContent() {
           desc: tr("Мусиқа ва аранжировка муаллифлари.", "Musiqa va aranjirovka mualliflari.", "Авторы музыки и аранжировок.", "Music and arrangement authors.")
         };
       default:
-        // Если пришла какая-то другая специфичная категория
         return {
           tag: tr("Ижодкорлар", "Ijodkorlar", "Творцы", "Creators"),
           title: tr("Ижодкорлар каталоги", "Ijodkorlar katalogi", "Каталог творцов", "Creators Catalog"),
@@ -126,7 +154,7 @@ function CatalogIjodkorlarContent() {
               {tr("Юкланмоқда...", "Yuklanmoqda...", "Загрузка...", "Loading...")}
             </div>
           ) : creators.length === 0 ? (
-            <div className="text-slate-500 text-sm">
+            <div className="text-slate-500 text-sm py-12 text-center bg-slate-900/30 rounded-2xl border border-white/5">
               {tr(
                 "Ижодкорлар топилмади.",
                 "Ijodkorlar topilmadi.",

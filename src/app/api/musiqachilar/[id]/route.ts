@@ -1,4 +1,4 @@
-//src\app\api\musiqachilar\[id]\route.ts
+// src/app/api/musiqachilar/[id]/route.ts
 import { NextResponse } from "next/server";
 import { Types, Model } from "mongoose";
 import { dbConnect } from "@/lib/mongoose";
@@ -38,7 +38,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       musician: {
         _id: musicianRecord._id,
         name: musicianRecord.username,
-        role: musicianRecord.occupation || "musiqachi",
+        role: musicianRecord.instrument || musicianRecord.occupation || "Мусиқачи",
+        instrument: musicianRecord.instrument,
+        instrumentId: musicianRecord.instrumentId,
         avatar: musicianRecord.image,
         bio: musicianRecord.bio,
         phone: musicianRecord.phoneNumber,

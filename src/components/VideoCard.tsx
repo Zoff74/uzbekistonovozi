@@ -1,11 +1,12 @@
 "use client";
 
 // БЛОК - "VideoCard" src/components/VideoCard.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Edit, Trash2 } from "lucide-react";
+import { Edit, Trash2, Play, Pause, Loader2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
+import { useSession } from "next-auth/react";
 
 interface VideoCardProps {
     video: {
@@ -14,14 +15,22 @@ interface VideoCardProps {
         singer: string;
         cover?: string;
         genre?: string;
-        views?: number;        // Просмотры
-        downloadsCount?: number; // Скачивания
+        views?: number;        
+        downloadsCount?: number; 
         status: string;
         expiresAt: string;
         createdAt: string;
         isPaidActive?: boolean;
+        authorId?: string;
+        author?: string;
+        userId?: string;
+        videoUrl?: string;
+        fileUrl?: string;
+        fileId?: string;
+        videoFileId?: string; // Добавили поддержку videoFileId из базы
     };
-    onDelete?: (id: string) => void; // 👈 Добавили опциональный колбэк для мгновенного удаления из списка
+    onDelete?: (id: string) => void;
+    isOwner?: boolean;
 }
 
 const FAKE_SEQUENCE = [1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
@@ -29,10 +38,41 @@ const INTERVAL_MS = 15 * 60 * 1000; // 15 минут
 
 export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const router = useRouter();
+    const { data: session } = useSession();
+
     const [isDeleting, setIsDeleting] = useState(false);
     const [showTariffs, setShowTariffs] = useState(false);
-    const [isRemoved, setIsRemoved] = useState(false); // 👈 Локальный флаг мгновенного скрытия карточки
+    const [isRemoved, setIsRemoved] = useState(false);
+    
+    // Состояния для реального встроенного плеера
+    const [isPlayingVideo, setIsPlayingVideo] = useState(false);
+    const [isLoadingVideo, setIsLoadingVideo] = useState(false);
+    const [videoError, setVideoError] = useState(false);
+    const videoRef = useRef<HTMLVideoElement>(null);
+
     const videoId = video._id.toString();
+
+    // 1. Точное определение fileId из любого источника (fileId, videoFileId или парсинг из videoUrl)
+    const rawFileId = video.fileId || video.videoFileId;
+    let computedFileId = rawFileId;
+
+    if (!computedFileId && video.videoUrl && video.videoUrl.includes("/api/videos/stream/")) {
+        computedFileId = video.videoUrl.split("/api/videos/stream/")[1];
+    }
+
+    // 2. Итоговый URL для стриминга через наш локальный роут
+    const videoSrc = computedFileId 
+        ? `/api/videos/stream/${computedFileId}` 
+        : (video.videoUrl || video.fileUrl || "");
+
+    // Проверка прав: владелец или админ
+    const currentUserId = (session?.user as any)?.id;
+    const currentUserRole = (session?.user as any)?.role;
+    const isAdmin = currentUserRole === 'admin' || (session?.user as any)?.isAdmin === true;
+    
+    const videoAuthor = video.authorId || video.author || video.userId;
+    const isOwner = currentUserId && videoAuthor && videoAuthor.toString() === currentUserId.toString();
+    const canManage = isOwner || isAdmin;
 
     // Логика фейкового прироста просмотров
     const [fakeOffset, setFakeOffset] = useState(0);
@@ -67,13 +107,12 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     }, [stepIndex, videoId]);
 
     if (isRemoved) {
-        return null; // 👈 Если карточка удалена, полностью убираем её из DOM
+        return null;
     }
 
     const realViews = video.views || 0;
     const displayedViews = realViews + fakeOffset;
 
-    // Расчет времени и дней (единая логика с треками: 24 часа блокировки управления)
     const createdAtDate = new Date(video.createdAt || video.expiresAt);
     const expiresDate = new Date(video.expiresAt);
     const now = new Date();
@@ -84,7 +123,22 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const diffTime = expiresDate.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    // Компонент единой рамки для кнопки удаления
+    const handlePlayVideo = () => {
+        if (!videoSrc) {
+            alert(tr("Видео файл топилмади", "Video fayl topilmadi", "Видео файл не найден", "Video file not found"));
+            return;
+        }
+
+        if (isPlayingVideo) {
+            setIsPlayingVideo(false);
+            if (videoRef.current) videoRef.current.pause();
+        } else {
+            setIsPlayingVideo(true);
+            setIsLoadingVideo(true);
+            setVideoError(false);
+        }
+    };
+
     const GradientBorder = () => (
         <div 
             className="absolute inset-0 rounded-xl z-0 shadow-[0_0_20px_rgba(57,255,20,0.3)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
@@ -105,7 +159,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
             setIsDeleting(true);
             const res = await fetch(`/api/videos/${videoId}`, { method: "DELETE" });
             if (res.ok) {
-                setIsRemoved(true); // 👈 Мгновенно скрываем карточку в интерфейсе
+                setIsRemoved(true);
                 if (onDelete) {
                     onDelete(videoId);
                 }
@@ -122,16 +176,75 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     };
 
     return (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5">
-            {/* Карточканинг юқори қисми (Расм + Номи + Ижрочи) */}
-            <div className="flex items-start sm:items-center gap-5">
-                <img
-                    src={video.cover || "/default-cover.webp"}
-                    alt={video.title}
-                    className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border border-neutral-800 shrink-0"
-                />
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+                
+                {/* МЕДИАТЕКА / ПЛЕЕР ИЛИ ОБЛОЖКА */}
+                <div className="relative w-full sm:w-48 aspect-video sm:aspect-square rounded-2xl object-cover border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
+                    {!isPlayingVideo ? (
+                        /* Обложка с кнопкой Play */
+                        <div 
+                            onClick={handlePlayVideo}
+                            className="relative w-full h-full cursor-pointer group"
+                        >
+                            <img
+                                src={video.cover || "/default-cover.webp"}
+                                alt={video.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-amber-400">
+                                <Play size={36} fill="currentColor" />
+                            </div>
+                        </div>
+                    ) : (
+                        /* Реальный тег видео с поддержкой source и автоплеем */
+                        <div className="relative w-full h-full flex items-center justify-center">
+                            {isLoadingVideo && !videoError && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10 gap-1.5">
+                                    <Loader2 className="w-6 h-6 text-[#39FF14] animate-spin" />
+                                    <span className="text-[#39FF14] text-[10px] font-semibold tracking-wider uppercase animate-pulse">
+                                        {tr("Юкланмоқда...", "Yuklanmoqda...", "Загрузка...", "Loading...")}
+                                    </span>
+                                </div>
+                            )}
+
+                            {videoError && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10 p-2 text-center">
+                                    <AlertCircle className="w-6 h-6 text-red-500 mb-1" />
+                                    <span className="text-red-400 text-[11px]">
+                                        {tr("Хатолик / Файл катта", "Xatolik / Fayl katta", "Ошибка / Файл велик", "Error / File too big")}
+                                    </span>
+                                </div>
+                            )}
+
+                            <video
+                                ref={videoRef}
+                                controls
+                                autoPlay
+                                playsInline
+                                preload="auto"
+                                onLoadedData={() => setIsLoadingVideo(false)}
+                                onCanPlay={() => setIsLoadingVideo(false)}
+                                onWaiting={() => setIsLoadingVideo(true)}
+                                onPlaying={() => setIsLoadingVideo(false)}
+                                onError={() => {
+                                    setIsLoadingVideo(false);
+                                    setVideoError(true);
+                                }}
+                                className="w-full h-full object-contain"
+                            >
+                                <source src={videoSrc} type="video/mp4" />
+                                {tr("Браузерингиз видеони қўллаб-қувватламайди", "Brauzeringiz videoni qo'llab-quvvatlamaydi", "Ваш браузер не поддерживает видео", "Your browser does not support video")}
+                            </video>
+                        </div>
+                    )}
+                </div>
+
                 <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-lg sm:text-xl text-white break-words">
+                    <h3 
+                        onClick={handlePlayVideo}
+                        className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition"
+                    >
                         {video.title}
                     </h3>
                     <p className="text-base text-neutral-200 mt-1 break-words font-medium">
@@ -153,124 +266,61 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 </div>
             </div>
 
-            {/* Вақт ва тарифлар ҳақида маълумот */}
-            <div className="flex flex-col gap-3 bg-neutral-950/70 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 text-sm sm:text-base">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className={`inline-block px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold ${
-                        video.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                    }`}>
-                        {video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired")}
-                    </span>
-                    
-                  <span className="text-neutral-200 font-semibold">
-    {diffDays > 0 
-        ? `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}. ${tr(
-            "Диққат! 24 соат ичида тўлов қилинмаса, Сизнинг медиа бошқарувингиз тўхтатилади!", 
-            "Diqqat! 24 soat ichida to'lov qilinmasa, Sizning media boshqaruvingiz to'xtatiladi!", 
-            "Внимание! Если оплата не будет произведена в течение 24 часов, ваше управление медиа будет остановлено!", 
-            "Attention! If payment is not made within 24 hours, your media management will be suspended!"
-          )}` 
-        : tr("Муддат тугади", "Muddat tugadi", "Срок истек", "Term expired")}
-</span>
-                </div>
-
-                {/* Психологическое предупреждение и блок видео-тарифов (активируется после 24 часов) */}
-                {!isWithinFirst24Hours && (
-                    <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3 text-sm sm:text-base">
-                        <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-400">
-                            <span>⚠️ {tr("Диққат! Бошқарув вақтинча ёпилди:", "Diqqat! Boshqaruv vaqtincha yopildi:", "Внимание! Управление временно закрыто:", "Attention! Management temporarily closed:")}</span>
-                            <button 
-                                onClick={() => setShowTariffs(!showTariffs)}
-                                className="underline hover:text-amber-300 transition text-sm font-semibold cursor-pointer bg-transparent border-none p-0"
-                            >
-                                {showTariffs ? tr("Тарифларни яшириш", "Tariflarni yashirish", "Скрыть тарифы", "Hide tariffs") : tr("Тарифларни кўриш", "Tariflarni ko'rish", "Посмотреть тарифы", "View tariffs")}
-                            </button>
-                        </div>
-
-                        <p className="text-neutral-200 leading-relaxed font-medium">
-                            {tr(
-                                "Вазъият: Видео ҳозир ВАҚТИНЧАЛИК фаол тарзда сайтда кўсатилмоқда ва кўришлар йиғмоқда, лекин сиз бошқарув ва статистикага киришни йўқотдингиз. Машҳур бўлиш имкониятини бой берманг — жойлаштиришни ҳозироқ узайтиринг!",
-                                "Vaziyat: Video hozir vaqtincha faol tarzda saytda ko'rsatilmoqda va ko'rishlar yig'moqda, lekin siz boshqaruv va statistikaga kirishni yo'qotdingiz. Mashhur bo'lish imkoniyatini boy bermang — joylashtirishni hoziroq uzaytiring!",
-                                "Ваше видео сейчас ВРЕМЕННО активно транслируется на сайте и собирает просмотры, но вы потеряли доступ к управлению и статистике. Не упустите свой шанс стать популярным и знаменитым — продлите размещение прямо сейчас!",
-                                "Your video is currently temporarily actively broadcast on the site and collecting views, but you have lost access to management and statistics. Don't miss your chance to become popular and famous — extend your placement right now!"
-                            )}
-                        </p>
-
-                        {/* Видео тарифлар рўйхати (2Х) */}
-                        {showTariffs && (
-                            <div className="pt-3 border-t border-amber-500/20 space-y-2 text-neutral-100">
-                                <p className="font-bold text-amber-300">💡 {tr("ВИДЕО ТАРИФЛАРИ (2Х):", "VIDEO TARIFLARI (2X):", "ВИДЕО ТАРИФЫ (2X):", "VIDEO TARIFFS (2X):")}</p>
-                                <ul className="list-disc list-inside space-y-1.5 text-neutral-200 pl-1 font-medium">
-                                    <li><strong className="text-white">{tr("Базавий тўлов:", "Bazaviy to'lov:", "Базовый платеж:", "Base fee:")}</strong> {tr("Ҳар-бир Видео жойлаштириш нархи 20 000 сўм (барча пуллик релизлар учун олинади).", "Har-bir Video Joylashtirish narxi 20 000 so'm (barcha pullik relizlar uchun olinadi).", "20 000 сум за размещение одного видео (взимается для всех платных релизов).", "20 000 sums for placement (charged for all paid releases).")}</li>
-                                    <li><strong className="text-white">{tr("Кунлик тўлов (1 дан 29 кунгача):", "Kunlik to'lov (1 dan 29 kungacha):", "Ежедневно (от 1 до 29 дней):", "Daily (from 1 to 29 days):")}</strong> {tr("Ҳар 24 соат учун 2 000 сўмдан. Қанча кунга жойлаштиришни ўзингиз белгилайсиз", "Xar 24 soat uchun 2 000 so'mdan. Qancha kunga joylashtirishni o'zingiz belgilaysiz", "2 000 сум за каждые 24 часа. Вы сами определяете, на сколько дней разместить", "2 000 sum for every 24 hours. You determine how many days to place")}</li>
-                                    <li><strong className="text-white">{tr("Оптом 1 ойга жойлаштириш (30 кун):", "Optom 1 oyga joylashtirish (30 kun):", "Оптовое месячное размешение (30 дней):", "Wholesale monthly (30 days):")}</strong> <span className="text-emerald-400 font-bold">{tr("60 000 сўм", "60 000 so'm", "60 000 сум", "60 000 sum")}</span> {tr("(20 000 сўм чегирма!)", "(20 000 so'm chegirma!)", "(скидка 20 000 сум!)", "(20 000 sum discount!)")}</li>
-                                </ul>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-
-            {/* Қуйи қисм: Бошқарув тугмалари */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
-                
-                {/* Кнопка: Изменить (блокируется после 24 часов, если нет активной оплаты) */}
-                <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">
-                    <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
-                    
-                    <Link
-                        href={`/dashboard/videos/${videoId}/edit`}
-                        className={`relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap ${
-                            !isWithinFirst24Hours ? "opacity-50 pointer-events-none" : ""
-                        }`}
-                        style={{ 
-                            borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
-                            borderImageSlice: 1 
-                        }}
-                    >
-                        <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/40 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                        </div>
-
-                        <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
-                        <span className="relative z-10">
-                            {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
+            {/* ПРИВАТНЫЙ БЛОК: Сроки хранения видны СТРОГО владельцу или админу */}
+            {canManage && (
+                <div className="flex flex-col gap-3 bg-neutral-950/70 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 text-sm sm:text-base">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span className={`inline-block px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold ${
+                            video.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        }`}>
+                            {video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired")}
                         </span>
-                    </Link>
+                        
+                        <span className="text-neutral-200 font-semibold">
+                            {diffDays > 0 
+                                ? `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}.` 
+                                : tr("Муддат тугади", "Muddat tugadi", "Срок истек", "Term expired")}
+                        </span>
+                    </div>
                 </div>
-                
-                {/* Кнопка: Удалить видео */}
-                <div className="relative rounded-xl inline-block group">
-                    <button
-                        onClick={handleDelete}
-                        disabled={isDeleting}
-                        className="relative z-10 p-3 rounded-xl bg-neutral-950 text-neutral-200 hover:text-red-400 transition text-sm sm:text-base font-semibold disabled:opacity-50 cursor-pointer flex items-center justify-center"
-                        title={tr("Видеони ўчириш", "Videoni o'chirish", "Удалить видео", "Delete video")}
-                    >
-                        <Trash2 size={18} />
-                    </button>
-                    <GradientBorder />
+            )}
+
+            {/* Кнопки управления отображаются СТРОГО для владельца или админа */}
+            {canManage && (
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
+                    <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">
+                        <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
+                        
+                        <Link
+                            href={`/dashboard/videos/${videoId}/edit`}
+                            className={`relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap ${
+                                !isWithinFirst24Hours ? "opacity-50 pointer-events-none" : ""
+                            }`}
+                            style={{ 
+                                borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
+                                borderImageSlice: 1 
+                            }}
+                        >
+                            <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
+                            <span className="relative z-10">
+                                {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
+                            </span>
+                        </Link>
+                    </div>
+                    
+                    <div className="relative rounded-xl inline-block group">
+                        <button
+                            onClick={handleDelete}
+                            disabled={isDeleting}
+                            className="relative z-10 p-3 rounded-xl bg-neutral-950 text-neutral-200 hover:text-red-400 transition text-sm font-semibold disabled:opacity-50 cursor-pointer flex items-center justify-center"
+                            title={tr("Видеоларни ўчириш", "Videolarni o'chirish", "Удалить видео", "Delete video")}
+                        >
+                            <Trash2 size={18} />
+                        </button>
+                        <GradientBorder />
+                    </div>
                 </div>
-
-            </div>
-
-            {/* Глобальные стили для анимаций */}
-            <style jsx global>{`
-                @keyframes pulse-subtle {
-                    0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px rgba(57,255,20,0.2)); }
-                    50% { opacity: 0.8; filter: drop-shadow(0 0 8px rgba(57,255,20,0.5)); }
-                }
-                @keyframes shimmer {
-                    0% { transform: translateX(-100%); }
-                    100% { transform: translateX(100%); }
-                }
-                .animate-pulse-subtle {
-                    animation: pulse-subtle 3s infinite ease-in-out;
-                }
-                .group-hover\:animate-shimmer {
-                    animation: shimmer 1.5s infinite ease-in-out;
-                }
-            `}</style>
+            )}
         </div>
     );
 }

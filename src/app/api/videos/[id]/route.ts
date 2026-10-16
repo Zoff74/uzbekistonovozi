@@ -1,5 +1,6 @@
+// src/app/api/videos/[id]/route.ts
 import { NextResponse, NextRequest } from "next/server";
-import { revalidatePath } from "next/cache"; // <--- 1. Импортируем ревалидацию
+import { revalidatePath } from "next/cache";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import { getServerSession } from "next-auth";
@@ -84,7 +85,9 @@ export async function DELETE(
         const userId = (session.user as any).id;
         const userRole = (session.user as any).role;
         const isAdmin = userRole === 'admin' || (session.user as any).isAdmin === true;
-        const isAuthor = video.authorId && video.authorId.toString() === userId.toString();
+        
+        const videoAuthor = video.authorId || video.author || video.userId;
+        const isAuthor = videoAuthor && userId && videoAuthor.toString() === userId.toString();
 
         if (!isAuthor && !isAdmin) {
             return NextResponse.json({ 
@@ -97,7 +100,7 @@ export async function DELETE(
             }, { status: 403 });
         }
 
-        // Очистка файлов из GridFS (обложка и видеофайл) с логированием
+        // Очистка файлов из GridFS
         try {
             const { bucket } = await getGridFSBuckets();
             const extractGridFsId = (url: string) => {
@@ -111,9 +114,8 @@ export async function DELETE(
             if (coverFileId) {
                 try {
                     await bucket.delete(coverFileId);
-                    console.log(`[DELETE GRIDFS] Файл обложки ${coverFileId} успешно удален`);
                 } catch (coverErr: any) {
-                    console.warn(`[DELETE GRIDFS WARNING] Не удалось удалить обложку ${coverFileId}:`, coverErr.message);
+                    console.warn(`[DELETE GRIDFS WARNING] Не удалось удалить обложку:`, coverErr.message);
                 }
             }
 
@@ -121,24 +123,19 @@ export async function DELETE(
             if (videoFileId) {
                 try {
                     await bucket.delete(videoFileId);
-                    console.log(`[DELETE GRIDFS] Файл видео ${videoFileId} успешно удален`);
                 } catch (videoErr: any) {
-                    console.warn(`[DELETE GRIDFS WARNING] Не удалось удалить видео ${videoFileId}:`, videoErr.message);
+                    console.warn(`[DELETE GRIDFS WARNING] Не удалось удалить видео:`, videoErr.message);
                 }
             }
         } catch (fsError) {
             console.error("Delete Video GridFS Error:", fsError);
         }
 
-        // Жесткое удаление документа из MongoDB
         const deletedVideo = await (Video as any).findByIdAndDelete(id);
         if (!deletedVideo) {
-            console.error(`[DELETE ERROR] Документ видео с ID ${id} не найден в базе при удалении.`);
             return NextResponse.json({ error: "Клип не найден в базе данных при удалении" }, { status: 404 });
         }
-        console.log(`[DELETE DB SUCCESS] Документ видео ${id} полностью стерт из MongoDB.`);
 
-        // <--- 2. Сбрасываем кэш страниц дашборда и каталога
         revalidatePath('/dashboard');
         revalidatePath('/catalogVideos');
         revalidatePath('/', 'layout');
@@ -165,7 +162,7 @@ export async function DELETE(
     }
 }
 
-// 2. Редактирование / Обновление видеоклипа
+// 2. Редактирование / Обновление видеоклипа (с автоочисткой старых файлов)
 export async function PUT(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
@@ -203,7 +200,9 @@ export async function PUT(
         const userId = (session.user as any).id;
         const userRole = (session.user as any).role;
         const isAdmin = userRole === 'admin' || (session.user as any).isAdmin === true;
-        const isAuthor = video.authorId && video.authorId.toString() === userId.toString();
+        
+        const videoAuthor = video.authorId || video.author || video.userId;
+        const isAuthor = videoAuthor && userId && videoAuthor.toString() === userId.toString();
 
         if (!isAuthor && !isAdmin) {
             return NextResponse.json({ 
@@ -216,7 +215,10 @@ export async function PUT(
             }, { status: 403 });
         }
 
-        // Обновляем текстовые поля
+        // Сохраняем старые ссылки для последующей очистки
+        const oldCoverUrl = video.cover;
+        const oldVideoUrl = video.videoUrl;
+
         if (body.title !== undefined) video.title = body.title;
         if (body.singer !== undefined) video.singer = body.singer;
         if (body.genre !== undefined) video.genre = body.genre;
@@ -224,7 +226,6 @@ export async function PUT(
         if (body.cover !== undefined) video.cover = body.cover;
         if (body.status !== undefined) video.status = body.status;
 
-        // Обновление видеофайла с проверкой 24 часов
         if (body.videoUrl !== undefined && body.videoUrl !== video.videoUrl) {
             if (body.videoUrl === "") {
                 video.videoUrl = "";
@@ -252,7 +253,37 @@ export async function PUT(
 
         await video.save();
 
-        // <--- 3. Сбрасываем кэш и при обновлении данных
+        // АВТОМАТИЧЕСКАЯ УДАЛЕНИЕ СТАРОГО МУСОРА (если файл был заменен)
+        try {
+            const { bucket } = await getGridFSBuckets();
+            const extractGridFsId = (url: string) => {
+                if (!url || typeof url !== 'string' || !url.startsWith('/api/media/')) return null;
+                const parts = url.split('/');
+                const idStr = parts[parts.length - 1];
+                return Types.ObjectId.isValid(idStr) ? new Types.ObjectId(idStr) : null;
+            };
+
+            // Если обложка изменилась и старая лежала в GridFS — удаляем её
+            if (body.cover !== undefined && body.cover !== oldCoverUrl && oldCoverUrl) {
+                const oldCoverId = extractGridFsId(oldCoverUrl);
+                if (oldCoverId) {
+                    await bucket.delete(oldCoverId).catch(() => {});
+                    console.log(`[CLEANUP] Старая обложка ${oldCoverId} удалена из GridFS`);
+                }
+            }
+
+            // Если видеофайл изменился и старый лежал в GridFS — удаляем его
+            if (body.videoUrl !== undefined && body.videoUrl !== oldVideoUrl && oldVideoUrl) {
+                const oldVideoId = extractGridFsId(oldVideoUrl);
+                if (oldVideoId) {
+                    await bucket.delete(oldVideoId).catch(() => {});
+                    console.log(`[CLEANUP] Старый видеофайл ${oldVideoId} удален из GridFS`);
+                }
+            }
+        } catch (cleanupErr) {
+            console.error("[CLEANUP ERROR] Ошибка при очистке старых файлов:", cleanupErr);
+        }
+
         revalidatePath('/dashboard');
         revalidatePath('/catalogVideos');
         revalidatePath('/', 'layout');

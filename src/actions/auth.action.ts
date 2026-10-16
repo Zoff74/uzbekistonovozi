@@ -1,12 +1,11 @@
 "use server";
 
-//src\actions\auth.action.ts
+// src/actions/auth.action.ts
 import { notifyAdmin } from "./telegram.action";
 import { uploadImageBase64 } from "./imagekit.action";
 import { tr } from "@/utils/translate";
 
 const TELEGRAM_USERNAME_REGEX = /^[a-zA-Z0-9_]{5,}$/;
-// Передаем просто подпапку, а главный корень (uzbekistonovozi) подставится автоматически внутри uploadImageBase64
 const TARGET_AVATAR_FOLDER = "avatars";
 
 export async function registerUser(formData: FormData) {
@@ -19,6 +18,7 @@ export async function registerUser(formData: FormData) {
     try {
         const { dbConnect } = await import("@/lib/mongoose");
         const User = (await import("@/models/User")).default;
+        const Instrument = (await import("@/models/Instrument")).default;
         const RegistrationLog = (await import("@/models/RegistrationLog")).default;
         const bcrypt = (await import("bcryptjs")).default;
 
@@ -41,12 +41,26 @@ export async function registerUser(formData: FormData) {
         
         const selectedOccupation = rawOccupation === 'other' && customOccupation ? customOccupation : rawOccupation;
         
-        // Логика: Тингловчи и User — это одно и то же. Если это не тингловчи, то он становится продавцом (savdogar).
+        // Считываем инструмент, категорию и уникальный слаг (instrumentId)
+        const instrument = (formData.get("instrument") as string)?.trim() || "";
+        const instrumentCategory = (formData.get("instrumentCategory") as string)?.trim() || selectedOccupation;
+        let instrumentId = (formData.get("instrumentId") as string)?.trim() || "";
+
+        // Если инструмент указан, но ID не передан — сгенерируем его автоматически по нашему алгоритму
+        if (instrument && !instrumentId) {
+            instrumentId = instrument
+                .toLowerCase()
+                .replace(/[^a-z0-9а-яўғқҳҷӯӣқçğşîâû -]/g, '')
+                .split(/\s+/)
+                .sort()
+                .join('-');
+        }
+
+        // Логика роли: Тингловчи и User — это одно и то же. Если это не тингловчи, то он становится продавцом (savdogar).
         const systemRole = selectedOccupation === 'tinglovchi' ? 'user' : 'savdogar';
 
         const avatarFile = formData.get("avatar") as File | null;
 
-        // Сохраняем имя пользователя в чистом виде без slugify и технических хвостов
         let finalUsername = username ? username.trim() : "";
         let normalizedTelegram = null;
 
@@ -128,6 +142,7 @@ export async function registerUser(formData: FormData) {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+        // 1. Создаем пользователя в коллекции users
         const newUser = await User.create({
             username: finalUsername,
             email,
@@ -137,7 +152,9 @@ export async function registerUser(formData: FormData) {
             imageFileId: imageFileId,
             telegram: normalizedTelegram,
             occupation: selectedOccupation, 
-            role: systemRole,             
+            instrument: instrument,         
+            instrumentId: instrumentId,     
+            role: systemRole,              
             isTelegramVerified: false,
             didBypassTelegram: false,
             isMassMailingActive: true,
@@ -156,6 +173,21 @@ export async function registerUser(formData: FormData) {
             followersCount: 0,
         });
 
+        // 2. Автоматически регистрируем или обновляем счетчик инструмента в справочнике instruments
+        if (instrument && instrumentId) {
+            try {
+                await (Instrument as any).findOneAndUpdate(
+                    { slug: instrumentId },
+                    { 
+                        $setOnInsert: { name: instrument, category: instrumentCategory },$inc: { usageCount: 1 } 
+                    },
+                    { upsert: true, new: true }
+                );
+            } catch (instErr) {
+                console.error("Ошибка при сохранении справочника инструментов:", instErr);
+            }
+        }
+
         try {
             await RegistrationLog.create({
                 email, username: finalUsername, telegram: normalizedTelegram, didBypassTelegram: false
@@ -165,7 +197,7 @@ export async function registerUser(formData: FormData) {
         }
 
         try {
-            const adminMessage = `🎉 **НОВЫЙ ПОЛЬЗОВАТЕЛЬ!**\n\nИмя: **${newUser.username}**\nEmail: ${newUser.email}\nТелефон: ${phoneNumber || '❌'}\nАмплуа: ${selectedOccupation}\nРоль (система): ${systemRole}\nTelegram: ${newUser.telegram ? `@${newUser.telegram}` : '❌ (Керакли маълумот киритилмаган)'}`;
+            const adminMessage = `🎉 **НОВЫЙ ПОЛЬЗОВАТЕЛЬ!**\n\nИмя: **${newUser.username}**\nEmail: ${newUser.email}\nТелефон: ${phoneNumber || '❌'}\nАмплуа: ${selectedOccupation}${instrument ? `\nИнструмент: ${instrument}` : ''}\nРоль (система): ${systemRole}\nTelegram: ${newUser.telegram ? `@${newUser.telegram}` : '❌ (Керакли маълумот киритилмаган)'}`;
             notifyAdmin(adminMessage);
         } catch (tgError) {
             console.error("Telegram недоступен.");

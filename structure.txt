@@ -54,6 +54,10 @@
 │   │   │   │   └── route.ts
 │   │   │   ├── imagekit-auth
 │   │   │   │   └── route.ts
+│   │   │   ├── instruments
+│   │   │   │   └── route.ts
+│   │   │   ├── marketplace
+│   │   │   │   └── route.ts
 │   │   │   ├── media
 │   │   │   │   └── [id]
 │   │   │   │       └── route.ts
@@ -76,6 +80,9 @@
 │   │   │   └── videos
 │   │   │       ├── [id]
 │   │   │       │   └── route.ts
+│   │   │       ├── stream
+│   │   │       │   └── [fileId]
+│   │   │       │       └── route.ts
 │   │   │       └── route.ts
 │   │   ├── catalogIjodkorlar
 │   │   │   └── page.tsx
@@ -106,6 +113,8 @@
 │   │   │   │       └── page.tsx
 │   │   │   └── page.tsx
 │   │   ├── marketplace
+│   │   │   ├── new
+│   │   │   │   └── page.tsx
 │   │   │   └── page.tsx
 │   │   ├── musiqachilar
 │   │   │   └── [id]
@@ -126,6 +135,7 @@
 │   │   ├── GenreCategories.tsx
 │   │   ├── Header.tsx
 │   │   ├── HeaderCanvas.tsx
+│   │   ├── InstrumentAutocomplete.tsx
 │   │   ├── LanguageSwitcher.tsx
 │   │   ├── Player.tsx
 │   │   ├── SessionProvider.tsx
@@ -146,6 +156,8 @@
 │   ├── models
 │   │   ├── Category.ts
 │   │   ├── Comment.ts
+│   │   ├── Instrument.ts
+│   │   ├── MarketplaceItem.ts
 │   │   ├── Post.ts
 │   │   ├── RegistrationLog.ts
 │   │   ├── TelegramToken.ts
@@ -161,6 +173,8 @@
 │       └── translate.ts
 ├── .env.local
 ├── .gitignore
+├── docker-compose.yml
+├── export-users.js
 ├── generate_structure.js
 ├── globals.d.ts
 ├── netlify.toml
@@ -170,4 +184,5 @@
 ├── package.json
 ├── postcss.config.mjs
 ├── tailwind.config.ts
-└── tsconfig.json
+├── tsconfig.json
+└── users.json

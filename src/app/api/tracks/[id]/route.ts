@@ -1,3 +1,4 @@
+// src/app/api/tracks/[id]/route.ts
 import { NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
@@ -55,8 +56,11 @@ export async function DELETE(
         }
 
         const userId = (session.user as any).id;
-        const isAdmin = (session.user as any).isAdmin === true;
-        const isAuthor = track.authorId && track.authorId.toString() === userId;
+        const isAdmin = (session.user as any).isAdmin === true || (session.user as any).role === 'admin';
+        
+        // Надежная проверка всех возможных вариантов поля автора в документе Трека
+        const trackAuthor = track.authorId || track.author || track.userId;
+        const isAuthor = trackAuthor && userId && trackAuthor.toString() === userId.toString();
 
         if (!isAuthor && !isAdmin) {
             return NextResponse.json({ 
@@ -104,8 +108,11 @@ export async function PUT(
         }
 
         const userId = (session.user as any).id;
-        const isAdmin = (session.user as any).isAdmin === true;
-        const isAuthor = track.authorId && track.authorId.toString() === userId;
+        const isAdmin = (session.user as any).isAdmin === true || (session.user as any).role === 'admin';
+        
+        // Надежная проверка автора
+        const trackAuthor = track.authorId || track.author || track.userId;
+        const isAuthor = trackAuthor && userId && trackAuthor.toString() === userId.toString();
 
         if (!isAuthor && !isAdmin) {
             return NextResponse.json({ 

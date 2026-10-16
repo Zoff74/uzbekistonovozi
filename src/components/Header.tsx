@@ -109,7 +109,7 @@ export default function Header() {
             <Link href="/" className="text-slate-300 hover:text-[#39FF14] transition py-2">{tr("Бош саҳифа", "Bosh sahifa", "Главная", "Home")}</Link>
 
             <Link href={getHref("/catalogMusiqachilar")} className="text-slate-300 hover:text-[#39FF14] transition py-2">
-              {tr("Мусиқачилар", "Musiqachilar", "Музыканты", "Musicians")}
+              {tr("Мусиқачи", "Musiqachi", "Музыканты", "Musicians")}
             </Link>
 
             {/* Ижодкорлар (Десктоп) */}
@@ -123,7 +123,7 @@ export default function Header() {
                 onClick={() => setIsIjodkorOpen((prev) => !prev)}
                 className="text-slate-300 hover:text-[#39FF14] transition flex items-center gap-1 py-2 focus:outline-none cursor-pointer"
               >
-                {tr("Ижодкорлар", "Ijodkorlar", "Творцы", "Creators")}
+                {tr("Ижодкор", "Ijodkor", "Творцы", "Creators")}
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isIjodkorOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
               </button>
 
@@ -141,7 +141,7 @@ export default function Header() {
                     onClick={() => setIsIjodkorOpen(false)}
                     className="px-4 py-2 text-slate-300 hover:text-[#39FF14] hover:bg-white/5 transition"
                   >
-                    {tr("Композиторлар", "Kompozitorlar", "Композиторы", "Composers")}
+                    {tr("Композитор / Бастакорлар", "Kompozitor / Bastakorlar", "Композиторы", "Composers")}
                   </Link>
                 </div>
               )}
@@ -158,7 +158,7 @@ export default function Header() {
                 onClick={() => setIsVokalOpen((prev) => !prev)}
                 className="text-slate-300 hover:text-[#39FF14] transition flex items-center gap-1 py-2 focus:outline-none cursor-pointer"
               >
-                {tr("Мусиқасиз Вокал", "Musiqasiz Vokal", "Вокал без музыки", "Vocals")}
+                {tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isVokalOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
               </button>
 
@@ -188,7 +188,7 @@ export default function Header() {
                 </div>
               )}
             </div>
-
+{/* Тайёр махсулотлар (Десктоп) */}
             <Link href={getHref("/catalogMusic")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
               <span>{tr("Таёр", "Tayor", "Готовая", "Listen to")}</span>
               <span>{tr("Мусиқа", "Musiqa", "Музыка", "Music")}</span>
@@ -196,20 +196,20 @@ export default function Header() {
 
             <Link href={getHref("/catalogSongs")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
               <span>{tr("Таёр", "Tayor", "Готовые", "Listen to")}</span>
-              <span>{tr("Қўшиқлар", "Qo'shiqlar", "Песни", "Songs")}</span>
+              <span>{tr("Қўшиқ", "Qo'shiq", "Песни", "Songs")}</span>
             </Link>
 
             <Link href={getHref("/catalogVideos")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
               <span>{tr("Таёр", "Tayor", "Готовые", "Views")}</span>
-              <span>{tr("Клиплар", "Kliplar", "Клипы", "Clips")}</span>
+              <span>{tr("Клип", "Klip", "Клипы", "Clips")}</span>
             </Link>
-
+{/* Олди-Сотди бозори. МАРКЕТ для продажи музыкальных инструментов. (Десктоп) */}
             <Link href={getHref("/marketplace")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
-              <span>{tr("Мусиқий", "Musiqiy", "Музыкальные", "Music")}</span>
-              <span>{tr("асбоблар", "asboblar", "инструменты", "instrument")}</span>
+              <span>{tr("Мусиқий асбоблар", "Musiqiy asboblar", "Музыкальные инструменты.", "Music instrument.")}</span>
+              <span>{tr("олди-сотди бозори", "oldi-sotdi bozori", "Продажа", "Market")}</span>
             </Link>
           </nav>
-
+{/* ДЕСКТОПНЫЙ БЛОК СМЕНА ЯЗЫКА */}
           <div className="hidden xl:flex flex-row items-center space-x-3">
             <div className="relative w-[130px] h-[38px] group flex items-center justify-center">
               <div 
@@ -328,6 +328,7 @@ export default function Header() {
       </header>
 
       {/* 2. МОБИЛЬНЫЙ БЛОК НАВИГАЦИИ (ИНТЕРАКТИВНЫЙ АККОРДЕОН БЕЗ CSS-ОБРЕЗАНИЯ) */}
+
       <div className="xl:hidden w-full bg-[#030712]/95 border-b border-white/10 px-3 py-2 flex flex-col gap-2 shrink-0">
         <div className="flex items-center space-x-2.5 overflow-x-auto text-xs font-semibold scrollbar-none py-1">
           <Link 
@@ -341,7 +342,7 @@ export default function Header() {
             href={getHref("/catalogMusiqachilar")} 
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
-            {tr("Мусиқачилар", "Musiqachilar", "Музыканты", "Musicians")}
+            {tr("Мусиқачи", "Musiqachi", "Музыканты", "Musicians")}
           </Link>
 
           {/* Кнопка открытия Ижодкорлар */}
@@ -355,11 +356,11 @@ export default function Header() {
               isMobileIjodkorOpen ? "border-[#39FF14] text-[#39FF14]" : "border-white/10 text-slate-300"
             }`}
           >
-            {tr("Ижодкорлар", "Ijodkorlar", "Творцы", "Creators")}
+            {tr("Ижодкор", "Ijodkor", "Творцы", "Creators")}
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isMobileIjodkorOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
           </button>
 
-          {/* Кнопка открытия Мусиқасиз Вокал */}
+          {/* Кнопка открытия Вокал */}
           <button 
             type="button"
             onClick={() => {
@@ -370,7 +371,7 @@ export default function Header() {
               isMobileVokalOpen ? "border-[#39FF14] text-[#39FF14]" : "border-white/10 text-slate-300"
             }`}
           >
-            {tr("Мусиқасиз Вокал", "Musiqasiz Vokal", "Вокал без музыки", "Vocals")}
+             {tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isMobileVokalOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
           </button>
 
@@ -378,28 +379,28 @@ export default function Header() {
             href={getHref("/catalogMusic")} 
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
-            {tr("Таёр Мусиқа", "Tayor Musiqa", "Готовая Музыка", "Ready Music")}
+            {tr("Таёр мусиқа", "Tayor musiqa", "Готовая музыка", "Ready music")}
           </Link>
 
           <Link 
             href={getHref("/catalogSongs")} 
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
-            {tr("Таёр Қўшиқлар", "Tayor Qo'shiqlar", "Готовые Песни", "Ready Songs")}
+            {tr("Таёр қўшиқ", "Tayor qo'shiq", "Готовые песни", "Ready songs")}
           </Link>
 
           <Link 
             href={getHref("/catalogVideos")} 
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
-            {tr("Таёр Клиплар", "Tayor Kliplar", "Готовые Клипы", "Ready Clips")}
+            {tr("Таёр клип", "Tayor klip", "Готовые клипы", "Ready clips")}
           </Link>
 
           <Link 
             href={getHref("/marketplace")} 
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
-            {tr("Мусиқий асбоблар", "Musiqiy asboblar", "Музыкальные инструменты", "Music Instruments")}
+            {tr("Мусиқий асбоблар олди-сотди бозори", "Musiqiy asboblar oldi-sotdi bozori", "Музыкальные инструменты. Продажа", "Music Instruments. Sale")}
           </Link>
         </div>
 
@@ -418,7 +419,7 @@ export default function Header() {
               onClick={() => setIsMobileIjodkorOpen(false)}
               className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
             >
-              • {tr("Композиторлар", "Kompozitorlar", "Композиторы", "Composers")}
+              • {tr("Композитор / Бастакорлар", "Kompozitor / Bastakorlar", "Композиторы", "Composers")}
             </Link>
           </div>
         )}

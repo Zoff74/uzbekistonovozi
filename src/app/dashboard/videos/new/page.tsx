@@ -20,7 +20,7 @@ export default function NewVideoPage() {
     });
 
     const [videoFile, setVideoFile] = useState<File | null>(null);
-    const [videoDuration, setVideoDuration] = useState<string>("0:00"); // Состояние для хранения длительности
+    const [videoDuration, setVideoDuration] = useState<string>("0:00");
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
 
@@ -41,7 +41,6 @@ export default function NewVideoPage() {
         reader.readAsDataURL(file);
     };
 
-    // Функция для автоматического вычисления длительности видео
     const extractVideoDuration = (file: File): Promise<string> => {
         return new Promise((resolve) => {
             const videoElement = document.createElement("video");
@@ -71,7 +70,6 @@ export default function NewVideoPage() {
         setVideoFile(file);
         setError(null);
 
-        // Вычисляем длительность при выборе файла
         const duration = await extractVideoDuration(file);
         setVideoDuration(duration);
     };
@@ -93,56 +91,77 @@ export default function NewVideoPage() {
         setUploadProgress(0);
 
         try {
-            const data = new FormData();
-            data.append("title", formData.title);
-            data.append("singer", formData.singer);
-            data.append("genre", formData.genre);
-            data.append("duration", videoDuration); // Передаем вычисленную длительность на бэкенд
-            data.append("video", videoFile);
-            if (coverFile) {
-                data.append("cover", coverFile);
-            }
-
-            await new Promise<void>((resolve, reject) => {
+            // ШАГ 1: Загружаем видео напрямую через /api/upload (без лимитов формы)
+            setUploadProgress(10);
+            const uploadVideoXhr = new Promise<{ fileId: string; url: string }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open("POST", "/api/videos");
+                xhr.open("POST", "/api/upload");
                 xhr.timeout = 600000;
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const percent = Math.round((event.loaded * 100) / event.total);
-                        setUploadProgress(percent);
+                        const percent = 10 + Math.round((event.loaded * 80) / event.total);
+                        setUploadProgress(percent > 90 ? 90 : percent);
                     }
                 };
 
                 xhr.onload = () => {
                     if (xhr.status >= 200 && xhr.status < 300) {
                         try {
-                            const resData = JSON.parse(xhr.responseText);
-                            if (resData.success === false) {
-                                reject(new Error(resData.message || "Ошибка сервера"));
+                            const res = JSON.parse(xhr.responseText);
+                            if (res.success && res.fileId) {
+                                resolve({ fileId: res.fileId, url: res.url });
                             } else {
-                                resolve();
+                                reject(new Error(res.error || "Ошибка загрузки видео в Telegram"));
                             }
                         } catch {
-                            resolve();
+                            reject(new Error("Ошибка обработки ответа сервера"));
                         }
                     } else {
                         try {
-                            const errData = JSON.parse(xhr.responseText);
-                            reject(new Error(errData.message || errData.error || `Ошибка: HTTP ${xhr.status}`));
+                            const errRes = JSON.parse(xhr.responseText);
+                            reject(new Error(errRes.error || `Ошибка: HTTP ${xhr.status}`));
                         } catch {
                             reject(new Error(`Ошибка загрузки: HTTP ${xhr.status}`));
                         }
                     }
                 };
 
-                xhr.onerror = () => reject(new Error(tr("Сетевая ошибка при загрузке", "Tarmoq xatoligi", "Сетевая ошибка", "Network error")));
-                xhr.ontimeout = () => reject(new Error(tr("Превышено время ожидания", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
+                xhr.onerror = () => reject(new Error(tr("Сетевая ошибка при загрузке видео", "Tarmoq xatoligi", "Сетевая ошибка", "Network error")));
+                xhr.ontimeout = () => reject(new Error(tr("Превышено время ожидания видео", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
 
-                xhr.send(data);
+                xhr.setRequestHeader("x-file-name", encodeURIComponent(videoFile.name));
+                xhr.setRequestHeader("x-upload-type", "video");
+                xhr.send(videoFile);
             });
 
+            const uploadedVideo = await uploadVideoXhr;
+            setUploadProgress(95);
+
+            // ШАГ 2: Сохраняем метаданные на /api/videos
+            const metadataFormData = new FormData();
+            metadataFormData.append("title", formData.title);
+            metadataFormData.append("singer", formData.singer);
+            metadataFormData.append("genre", formData.genre);
+            metadataFormData.append("duration", videoDuration);
+            metadataFormData.append("videoFileId", uploadedVideo.fileId);
+            metadataFormData.append("videoUrl", uploadedVideo.url);
+            
+            if (coverFile) {
+                metadataFormData.append("cover", coverFile);
+            }
+
+            const response = await fetch("/api/videos", {
+                method: "POST",
+                body: metadataFormData,
+            });
+
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || "Ошибка сохранения видео в базе данных");
+            }
+
+            setUploadProgress(100);
             setLoading(false);
             setSuccessModal(true);
 
