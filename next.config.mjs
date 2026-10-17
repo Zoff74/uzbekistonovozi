@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const nextConfig = {
     experimental: {
         serverActions: {
-            bodySizeLimit: '150mb', // Увеличиваем лимит, чтобы Server Actions пропускали видео
+            bodySizeLimit: '150mb',
         },
         optimizeCss: true,
         optimizePackageImports: [
@@ -71,7 +71,6 @@ const nextConfig = {
         ];
     },
     webpack: (config, { isServer }) => {
-        // Жестко фиксируем алиас @ на папку src для Webpack
         config.resolve.alias = {
             ...config.resolve.alias,
             '@': path.resolve(__dirname, 'src'),

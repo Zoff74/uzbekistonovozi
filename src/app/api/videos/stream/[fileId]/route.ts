@@ -1,10 +1,10 @@
+//src\app\api\videos\stream\[fileId]\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const LOCAL_API_URL = process.env.TELEGRAM_LOCAL_API_URL || "http://localhost:8081";
 
 export async function GET(
     request: NextRequest,
@@ -18,31 +18,55 @@ export async function GET(
         }
 
         if (!BOT_TOKEN) {
-            console.error("TELEGRAM_BOT_TOKEN не задан в .env.local");
             return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
         }
 
-        // 1. Запрашиваем информацию о файле через локальный Docker Telegram Bot API
-        const response = await fetch(`${LOCAL_API_URL}/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
+        // 1. Запрашиваем путь к файлу у официального Telegram Bot API
+        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
         const data = await response.json();
 
         if (!data || !data.ok || !data.result || !data.result.file_path) {
-            console.error("Ошибка получения file_path от локального API:", data);
-            return NextResponse.json({ error: "Ссылка на видео не найдена в Telegram" }, { status: 404 });
+            console.error("Telegram getFile error:", data);
+            return NextResponse.json({ error: "Файл не найден в Telegram" }, { status: 404 });
         }
 
         const filePath = data.result.file_path;
+        const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
-        // 2. Формируем прямую ссылку на скачивание/стриминг с локального контейнера
-        const fileDownloadLink = `${LOCAL_API_URL}/file/bot${BOT_TOKEN}/${filePath}`;
+        // 2. Протягиваем заголовок Range для поддержки перемотки видео в плеере
+        const rangeHeader = request.headers.get("range");
+        const fetchHeaders: HeadersInit = {};
+        if (rangeHeader) {
+            fetchHeaders["Range"] = rangeHeader;
+        }
 
-        // 3. 302 Redirect перенаправляет HTML5 <video> плеер на твой локальный Docker-сервер
-        return NextResponse.redirect(fileDownloadLink, { status: 302 });
+        // 3. Запрашиваем поток данных у серверов Telegram
+        const telegramRes = await fetch(fileDownloadUrl, {
+            headers: fetchHeaders,
+            cache: "no-store",
+        });
+
+        if (!telegramRes.ok && telegramRes.status !== 206) {
+            return NextResponse.json({ error: "Не удалось получить медиапоток" }, { status: telegramRes.status });
+        }
+
+        const responseHeaders = new Headers();
+        responseHeaders.set("Content-Type", telegramRes.headers.get("content-type") || "video/mp4");
+        responseHeaders.set("Accept-Ranges", "bytes");
+
+        const contentLength = telegramRes.headers.get("content-length");
+        if (contentLength) responseHeaders.set("Content-Length", contentLength);
+
+        const contentRange = telegramRes.headers.get("content-range");
+        if (contentRange) responseHeaders.set("Content-Range", contentRange);
+
+        return new NextResponse(telegramRes.body, {
+            status: telegramRes.status,
+            headers: responseHeaders,
+        });
+
     } catch (error: any) {
-        console.error("Ошибка стриминга видео из Telegram:", error?.message || error);
-        return NextResponse.json(
-            { error: "Видео недоступно или file_id недействителен" }, 
-            { status: 404 }
-        );
+        console.error("Ошибка стриминга видео:", error?.message || error);
+        return NextResponse.json({ error: "Ошибка сервера при стриминге" }, { status: 500 });
     }
 }

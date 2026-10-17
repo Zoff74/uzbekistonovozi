@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export const maxDuration = 300; // До 5 минут ожидания для тяжелых видео
+export const maxDuration = 300;
 export const runtime = 'nodejs';
 
 import { NextResponse, NextRequest } from "next/server";
@@ -11,6 +11,10 @@ import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import { Track } from "@/models/Track";
 import { uploadVideoToTelegramStorage } from "@/actions/telegram.action";
+import path from "path";
+import os from "os";
+import fs from "fs/promises";
+import ffmpeg from "fluent-ffmpeg";
 
 const imagekit = new ImageKit({
     publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "",
@@ -25,27 +29,29 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
         }
 
-        const contentType = request.headers.get("content-type") || "";
         const uploadType = request.headers.get("x-upload-type") || "video";
-
-        let buffer: Buffer;
+        const headerName = request.headers.get("x-file-name");
         let originalName = "video.mp4";
-        let oldFileId: string | null = null;
+        if (headerName) {
+            try {
+                originalName = decodeURIComponent(headerName);
+            } catch {
+                originalName = headerName;
+            }
+        }
 
-        // Если это обычные картинки/обложки (через formData), обрабатываем стандартно
-        if (contentType.includes("multipart/form-data") && uploadType !== "video") {
+        // Если это картинка (аватарка/обложка), используем FormData
+        if (uploadType !== "video") {
             const formData = await request.formData();
             const file = formData.get("file") as File | null;
-            oldFileId = formData.get("oldFileId") as string | null;
+            const oldFileId = formData.get("oldFileId") as string | null;
 
             if (!file) {
                 return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
             }
 
-            originalName = file.name || "media";
-            buffer = Buffer.from(await file.arrayBuffer());
-
-            const uniqueFileName = `${Date.now()}_${originalName}`;
+            const buffer = Buffer.from(await file.arrayBuffer());
+            const uniqueFileName = `${Date.now()}_${file.name}`;
             const mainFolder = process.env.NEXT_PUBLIC_IMAGEKIT_FOLDER || "";
             const defaultFolder = mainFolder ? `/${mainFolder}/avatars` : "/avatars";
             const folder = (formData.get("folder") as string) || defaultFolder;
@@ -72,26 +78,52 @@ export async function POST(request: NextRequest) {
             });
         } 
         
-        // Для тяжелых ВИДЕО принимаем поток байтов напрямую из тела запроса (в обход лимитов formData и 413 ошибок)
+        // РАБОТА С ВИДЕО: принимаем чистый буфер из тела запроса (мгновенно без multipart)
         const arrayBuffer = await request.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
-        
-        const headerName = request.headers.get("x-file-name");
-        if (headerName) {
-            try {
-                originalName = decodeURIComponent(headerName);
-            } catch {
-                originalName = headerName;
-            }
-        }
+        const buffer = Buffer.from(arrayBuffer);
 
         if (buffer.length === 0) {
             return NextResponse.json({ error: "Файл пустой или не передан" }, { status: 400 });
         }
 
+        const tempDir = os.tmpdir();
+        const uniqueId = Date.now();
+        const inputPath = path.join(tempDir, `input_${uniqueId}_${originalName}`);
+        const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
+
+        await fs.writeFile(inputPath, buffer);
+
+        console.log("🎬 Начинаем быстрое серверное сжатие видео через ffmpeg...");
+
+        await new Promise<void>((resolve, reject) => {
+            ffmpeg(inputPath)
+                .output(outputPath)
+                .videoCodec('libx264')
+                .audioCodec('copy')
+                .size('?x360')
+                .outputOptions([
+                    '-preset ultrafast',
+                    '-b:v 400k'
+                ])
+                .on('end', () => resolve())
+                .on('error', (err) => reject(err))
+                .run();
+        });
+
+        console.log("✅ Серверное сжатие видео успешно завершено!");
+
+        const compressedBuffer = await fs.readFile(outputPath);
+
+        await fs.unlink(inputPath).catch(() => {});
+        await fs.unlink(outputPath).catch(() => {});
+
+        if (compressedBuffer.length > 50 * 1024 * 1024) {
+            return NextResponse.json({ error: "Файл слишком большой даже после сжатия (превышает 50 МБ)" }, { status: 400 });
+        }
+
         const tgResult = await uploadVideoToTelegramStorage(
-            buffer,
-            originalName,
+            compressedBuffer,
+            originalName.replace(/\.[^/.]+$/, "") + "_server_optimized.mp4",
             `🎥 Видео от пользователя: ${(session.user as any).name || (session.user as any).id}`
         );
 
@@ -109,7 +141,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error("Upload error:", error);
         return NextResponse.json(
-            { error: error.message || "Ошибка при загрузке файла" },
+            { error: error.message || "Ошибка при загрузке или сжатии файла" },
             { status: 500 }
         );
     }

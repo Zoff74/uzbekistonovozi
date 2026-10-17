@@ -188,7 +188,7 @@ export async function notifyAuthorAboutSale(chatId: string, trackTitle: string, 
 }
 
 /**
- * Загрузка видеофайла через локальный Docker-сервер Telegram Bot API (без лимита 50МБ)
+ * Загрузка видеофайла в публичное хранилище Telegram через официальный Telegram Bot API
  */
 export async function uploadVideoToTelegramStorage(
     videoBuffer: Buffer,
@@ -213,9 +213,8 @@ export async function uploadVideoToTelegramStorage(
         formData.append('caption', caption);
         formData.append('parse_mode', 'HTML');
 
-        // Отправляем запрос на локальный сервер Docker (localhost:8081) вместо api.telegram.org
-        const localApiUrl = process.env.TELEGRAM_LOCAL_API_URL || 'http://localhost:8081';
-        const response = await fetch(`${localApiUrl}/bot${BOT_TOKEN}/sendDocument`, {
+        // Отправляем запрос на официальный Telegram Bot API
+        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
             body: formData,
         });

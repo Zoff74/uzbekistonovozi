@@ -1,10 +1,10 @@
-// scripts/cleanup-unpaid.js ЗАПУСК вручную: npm run cleanup 
+// scripts/cleanup-unpaid.js
+// ЗАПУСК вручную: npm run cleanup
 const mongoose = require('mongoose');
 require('dotenv').config({ path: '.env.local' });
 
 async function runCleanup() {
     try {
-        // Берем строку подключения из ваших переменных окружения (.env.local)
         const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/uzbekistonovozi';
         
         await mongoose.connect(MONGODB_URI);
@@ -14,13 +14,19 @@ async function runCleanup() {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-        // Условие удаления: контент не оплачен (isPaid не равно true) И создан 30+ дней назад
-        const query = {
+        // Условие для треков: не оплачены И созданы 30+ дней назад
+        const trackQuery = {
             isPaid: { $ne: true },
             createdAt: { $lte: thirtyDaysAgo }
         };
 
-        // Подключаем модели (если они еще не зарегистрированы в контексте скрипта)
+        // Условие для видео: не активированы оплатой (isPaid и isPaidActive не true) И созданы 30+ дней назад
+        const videoQuery = {
+            isPaid: { $ne: true },
+            isPaidActive: { $ne: true },
+            createdAt: { $lte: thirtyDaysAgo }
+        };
+
         let Track, Video;
         try {
             Track = mongoose.model('Track');
@@ -34,9 +40,9 @@ async function runCleanup() {
             Video = mongoose.model('Video', new mongoose.Schema({}, { strict: false }));
         }
 
-        // Выполняем массовое удаление старого неоплаченного контента
-        const deletedTracks = await Track.deleteMany(query);
-        const deletedVideos = await Video.deleteMany(query);
+        // Выполняем очистку по раздельным и безопасным условиям
+        const deletedTracks = await Track.deleteMany(trackQuery);
+        const deletedVideos = await Video.deleteMany(videoQuery);
 
         console.log(`[Cleanup Success]: Удалено старых неоплаченных треков: ${deletedTracks.deletedCount}, видео: ${deletedVideos.deletedCount}`);
         

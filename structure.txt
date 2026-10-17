@@ -140,6 +140,7 @@
 │   │   ├── Player.tsx
 │   │   ├── SessionProvider.tsx
 │   │   ├── TrackCard.tsx
+│   │   ├── UploadForm.tsx
 │   │   ├── VideoCard.tsx
 │   │   ├── VipClipsSection.tsx
 │   │   ├── VipTracksSection.tsx
@@ -173,7 +174,6 @@
 │       └── translate.ts
 ├── .env.local
 ├── .gitignore
-├── docker-compose.yml
 ├── export-users.js
 ├── generate_structure.js
 ├── globals.d.ts
@@ -184,5 +184,4 @@
 ├── package.json
 ├── postcss.config.mjs
 ├── tailwind.config.ts
-├── tsconfig.json
-└── users.json
+└── tsconfig.json
