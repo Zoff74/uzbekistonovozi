@@ -9,7 +9,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
-import { Track } from "@/models/Track";
 import { uploadVideoToTelegramStorage } from "@/actions/telegram.action";
 import path from "path";
 import os from "os";
@@ -88,7 +87,6 @@ export async function POST(request: NextRequest) {
         const inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
         const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
-        // Стримим файл прямо на диск
         const nodeStream = Readable.fromWeb(file.stream() as any);
         await pipeline(nodeStream, createWriteStream(inputPath));
 
@@ -96,9 +94,8 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл больше 48 МБ — сжимаем на диске с оптимальным качеством
         if (fileStats.size > 48 * 1024 * 1024) {
-            console.log(`🎬 [Stream] Запуск сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) через ffmpeg...`);
+            console.log(`🎬 [Stream] Запуск сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) в 480p через ffmpeg...`);
 
             try {
                 await new Promise<void>((resolve, reject) => {
@@ -106,11 +103,11 @@ export async function POST(request: NextRequest) {
                         .output(outputPath)
                         .videoCodec('libx264')
                         .audioCodec('aac')
-                        .audioBitrate('128k') // Улучшенный звук
-                        .size('?x480')        // Стандартное качественное разрешение 480p
+                        .audioBitrate('128k')
+                        .size('?x480')        // Строго 480p
                         .outputOptions([
-                            '-preset veryfast', // Отличный баланс между скоростью и качеством
-                            '-crf 28',          // Нормальное четкое качество без квадратов и артефактов
+                            '-preset veryfast', 
+                            '-crf 28',          
                             '-pix_fmt yuv420p',
                             '-threads 0'
                         ])
@@ -119,7 +116,7 @@ export async function POST(request: NextRequest) {
                         .run();
                 });
 
-                console.log("✅ Серверное сжатие в 480p завершено успешно!");
+                console.log("✅ Сжатие в 480p завершено успешно!");
                 finalPathToUpload = outputPath;
                 finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p.mp4";
 
@@ -131,10 +128,8 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Читаем сжатый файл для отправки в Telegram
         const fileToSendBuffer = await fs.readFile(finalPathToUpload);
 
-        // Очищаем временные файлы
         await fs.unlink(inputPath).catch(() => {});
         await fs.unlink(outputPath).catch(() => {});
 
@@ -156,6 +151,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
             success: true,
             fileId: tgResult.fileId,
+            messageId: tgResult.messageId, // Возвращаем ID сообщения для последующего удаления
             url: `/api/videos/stream/${tgResult.fileId}`,
             name: originalName,
         });

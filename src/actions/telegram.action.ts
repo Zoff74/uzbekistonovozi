@@ -194,7 +194,7 @@ export async function uploadVideoToTelegramStorage(
     videoBuffer: Buffer,
     fileName: string,
     caption: string
-): Promise<{ success: boolean; fileId?: string; error?: string }> {
+): Promise<{ success: boolean; fileId?: string; messageId?: number; error?: string }> {
     const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
 
@@ -202,7 +202,6 @@ export async function uploadVideoToTelegramStorage(
         return { success: false, error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" };
     }
 
-    // Проверяем ограничение Telegram Bot API (50 МБ)
     if (videoBuffer.length > 50 * 1024 * 1024) {
         return { 
             success: false, 
@@ -214,7 +213,6 @@ export async function uploadVideoToTelegramStorage(
         const formData = new globalThis.FormData();
         formData.append('chat_id', storageChatId);
         
-        // Возвращаем твой простой и чистый вариант без лишней сложности
         const uint8Array = new Uint8Array(videoBuffer);
         const blob = new Blob([uint8Array], { type: 'video/mp4' });
         
@@ -222,9 +220,8 @@ export async function uploadVideoToTelegramStorage(
         formData.append('caption', caption);
         formData.append('parse_mode', 'HTML');
 
-        // Отправляем запрос на официальный Telegram Bot API с таймаутом
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 минут таймаут
+        const timeoutId = setTimeout(() => controller.abort(), 300000);
 
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
@@ -246,6 +243,7 @@ export async function uploadVideoToTelegramStorage(
             return {
                 success: true,
                 fileId: data.result.document.file_id,
+                messageId: data.result.message_id,
             };
         }
 
@@ -258,6 +256,38 @@ export async function uploadVideoToTelegramStorage(
             return { success: false, error: "Превышено время ожидания загрузки файла в Telegram" };
         }
         console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", error.message || error);
+        return { success: false, error: error.message || "Ошибка сети" };
+    }
+}
+
+/**
+ * Удаление видеофайла из публичного хранилища Telegram (общего котла)
+ */
+export async function deleteVideoFromTelegramStorage(messageId: number): Promise<{ success: boolean; error?: string }> {
+    const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+    const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
+
+    if (!BOT_TOKEN || !storageChatId || !messageId) {
+        return { success: false, error: "Некорректные параметры для удаления из Telegram" };
+    }
+
+    try {
+        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: storageChatId,
+                message_id: messageId,
+            }),
+        });
+
+        const data = await response.json();
+        if (data && data.ok) {
+            return { success: true };
+        }
+        return { success: false, error: data.description || "Ошибка удаления из Telegram" };
+    } catch (error: any) {
+        console.error("ОШИБКА УДАЛЕНИЯ ИЗ TELEGRAM STORAGE:", error.message || error);
         return { success: false, error: error.message || "Ошибка сети" };
     }
 }
