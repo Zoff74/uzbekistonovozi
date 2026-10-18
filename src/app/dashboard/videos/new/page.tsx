@@ -1,6 +1,6 @@
 "use client";
 // src/app/dashboard/videos/new/page.tsx
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
@@ -124,7 +124,7 @@ export default function NewVideoPage() {
             const uploadVideoXhr = new Promise<{ fileId: string; url: string }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "/api/upload");
-                xhr.timeout = 900000; // 15 минут таймаут для больших файлов
+                xhr.timeout = 900000;
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
@@ -355,7 +355,7 @@ export default function NewVideoPage() {
                                     ) : (
                                         <>
                                             <p className="mb-0.5 text-xs text-neutral-300">
-                                                <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash uchun bosing", "Нажмите для выбора", "Click to select")}</span>
+                                                <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash учун bosing", "Нажмите для выбора", "Click to select")}</span>
                                             </p>
                                             <p className="text-[11px] text-neutral-500">MP4, MOV</p>
                                         </>
@@ -380,10 +380,13 @@ export default function NewVideoPage() {
                                 <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={14} />
                                 <div className="space-y-1 text-neutral-300 leading-relaxed">
                                     <p className="text-amber-400 font-medium">
-                                        {statusMessage}
+                                        Видео ҳажми жуда катта. Автоматик равишда кичрайтириляпти. Бунга 5-10 дақиқа вақт керак бўлади...
                                     </p>
-                                    <p className="text-neutral-400 text-[11px]">
-                                        Сервер видеони автоматик равишда 480p форматга келтириб Telegram'га юкламоқда...
+                                    <p className="text-amber-400 text-[11px]">
+                                        Илтимос сабр қилиб тугашини кутинг ёки хажми максимум 49 Мб бўлган видео танлаб, бошқатдан юкланг...
+                                    </p>
+                                    <p className="text-amber-400/90 font-medium text-[11px] pt-1">
+                                        {statusMessage}
                                     </p>
                                 </div>
                             </div>
@@ -393,6 +396,9 @@ export default function NewVideoPage() {
                                 </div>
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0">{uploadProgress}%</span>
                             </div>
+                            <p className="text-[11px] text-neutral-400 text-center pt-1">
+                                Илтимос, жараён тугамагунча саҳифани ёпманг
+                            </p>
                         </div>
                     )}
 
