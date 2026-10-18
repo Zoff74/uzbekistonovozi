@@ -98,8 +98,8 @@ export default async function DashboardPage() {
                         <h1 className="text-base sm:text-lg text-amber-400 font-semibold">
                             {tr("Ижодкорнинг шахсий кабинети", "Ijodkorning shaxsiy kabineti", "Личный кабинет музыканта", "Musician Dashboard")}
                         </h1>
-                        <p className="text-xs text-neutral-400 mt-1">
-                            {tr("Хуш келибсиз", "Xush kelibsiz", "Добро пожаловать", "Welcome")}, {session.user.name || session.user.email}! {tr("Трекларингиз ва видеоклипларингизни бошқаринг.", "Treklaringiz va videokliplaringizni boshqaring.", "Управляйте своими треками и видеоклипами.", "Manage your tracks and video clips.")}
+                        <p className="text-base sm:text-lg text-neutral-400 mt-1">
+                            {tr("Хуш келибсиз", "Xush kelibsiz", "Добро пожаловать", "Welcome")} {session.user.name || session.user.email}! <br />{tr("Трек ва видеоклипларингизни бошқаринг.", "Trek va videokliplaringizni boshqaring.", "Управляйте своими треками и видеоклипами.", "Manage your tracks and video clips.")}
                         </p>
                     </div>
 

@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 export default function NewVideoPage() {
     const router = useRouter();
@@ -26,8 +24,6 @@ export default function NewVideoPage() {
     const [videoDuration, setVideoDuration] = useState<string>("0:00");
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
-
-    const ffmpegRef = useRef<FFmpeg | null>(null);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -59,23 +55,40 @@ export default function NewVideoPage() {
 
     const extractVideoDuration = (file: File): Promise<string> => {
         return new Promise((resolve) => {
-            const videoElement = document.createElement("video");
-            videoElement.preload = "metadata";
-
-            videoElement.onloadedmetadata = () => {
-                window.URL.revokeObjectURL(videoElement.src);
-                const totalSeconds = Math.floor(videoElement.duration);
-                const minutes = Math.floor(totalSeconds / 60);
-                const seconds = totalSeconds % 60;
-                const formattedDuration = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
-                resolve(formattedDuration);
-            };
-
-            videoElement.onerror = () => {
+            if (!file) {
                 resolve("0:00");
-            };
+                return;
+            }
 
-            videoElement.src = URL.createObjectURL(file);
+            try {
+                const videoElement = document.createElement("video");
+                videoElement.preload = "metadata";
+
+                const objectUrl = URL.createObjectURL(file);
+
+                videoElement.onloadedmetadata = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    const totalSeconds = Math.floor(videoElement.duration);
+                    if (isNaN(totalSeconds) || !isFinite(totalSeconds)) {
+                        resolve("0:00");
+                        return;
+                    }
+                    const minutes = Math.floor(totalSeconds / 60);
+                    const seconds = totalSeconds % 60;
+                    const formattedDuration = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+                    resolve(formattedDuration);
+                };
+
+                videoElement.onerror = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    resolve("0:00");
+                };
+
+                videoElement.src = objectUrl;
+            } catch (err) {
+                console.error("Ошибка извлечения длительности видео:", err);
+                resolve("0:00");
+            }
         });
     };
 
@@ -88,71 +101,6 @@ export default function NewVideoPage() {
 
         const duration = await extractVideoDuration(file);
         setVideoDuration(duration);
-    };
-
-    const compressVideo = async (inputVideoFile: File): Promise<File> => {
-        try {
-            setStatusMessage("Оптимизация движка (1/3)...");
-            setUploadProgress(5);
-
-            if (!ffmpegRef.current) {
-                const ffmpeg = new FFmpeg();
-                
-                ffmpeg.on("progress", ({ progress }) => {
-                    const p = Math.round(progress * 50);
-                    if (p > 0) {
-                        setUploadProgress(10 + p);
-                        setStatusMessage(`Видео тез сиқилмоқда: ${Math.round(progress * 100)}% (Бир оз кутинг...)`);
-                    }
-                });
-
-                const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-                await ffmpeg.load({
-                    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-                    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-                });
-                ffmpegRef.current = ffmpeg;
-            }
-
-            const ffmpeg = ffmpegRef.current;
-            setStatusMessage("Супер-быстрое сжатие видео...");
-            setUploadProgress(10);
-
-            const inputName = "input.mp4";
-            const outputName = "output.mp4";
-
-            await ffmpeg.writeFile(inputName, await fetchFile(inputVideoFile));
-
-            // Сверхбыстрый профиль: 360p, ultrafast пресет, мгновенное копирование аудио без перекодирования
-            await ffmpeg.exec([
-                "-i", inputName,
-                "-vf", "scale=-2:360",   // Ускоренное разрешение 360p
-                "-b:v", "400k",          // Низкий битрейт для быстрого кодирования и маленького веса
-                "-preset", "ultrafast",  // Максимальная скорость процессора
-                "-c:a", "copy",          // Аудио не кодируется заново, а копируется мгновенно
-                outputName
-            ]);
-
-            setStatusMessage("Сжатие успешно завершено!");
-            setUploadProgress(60);
-
-            const data = await ffmpeg.readFile(outputName);
-            const uint8Array = new Uint8Array(data as any);
-
-            if (uint8Array.length > 48 * 1024 * 1024) {
-                throw new Error("Файл слишком большой даже после сжатия. Выберите более короткое видео.");
-            }
-
-            const compressedBlob = new Blob([uint8Array], { type: "video/mp4" });
-            const compressedFile = new File([compressedBlob], inputVideoFile.name.replace(/\.[^/.]+$/, "") + "_fast_optimized.mp4", {
-                type: "video/mp4",
-            });
-
-            return compressedFile;
-        } catch (err: any) {
-            console.error("Ошибка быстрого сжатия FFmpeg:", err);
-            throw err;
-        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -170,22 +118,18 @@ export default function NewVideoPage() {
         setLoading(true);
         setError(null);
         setUploadProgress(0);
+        setStatusMessage(tr("Видео серверга юкланмоқда...", "Video serverga yuklanmoqda...", "Загрузка видео на сервер...", "Uploading video to server..."));
 
         try {
-            const fileToUpload = await compressVideo(videoFile);
-
-            setStatusMessage("Сжатый файл загружается в облако Telegram...");
-            setUploadProgress(65);
-
             const uploadVideoXhr = new Promise<{ fileId: string; url: string }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "/api/upload");
-                xhr.timeout = 600000;
+                xhr.timeout = 900000; // 15 минут таймаут для больших файлов
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const percent = 65 + Math.round((event.loaded * 25) / event.total);
-                        setUploadProgress(percent > 90 ? 90 : percent);
+                        const percent = Math.round((event.loaded * 80) / event.total);
+                        setUploadProgress(percent > 80 ? 80 : percent);
                     }
                 };
 
@@ -196,7 +140,7 @@ export default function NewVideoPage() {
                             if (res.success && res.fileId) {
                                 resolve({ fileId: res.fileId, url: res.url });
                             } else {
-                                reject(new Error(res.error || "Ошибка загрузки видео в Telegram"));
+                                reject(new Error(res.error || "Ошибка загрузки или сжатия видео на сервере"));
                             }
                         } catch {
                             reject(new Error("Ошибка обработки ответа сервера"));
@@ -214,14 +158,17 @@ export default function NewVideoPage() {
                 xhr.onerror = () => reject(new Error(tr("Сетевая ошибка при загрузке видео", "Tarmoq xatoligi", "Сетевая ошибка", "Network error")));
                 xhr.ontimeout = () => reject(new Error(tr("Превышено время ожидания видео", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
 
-                xhr.setRequestHeader("x-file-name", encodeURIComponent(fileToUpload.name));
-                xhr.setRequestHeader("x-upload-type", "video");
-                xhr.send(fileToUpload);
+                const data = new FormData();
+                data.append("file", videoFile);
+                data.append("type", "video");
+
+                xhr.send(data);
             });
 
+            setUploadProgress(10);
             const uploadedVideo = await uploadVideoXhr;
             
-            setUploadProgress(92);
+            setUploadProgress(90);
             setStatusMessage("Сохранение данных в базу...");
 
             const metadataFormData = new FormData();
@@ -428,20 +375,24 @@ export default function NewVideoPage() {
                     </div>
 
                     {loading && (
-                        <div className="space-y-2 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
-                            <div className="flex justify-between text-xs text-neutral-400">
-                                <span className="flex items-center gap-1.5 text-amber-400 font-medium">
-                                    <Loader2 className="animate-spin" size={14} />
-                                    {statusMessage || "Обработка..."}
-                                </span>
-                                <span className="font-mono text-amber-400 font-bold">{uploadProgress}%</span>
+                        <div className="space-y-3 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
+                            <div className="flex items-start gap-2 text-xs text-neutral-400">
+                                <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={14} />
+                                <div className="space-y-1 text-neutral-300 leading-relaxed">
+                                    <p className="text-amber-400 font-medium">
+                                        {statusMessage}
+                                    </p>
+                                    <p className="text-neutral-400 text-[11px]">
+                                        Сервер видеони автоматик равишда 480p форматга келтириб Telegram'га юкламоқда...
+                                    </p>
+                                </div>
                             </div>
-                            <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
-                                <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
+                            <div className="flex items-center gap-3 pt-1">
+                                <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
+                                    <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
+                                </div>
+                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0">{uploadProgress}%</span>
                             </div>
-                            <p className="text-[11px] text-neutral-500 text-center">
-                                {tr("Илтимос, жараён тугагунча саҳифани ёпманг", "Iltimos, jarayon tugaguncha sahifani yopmang", "Пожалуйста, не закрывайте страницу до завершения", "Please do not close the page")}
-                            </p>
                         </div>
                     )}
 

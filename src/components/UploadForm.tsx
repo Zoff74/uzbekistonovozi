@@ -19,19 +19,14 @@ export default function UploadForm() {
       setIsProcessing(true);
       setStatus("Отправка файла на сервер для быстрой оптимизации...");
 
-      // Используем FormData для безопасной передачи файла и заголовков через fetch
+      // Формируем FormData для отправки видео на сервер
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
+      uploadFormData.append("type", "video");
 
-      // Вместо FormData отправляем сам файл как бинарный поток в body
       const uploadRes = await fetch("/api/upload", {
         method: "POST",
-        headers: {
-          "x-file-name": encodeURIComponent(file.name),
-          "x-upload-type": "video",
-          "Content-Type": file.type || "video/mp4",
-        },
-        body: file, 
+        body: uploadFormData, 
       });
 
       const uploadData = await uploadRes.json();
@@ -64,7 +59,7 @@ export default function UploadForm() {
         throw new Error(videoResult.message || "Ошибка при сохранении видео в базу");
       }
 
-      setStatus("Клип успешно сжат на сервере, загружен в Telegram и сохранен!");
+      setStatus("Клип успешно обработан сервером, загружен в Telegram и сохранен!");
       setFile(null);
       setCoverFile(null);
       setTitle("");

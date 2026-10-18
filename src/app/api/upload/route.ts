@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
             });
         } 
         
-        // РАБОТА С ВИДЕО: принимаем чистый буфер из тела запроса (мгновенно без multipart)
+        // РАБОТА С ВИДЕО: принимаем чистый буфер из тела запроса
         const arrayBuffer = await request.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
@@ -86,44 +86,54 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Файл пустой или не передан" }, { status: 400 });
         }
 
-        const tempDir = os.tmpdir();
-        const uniqueId = Date.now();
-        const inputPath = path.join(tempDir, `input_${uniqueId}_${originalName}`);
-        const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
+        let fileToSendBuffer = buffer;
+        let finalFileName = originalName;
 
-        await fs.writeFile(inputPath, buffer);
+        // УМНАЯ ПРОВЕРКА: Если файл больше 48 МБ, сжимаем на сервере в 480p
+        if (buffer.length > 48 * 1024 * 1024) {
+            const tempDir = os.tmpdir();
+            const uniqueId = Date.now();
+            const inputPath = path.join(tempDir, `input_${uniqueId}_${originalName}`);
+            const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
-        console.log("🎬 Начинаем быстрое серверное сжатие видео через ffmpeg...");
+            await fs.writeFile(inputPath, buffer);
 
-        await new Promise<void>((resolve, reject) => {
-            ffmpeg(inputPath)
-                .output(outputPath)
-                .videoCodec('libx264')
-                .audioCodec('copy')
-                .size('?x360')
-                .outputOptions([
-                    '-preset ultrafast',
-                    '-b:v 400k'
-                ])
-                .on('end', () => resolve())
-                .on('error', (err) => reject(err))
-                .run();
-        });
+            console.log("🎬 Файл больше 48 МБ. Запускаем серверное сжатие в 480p через ffmpeg...");
 
-        console.log("✅ Серверное сжатие видео успешно завершено!");
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg(inputPath)
+                    .output(outputPath)
+                    .videoCodec('libx264')
+                    .audioCodec('copy')
+                    .size('?x480')          // Золотая середина: 480p
+                    .outputOptions([
+                        '-preset ultrafast', // Максимальная скорость работы процессора
+                        '-b:v 600k',         // Битрейт 600 kbps для четкой картинки
+                        '-r 24'              // 24 кадра в секунду
+                    ])
+                    .on('end', () => resolve())
+                    .on('error', (err) => reject(err))
+                    .run();
+            });
 
-        const compressedBuffer = await fs.readFile(outputPath);
+            console.log("✅ Серверное сжатие видео успешно завершено!");
 
-        await fs.unlink(inputPath).catch(() => {});
-        await fs.unlink(outputPath).catch(() => {});
+            fileToSendBuffer = await fs.readFile(outputPath);
+            finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p_optimized.mp4";
 
-        if (compressedBuffer.length > 50 * 1024 * 1024) {
-            return NextResponse.json({ error: "Файл слишком большой даже после сжатия (превышает 50 МБ)" }, { status: 400 });
+            await fs.unlink(inputPath).catch(() => {});
+            await fs.unlink(outputPath).catch(() => {});
+
+            if (fileToSendBuffer.length > 50 * 1024 * 1024) {
+                return NextResponse.json({ error: "Файл слишком большой даже после сжатия (превышает 50 МБ)" }, { status: 400 });
+            }
+        } else {
+            console.log("⚡ Файл меньше 48 МБ. Сжатие не требуется, отправляем напрямую.");
         }
 
         const tgResult = await uploadVideoToTelegramStorage(
-            compressedBuffer,
-            originalName.replace(/\.[^/.]+$/, "") + "_server_optimized.mp4",
+            fileToSendBuffer,
+            finalFileName,
             `🎥 Видео от пользователя: ${(session.user as any).name || (session.user as any).id}`
         );
 
