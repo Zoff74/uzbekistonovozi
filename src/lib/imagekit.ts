@@ -2,11 +2,7 @@ import ImageKit from "@imagekit/nodejs";
 //src\lib\imagekit.ts
 // --- 1. Инициализация ImageKit SDK для сервера ---
 export function getImageKitInstance() {
-  const privateKey = process.env.IMAGEKIT_PRIVATE_KEY;
-
-  if (!privateKey) {
-    throw new Error("Missing IMAGEKIT_PRIVATE_KEY environment variable");
-  }
+  const privateKey = process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key_for_build";
 
   return new ImageKit({
     privateKey,
