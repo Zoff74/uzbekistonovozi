@@ -1,3 +1,4 @@
+// src/app/api/upload/route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
@@ -9,7 +10,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
-import { uploadVideoToTelegramStorage } from "@/actions/telegram.action";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
         const inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
         const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
+        // Стримим файл прямо на диск
         const nodeStream = Readable.fromWeb(file.stream() as any);
         await pipeline(nodeStream, createWriteStream(inputPath));
 
@@ -94,8 +95,9 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
+        // Если файл больше 48 МБ — сжимаем на диске
         if (fileStats.size > 48 * 1024 * 1024) {
-            console.log(`🎬 [Stream] Запуск сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) в 480p через ffmpeg...`);
+            console.log(`🎬 [Stream] Запуск сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) через ffmpeg...`);
 
             try {
                 await new Promise<void>((resolve, reject) => {
@@ -104,7 +106,7 @@ export async function POST(request: NextRequest) {
                         .videoCodec('libx264')
                         .audioCodec('aac')
                         .audioBitrate('128k')
-                        .size('?x480')        // Строго 480p
+                        .size('?x480')        // 480p
                         .outputOptions([
                             '-preset veryfast', 
                             '-crf 28',          
@@ -116,7 +118,7 @@ export async function POST(request: NextRequest) {
                         .run();
                 });
 
-                console.log("✅ Сжатие в 480p завершено успешно!");
+                console.log("✅ Серверное сжатие в 480p завершено успешно!");
                 finalPathToUpload = outputPath;
                 finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p.mp4";
 
@@ -128,8 +130,10 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // Читаем сжатый файл для отправки в Telegram
         const fileToSendBuffer = await fs.readFile(finalPathToUpload);
 
+        // Очищаем временные файлы
         await fs.unlink(inputPath).catch(() => {});
         await fs.unlink(outputPath).catch(() => {});
 
@@ -138,23 +142,49 @@ export async function POST(request: NextRequest) {
         }
 
         console.log("📤 Отправка файла в Telegram...");
-        const tgResult = await uploadVideoToTelegramStorage(
-            fileToSendBuffer,
-            finalFileName,
-            `🎥 Видео: ${(session.user as any).name || (session.user as any).id}`
-        );
+        const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+        const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
 
-        if (!tgResult.success) {
-            return NextResponse.json({ error: tgResult.error || "Ошибка загрузки в Telegram" }, { status: 500 });
+        if (!BOT_TOKEN || !storageChatId) {
+            return NextResponse.json({ error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" }, { status: 500 });
         }
 
-        return NextResponse.json({
-            success: true,
-            fileId: tgResult.fileId,
-            messageId: tgResult.messageId, // Возвращаем ID сообщения для последующего удаления
-            url: `/api/videos/stream/${tgResult.fileId}`,
-            name: originalName,
+        const tgFormData = new globalThis.FormData();
+        tgFormData.append('chat_id', storageChatId);
+        
+        const uint8Array = new Uint8Array(fileToSendBuffer);
+        const blob = new Blob([uint8Array], { type: 'video/mp4' });
+        
+        tgFormData.append('document', blob, finalFileName);
+        tgFormData.append('caption', `🎥 Видео: ${(session.user as any).name || (session.user as any).id}`);
+        tgFormData.append('parse_mode', 'HTML');
+
+        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+            method: 'POST',
+            body: tgFormData,
         });
+
+        const responseText = await response.text();
+        let data;
+        try {
+            data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+            return { success: false, error: `Ошибка ответа Telegram (HTTP ${response.status}): ${responseText}` };
+        }
+
+        if (response.ok && data && data.ok && data.result && data.result.document) {
+            return NextResponse.json({
+                success: true,
+                fileId: data.result.document.file_id,
+                messageId: data.result.message_id, // 👈 Возвращаем ID сообщения для удаления
+                url: `/api/videos/stream/${data.result.document.file_id}`,
+                name: originalName,
+            });
+        }
+
+        const errorMsg = data.description || `Ошибка Telegram API: HTTP ${response.status}`;
+        console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", errorMsg);
+        return NextResponse.json({ error: errorMsg }, { status: 500 });
 
     } catch (error: any) {
         console.error("Upload error:", error);
