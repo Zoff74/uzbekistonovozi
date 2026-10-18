@@ -6,12 +6,6 @@ import { dbConnect } from "@/lib/mongoose";
 import User from "@/models/User";
 import ImageKit from "imagekit";
 
-const imagekit = new ImageKit({
-    publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "",
-    privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "",
-    urlEndpoint: process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT || "",
-});
-
 interface SessionData {
     user?: {
         id?: string;
@@ -105,6 +99,13 @@ export async function PUT(req: Request) {
             currentUser.imageFileId !== avatarFileId
         ) {
             try {
+                // Инициализируем локально внутри функции, чтобы избежать ошибок во время сборки
+                const imagekit = new ImageKit({
+                    publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "dummy_public_key",
+                    privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
+                    urlEndpoint: process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT || "https://ik.imagekit.io/tyhsos05b",
+                });
+
                 await imagekit.deleteFile(currentUser.imageFileId);
             } catch (deleteError: any) {
                 console.error("Не удалось удалить старый файл из ImageKit:", deleteError.message);
@@ -115,7 +116,7 @@ export async function PUT(req: Request) {
         if (name !== undefined) updateData.username = name;
         if (avatarUrl !== undefined) updateData.image = avatarUrl;
         if (avatarFileId !== undefined) updateData.imageFileId = avatarFileId;
-        if (occupation !== undefined) updateData.occupation = occupation; // Добавили обновление профессии
+        if (occupation !== undefined) updateData.occupation = occupation;
         
         if (instrument !== undefined) {
             updateData.instrument = instrument;
@@ -126,7 +127,7 @@ export async function PUT(req: Request) {
                 .replace(/[^a-z0-9а-яўғқҳҷӯӣқçğşîâû -]/g, '');
         }
         if (bio !== undefined) updateData.bio = bio;
-        if (phone !== undefined) updateData.phoneNumber = phone; // В модели поле называется phoneNumber
+        if (phone !== undefined) updateData.phoneNumber = phone;
         if (telegram !== undefined) updateData.telegram = telegram;
 
         const updatedUser = await User.findByIdAndUpdate(
