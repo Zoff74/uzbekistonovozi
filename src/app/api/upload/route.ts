@@ -14,6 +14,9 @@ import { uploadVideoToTelegramStorage } from "@/actions/telegram.action";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
+import { createWriteStream } from "fs";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import ffmpeg from "fluent-ffmpeg";
 
 const imagekit = new ImageKit({
@@ -47,7 +50,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 1. ЕСЛИ ЭТО ИЗОБРАЖЕНИЕ (ОБЛОЖКА / АВАТАРКА)
+        // 1. ЕСЛИ ЭТО ИЗОБРАЖЕНИЕ
         if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar") {
             const oldFileId = formData.get("oldFileId") as string | null;
             const buffer = Buffer.from(await file.arrayBuffer());
@@ -78,28 +81,24 @@ export async function POST(request: NextRequest) {
             });
         } 
 
-        // 2. РАБОТА С ВИДЕО
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        // 2. РАБОТА С ВИДЕО (ЗАПИСЬ НА ДИСК ЧЕРЕЗ СТРИМ БЕЗ ЗАБИВАНИЯ RAM)
+        const tempDir = os.tmpdir();
+        const uniqueId = Date.now();
+        const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
+        const inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
+        const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
-        if (buffer.length === 0) {
-            return NextResponse.json({ error: "Файл пустой" }, { status: 400 });
-        }
+        // Стримим файл прямо на диск
+        const nodeStream = Readable.fromWeb(file.stream() as any);
+        await pipeline(nodeStream, createWriteStream(inputPath));
 
-        let fileToSendBuffer = buffer;
+        const fileStats = await fs.stat(inputPath);
+        let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл больше 48 МБ — сжимаем через системный FFmpeg
-        if (buffer.length > 48 * 1024 * 1024) {
-            const tempDir = os.tmpdir();
-            const uniqueId = Date.now();
-            const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
-            const inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
-            const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
-
-            await fs.writeFile(inputPath, buffer);
-
-            console.log("🎬 Файл больше 48 МБ. Запускаем серверное сжатие в 480p через ffmpeg...");
+        // Если файл больше 48 МБ — сжимаем на диске
+        if (fileStats.size > 48 * 1024 * 1024) {
+            console.log(`🎬 [Stream] Запуск сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) через ffmpeg...`);
 
             try {
                 await new Promise<void>((resolve, reject) => {
@@ -111,7 +110,8 @@ export async function POST(request: NextRequest) {
                         .outputOptions([
                             '-preset ultrafast',
                             '-tune zerolatency',
-                            '-crf 33',
+                            '-crf 35',
+                            '-threads 1', // Ограничиваем FFmpeg 1 потоком процессора, чтобы Render не падал
                             '-pix_fmt yuv420p'
                         ])
                         .on('end', () => resolve())
@@ -119,34 +119,38 @@ export async function POST(request: NextRequest) {
                         .run();
                 });
 
-                console.log("✅ Серверное сжатие видео успешно завершено!");
-
-                fileToSendBuffer = await fs.readFile(outputPath);
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p_optimized.mp4";
+                console.log("✅ Серверное сжатие завершено успешно!");
+                finalPathToUpload = outputPath;
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p.mp4";
 
             } catch (ffmpegErr: any) {
-                console.error("FFmpeg compression error:", ffmpegErr);
-                return NextResponse.json({ error: "Ошибка при сжатии видео на сервере: " + ffmpegErr.message }, { status: 500 });
-            } finally {
+                console.error("FFmpeg error:", ffmpegErr);
                 await fs.unlink(inputPath).catch(() => {});
                 await fs.unlink(outputPath).catch(() => {});
+                return NextResponse.json({ error: "Ошибка сжатия: " + ffmpegErr.message }, { status: 500 });
             }
-
-            if (fileToSendBuffer.length > 50 * 1024 * 1024) {
-                return NextResponse.json({ error: "Файл слишком большой даже после сжатия (превышает 50 МБ)" }, { status: 400 });
-            }
-        } else {
-            console.log("⚡ Файл меньше 48 МБ. Сжатие не требуется, отправляем напрямую.");
         }
 
+        // Читаем сжатый файл для отправки в Telegram
+        const fileToSendBuffer = await fs.readFile(finalPathToUpload);
+
+        // Очищаем временные файлы
+        await fs.unlink(inputPath).catch(() => {});
+        await fs.unlink(outputPath).catch(() => {});
+
+        if (fileToSendBuffer.length > 50 * 1024 * 1024) {
+            return NextResponse.json({ error: "Файл превышает 50 МБ даже после сжатия" }, { status: 400 });
+        }
+
+        console.log("📤 Отправка сжатого файла в Telegram...");
         const tgResult = await uploadVideoToTelegramStorage(
             fileToSendBuffer,
             finalFileName,
-            `🎥 Видео от пользователя: ${(session.user as any).name || (session.user as any).id}`
+            `🎥 Видео: ${(session.user as any).name || (session.user as any).id}`
         );
 
         if (!tgResult.success) {
-            return NextResponse.json({ error: tgResult.error || "Ошибка загрузки видео в Telegram" }, { status: 500 });
+            return NextResponse.json({ error: tgResult.error || "Ошибка загрузки в Telegram" }, { status: 500 });
         }
 
         return NextResponse.json({
@@ -159,72 +163,8 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error("Upload error:", error);
         return NextResponse.json(
-            { error: error.message || "Ошибка при загрузке или сжатии файла" },
+            { error: error.message || "Ошибка при обработке файла" },
             { status: 500 }
         );
-    }
-}
-
-export async function DELETE(request: Request) {
-    try {
-        const session = await getServerSession(authOptions);
-        if (!session || !session.user || !(session.user as any).id) {
-            return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
-        }
-
-        const userId = (session.user as any).id;
-        const userRole = (session.user as any).role;
-        const isAdmin = userRole === 'admin' || (session.user as any).isAdmin === true;
-
-        const { searchParams } = new URL(request.url);
-        const fileId = searchParams.get("fileId");
-        const fileUrl = searchParams.get("fileUrl");
-
-        if (!fileId && !fileUrl) {
-            return NextResponse.json({ error: "fileId или fileUrl не передан" }, { status: 400 });
-        }
-
-        if (!isAdmin) {
-            await dbConnect();
-            const orConditions: any[] = [];
-            if (fileId) {
-                orConditions.push(
-                    { videoUrl: { $regex: fileId,$options: "i" } },
-                    { cover: { $regex: fileId,$options: "i" } },
-                    { coverFileId: fileId },
-                    { videoFileId: fileId },
-                    { audioUrl: { $regex: fileId,$options: "i" } },
-                    { audioFileId: fileId }
-                );
-            }
-            if (fileUrl) {
-                orConditions.push(
-                    { videoUrl: fileUrl },
-                    { cover: fileUrl },
-                    { audioUrl: fileUrl }
-                );
-            }
-
-            const videoResults = await (Video as any).find({ authorId: userId, $or: orConditions }).limit(1).lean();
-            let ownedItem = videoResults[0];
-
-            if (!ownedItem) {
-                const trackResults = await (Track as any).find({ authorId: userId, $or: orConditions }).limit(1).lean();
-                ownedItem = trackResults[0];
-            }
-
-            if (!ownedItem) {
-                return NextResponse.json({ error: "Доступ запрещен. Вы не автор этого файла." }, { status: 403 });
-            }
-        }
-
-        if (fileId && !fileId.startsWith("BAACAg")) {
-            await imagekit.deleteFile(fileId);
-        }
-
-        return NextResponse.json({ success: true, message: "Файл успешно удален из хранилища" });
-    } catch (error: any) {
-        console.error("Delete error:", error);
-        return NextResponse.json({ error: error.message || "Ошибка при удалении файла" }, { status: 500 });
     }
 }

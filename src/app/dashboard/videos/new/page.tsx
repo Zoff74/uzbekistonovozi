@@ -404,7 +404,7 @@ export default function NewVideoPage() {
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0">{uploadProgress}%</span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
-                                Илтимос, жараён тугамагунча саҳифани ёпманг
+                                Илтимос, жараён тугамагунча ёки хатолик хақида маълумот келмагунча саҳифани ёпманг
                             </p>
                         </div>
                     )}
