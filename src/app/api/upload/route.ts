@@ -96,37 +96,39 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл больше 48 МБ — сжимаем на диске
+        // Если файл больше 48 МБ — сжимаем на диске максимально быстро
         if (fileStats.size > 48 * 1024 * 1024) {
-            console.log(`🎬 [Stream] Запуск сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) через ffmpeg...`);
+            console.log(`🎬 [Stream] Запуск ультрабыстрого сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) через ffmpeg...`);
 
             try {
                 await new Promise<void>((resolve, reject) => {
                     ffmpeg(inputPath)
                         .output(outputPath)
                         .videoCodec('libx264')
-                        .audioCodec('copy')
-                        .size('?x480')
+                        .audioCodec('aac')
+                        .audioBitrate('96k')
+                        .size('?x360') // Сжимаем до 360p для мгновенной обработки
                         .outputOptions([
-    '-preset superfast',
-    '-tune zerolatency',
-    '-crf 36',
-    '-pix_fmt yuv420p'
-])
+                            '-preset ultrafast', // Самый быстрый пресет
+                            '-tune zerolatency',
+                            '-crf 38',          // Повышенный CRF для минимального размера и скорости
+                            '-pix_fmt yuv420p',
+                            '-threads 0'         // Задействовать все доступные ядра
+                        ])
                         .on('end', () => resolve())
                         .on('error', (err) => reject(err))
                         .run();
                 });
 
-                console.log("✅ Серверное сжатие завершено успешно!");
+                console.log("✅ Молниеносное серверное сжатие завершено!");
                 finalPathToUpload = outputPath;
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p.mp4";
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_360p.mp4";
 
             } catch (ffmpegErr: any) {
                 console.error("FFmpeg error:", ffmpegErr);
                 await fs.unlink(inputPath).catch(() => {});
                 await fs.unlink(outputPath).catch(() => {});
-                return NextResponse.json({ error: "Ошибка сжатия: " + ffmpegErr.message }, { status: 500 });
+                return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
             }
         }
 
@@ -138,10 +140,10 @@ export async function POST(request: NextRequest) {
         await fs.unlink(outputPath).catch(() => {});
 
         if (fileToSendBuffer.length > 50 * 1024 * 1024) {
-            return NextResponse.json({ error: "Файл превышает 50 МБ даже после сжатия" }, { status: 400 });
+            return NextResponse.json({ error: "Файл превышает 50 МБ даже после сжатия. Пожалуйста, выберите файл поменьше." }, { status: 400 });
         }
 
-        console.log("📤 Отправка сжатого файла в Telegram...");
+        console.log("📤 Отправка файла в Telegram...");
         const tgResult = await uploadVideoToTelegramStorage(
             fileToSendBuffer,
             finalFileName,
