@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import ImageKit from "imagekit";
 
-//src\app\api\imagekit-auth\route.ts
+// src\app\api\imagekit-auth\route.ts
 
 const urlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT || process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT || "https://ik.imagekit.io/tyhsos05b";
 
 const imagekit = new ImageKit({
-    publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY!,
-    privateKey: process.env.IMAGEKIT_PRIVATE_KEY!,
+    publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "dummy_public_key",
+    privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
     urlEndpoint: urlEndpoint,
 });
 
