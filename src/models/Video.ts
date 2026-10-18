@@ -7,6 +7,7 @@ export interface IVideo extends Document {
   duration?: string;
   videoUrl: string; 
   videoFileId?: string;
+  telegramMessageId?: number; // 👈 Добавлено поле для ID сообщения в Telegram
   cover: string;    
   coverFileId?: string;
   views: number;       
@@ -15,7 +16,7 @@ export interface IVideo extends Document {
   authorId: Types.ObjectId | IUser; 
   categoryId?: Types.ObjectId;
   status: 'ACTIVE' | 'EXPIRED' | 'PENDING_PAYMENT';
-  expiresAt?: Date | null; // 👈 Теперь может быть null, если бесплатный лимит исчерпан
+  expiresAt?: Date | null;
   isPaidActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +29,7 @@ const VideoSchema = new Schema<IVideo>({
   
   videoUrl: { type: String, required: false, default: "" },
   videoFileId: { type: String, required: false, default: "" },
+  telegramMessageId: { type: Number, required: false }, // 👈 Сохраняем ID сообщения из Telegram-чата
   
   cover: { type: String, required: true, default: "/default-cover.webp" },
   coverFileId: { type: String, required: false },
@@ -65,7 +67,7 @@ const VideoSchema = new Schema<IVideo>({
   },
   expiresAt: { 
     type: Date, 
-    required: false, // 👈 Убрали жесткий обязательный дефолт, теперь контролируется через actions
+    required: false,
     default: null,
   },
   isPaidActive: {

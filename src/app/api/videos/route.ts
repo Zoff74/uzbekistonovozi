@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
         const isAdmin = currentUser.role === 'admin';
         console.log(`[VIDEO POST USER] Роль: ${currentUser.role}, Администратор: ${isAdmin}`);
 
-        console.log("[VIDEO POST FORMDATA] Чтение метаданных и fileId из формы...");
+        console.log("[VIDEO POST FORMDATA] Чтение метаданных, fileId и telegramMessageId из формы...");
         const formData = await req.formData();
         const title = formData.get("title") as string;
         const singer = formData.get("singer") as string;
@@ -103,8 +103,9 @@ export async function POST(req: NextRequest) {
         const coverFile = formData.get("cover") as File | null;
         const videoFileId = formData.get("videoFileId") as string;
         const videoUrlFromClient = formData.get("videoUrl") as string;
+        const telegramMessageIdStr = formData.get("telegramMessageId") as string;
 
-        console.log(`[VIDEO POST FORMDATA] Данные: title="${title}", singer="${singer}", genre="${genre}", duration="${duration}", videoFileId="${videoFileId}"`);
+        console.log(`[VIDEO POST FORMDATA] Данные: title="${title}", singer="${singer}", genre="${genre}", duration="${duration}", videoFileId="${videoFileId}", telegramMessageId="${telegramMessageIdStr}"`);
 
         if (!title || !singer || !videoFileId) {
             console.warn("[VIDEO POST VALIDATION] Ошибка: Обязательные поля (название, исполнитель или videoFileId) не заполнены");
@@ -164,6 +165,7 @@ export async function POST(req: NextRequest) {
             cover: coverUrl,
             videoUrl: videoUrlFromClient || `/api/videos/stream/${videoFileId}`,
             videoFileId: videoFileId, // Сохраняем Telegram file_id
+            telegramMessageId: telegramMessageIdStr ? Number(telegramMessageIdStr) : undefined, // 👈 Сохраняем ID сообщения для удаления из котла
             authorId: Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId,
             status: 'ACTIVE',
             expiresAt: expiresAt,
