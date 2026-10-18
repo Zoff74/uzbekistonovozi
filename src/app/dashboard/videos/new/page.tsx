@@ -400,7 +400,7 @@ export default function NewVideoPage() {
                                     {isLargeVideo ? (
                                         <>
                                             <p className="text-amber-400 font-medium">
-                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтириляпти. Бунга 1 дан 10 дақиқагача вақт керак бўлади...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytirilyapti. Bunga 1 dan 10 daqiqagacha vaqt kerak bo'ladi...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
+                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтириляпти. Бунга 1 дан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytirilyapti. Bunga 1 dan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
                                             </p>
                                             <p className="text-amber-400 text-[11px]">
                                                 {tr("Илтимос сабр қилиб тугашини кутинг ёки ҳажми максимум 48 МБ бўлган видео танланг...", "Iltimos sabr qilib tugashini kuting yoki hajmi maksimum 48 MB bo'lgan video tanlang...", "Пожалуйста, подождите или выберите видео размером до 48 МБ...", "Please wait or select a video file up to 48 MB...")}
