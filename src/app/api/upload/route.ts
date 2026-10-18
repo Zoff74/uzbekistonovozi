@@ -108,12 +108,11 @@ export async function POST(request: NextRequest) {
                         .audioCodec('copy')
                         .size('?x480')
                         .outputOptions([
-                            '-preset ultrafast',
-                            '-tune zerolatency',
-                            '-crf 35',
-                            '-threads 1', // Ограничиваем FFmpeg 1 потоком процессора, чтобы Render не падал
-                            '-pix_fmt yuv420p'
-                        ])
+    '-preset superfast',
+    '-tune zerolatency',
+    '-crf 36',
+    '-pix_fmt yuv420p'
+])
                         .on('end', () => resolve())
                         .on('error', (err) => reject(err))
                         .run();

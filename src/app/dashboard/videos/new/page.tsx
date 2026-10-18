@@ -234,6 +234,8 @@ export default function NewVideoPage() {
         />
     );
 
+    const isLargeVideo = videoFile && videoFile.size > 48 * 1024 * 1024;
+
     return (
         <div className="min-h-screen bg-neutral-950 text-white p-6 md:p-12 relative font-sans">
             <div className="max-w-3xl mx-auto space-y-6">
@@ -362,7 +364,7 @@ export default function NewVideoPage() {
                                     ) : (
                                         <>
                                             <p className="mb-0.5 text-xs text-neutral-300">
-                                                <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash uchun bosing", "Нажмите для выбора", "Click to select")}</span>
+                                                <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash учун bosing", "Нажмите для выбора", "Click to select")}</span>
                                             </p>
                                             <p className="text-[11px] text-neutral-500">MP4, MOV</p>
                                         </>
@@ -386,12 +388,20 @@ export default function NewVideoPage() {
                             <div className="flex items-start gap-2 text-xs text-neutral-400">
                                 <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={14} />
                                 <div className="space-y-1 text-neutral-300 leading-relaxed">
-                                    <p className="text-amber-400 font-medium">
-                                        Видео ҳажми жуда катта. Хозир у автоматик равишда кичрайтириляпти. Бунга 5-10 дақиқа вақт керак бўлади...
-                                    </p>
-                                    <p className="text-amber-400 text-[11px]">
-                                        Илтимос сабр қилиб тугашини кутинг ёки хажми максимум 49 Мб бўлган шу ёки бошқа видео танлаб, бошқатдан юкланг...
-                                    </p>
+                                    {isLargeVideo ? (
+                                        <>
+                                            <p className="text-amber-400 font-medium">
+                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтириляпти. Бунга 1 дан 10 дақиқагача вақт керак бўлади...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytirilyapti. Bunga 1 dan 10 daqiqagacha vaqt kerak bo'ladi...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
+                                            </p>
+                                            <p className="text-amber-400 text-[11px]">
+                                                {tr("Илтимос сабр қилиб тугашини кутинг ёки ҳажми максимум 48 МБ бўлган видео танланг...", "Iltimos sabr qilib tugashini kuting yoki hajmi maksimum 48 MB bo'lgan video tanlang...", "Пожалуйста, подождите или выберите видео размером до 48 МБ...", "Please wait or select a video file up to 48 MB...")}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <p className="text-amber-400 font-medium">
+                                            {tr("Видео юкланмоқда, илтимос кутинг...", "Video yuklanmoqda, iltimos kuting...", "Загрузка видео, пожалуйста подождите...", "Uploading video, please wait...")}
+                                        </p>
+                                    )}
                                     <p className="text-amber-400/90 font-medium text-[11px] pt-1">
                                         {statusMessage}
                                     </p>
@@ -404,7 +414,7 @@ export default function NewVideoPage() {
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0">{uploadProgress}%</span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
-                                Илтимос, жараён тугамагунча ёки хатолик хақида маълумот келмагунча саҳифани ёпманг
+                                {tr("Илтимос, жараён тугамагунча ёки хатолик ҳақида маълумот келмагунча саҳифани ёпманг", "Iltimos, jarayon tugamaguncha yoki xatolik haqida ma'lumot kelmaguncha sahifani yopmang", "Пожалуйста, не закрывайте страницу до завершения процесса", "Please do not close the page until the process completes")}
                             </p>
                         </div>
                     )}
