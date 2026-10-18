@@ -1,5 +1,5 @@
-# Используем официальный образ Node.js
-FROM node:18-slim
+# Используем официальный образ Node.js 20
+FROM node:20.11.0-slim
 
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
