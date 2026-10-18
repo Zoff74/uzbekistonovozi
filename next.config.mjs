@@ -6,12 +6,6 @@ const __dirname = path.dirname(__filename);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    // ВАЖНО: Разрешаем большие тела запросов и для API Routes, и для Server Actions
-    api: {
-        bodyParser: {
-            sizeLimit: '150mb',
-        },
-    },
     experimental: {
         serverActions: {
             bodySizeLimit: '150mb',

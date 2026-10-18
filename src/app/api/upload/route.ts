@@ -96,9 +96,9 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл больше 48 МБ — сжимаем на диске максимально быстро
+        // Если файл больше 48 МБ — сжимаем на диске с оптимальным качеством
         if (fileStats.size > 48 * 1024 * 1024) {
-            console.log(`🎬 [Stream] Запуск ультрабыстрого сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) через ffmpeg...`);
+            console.log(`🎬 [Stream] Запуск сжатия файла (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ) через ffmpeg...`);
 
             try {
                 await new Promise<void>((resolve, reject) => {
@@ -106,23 +106,22 @@ export async function POST(request: NextRequest) {
                         .output(outputPath)
                         .videoCodec('libx264')
                         .audioCodec('aac')
-                        .audioBitrate('96k')
-                        .size('?x360') // Сжимаем до 360p для мгновенной обработки
+                        .audioBitrate('128k') // Улучшенный звук
+                        .size('?x480')        // Стандартное качественное разрешение 480p
                         .outputOptions([
-                            '-preset ultrafast', // Самый быстрый пресет
-                            '-tune zerolatency',
-                            '-crf 38',          // Повышенный CRF для минимального размера и скорости
+                            '-preset veryfast', // Отличный баланс между скоростью и качеством
+                            '-crf 28',          // Нормальное четкое качество без квадратов и артефактов
                             '-pix_fmt yuv420p',
-                            '-threads 0'         // Задействовать все доступные ядра
+                            '-threads 0'
                         ])
                         .on('end', () => resolve())
                         .on('error', (err) => reject(err))
                         .run();
                 });
 
-                console.log("✅ Молниеносное серверное сжатие завершено!");
+                console.log("✅ Серверное сжатие в 480p завершено успешно!");
                 finalPathToUpload = outputPath;
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_360p.mp4";
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p.mp4";
 
             } catch (ffmpegErr: any) {
                 console.error("FFmpeg error:", ffmpegErr);
