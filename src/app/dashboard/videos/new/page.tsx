@@ -117,23 +117,25 @@ export default function NewVideoPage() {
 
         setLoading(true);
         setError(null);
-        setUploadProgress(0);
+        setUploadProgress(5);
         setStatusMessage(tr("Видео серверга юкланмоқда...", "Video serverga yuklanmoqda...", "Загрузка видео на сервер...", "Uploading video to server..."));
+
+        // Плавный интервал имитации прогресса для комфортного ожидания больших файлов
+        const progressInterval = setInterval(() => {
+            setUploadProgress((prev) => {
+                if (prev >= 85) return 85;
+                return prev + 2;
+            });
+        }, 600);
 
         try {
             const uploadVideoXhr = new Promise<{ fileId: string; url: string }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "/api/upload");
-                xhr.timeout = 900000;
-
-                xhr.upload.onprogress = (event) => {
-                    if (event.lengthComputable) {
-                        const percent = Math.round((event.loaded * 80) / event.total);
-                        setUploadProgress(percent > 80 ? 80 : percent);
-                    }
-                };
+                xhr.timeout = 900000; // 15 минут таймаут
 
                 xhr.onload = () => {
+                    clearInterval(progressInterval);
                     if (xhr.status >= 200 && xhr.status < 300) {
                         try {
                             const res = JSON.parse(xhr.responseText);
@@ -155,8 +157,14 @@ export default function NewVideoPage() {
                     }
                 };
 
-                xhr.onerror = () => reject(new Error(tr("Сетевая ошибка при загрузке видео", "Tarmoq xatoligi", "Сетевая ошибка", "Network error")));
-                xhr.ontimeout = () => reject(new Error(tr("Превышено время ожидания видео", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
+                xhr.onerror = () => {
+                    clearInterval(progressInterval);
+                    reject(new Error(tr("Сетевая ошибка при загрузке видео", "Tarmoq xatoligi", "Сетевая ошибка", "Network error")));
+                };
+                xhr.ontimeout = () => {
+                    clearInterval(progressInterval);
+                    reject(new Error(tr("Превышено время ожидания видео", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
+                };
 
                 const data = new FormData();
                 data.append("file", videoFile);
@@ -165,9 +173,9 @@ export default function NewVideoPage() {
                 xhr.send(data);
             });
 
-            setUploadProgress(10);
             const uploadedVideo = await uploadVideoXhr;
             
+            clearInterval(progressInterval);
             setUploadProgress(90);
             setStatusMessage("Сохранение данных в базу...");
 
@@ -210,6 +218,7 @@ export default function NewVideoPage() {
             }, 2000);
 
         } catch (err: unknown) {
+            clearInterval(progressInterval);
             const message = err instanceof Error ? err.message : tr(
                 "Хатолик юз берди",
                 "Xatolik yuz berdi",
