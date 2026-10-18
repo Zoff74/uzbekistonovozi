@@ -37,10 +37,15 @@ export const dbConnect = async (): Promise<typeof mongoose> => {
     return cached.promise;
   }
 
-  const MONGODB_URI = process.env.MONGODB_URI;
+  let MONGODB_URI = process.env.MONGODB_URI;
 
   if (!MONGODB_URI) {
-    throw new Error("Пожалуйста, определите переменную окружения MONGODB_URI в файле .env.local");
+    // Если мы на этапе сборки в Docker (когда PORT еще не назначен), подставляем фейковый URI
+    if (process.env.NODE_ENV === 'production' && !process.env.PORT) {
+      MONGODB_URI = "mongodb+srv://dummy:dummy@cluster.mongodb.net/dummy";
+    } else {
+      throw new Error("Пожалуйста, определите переменную окружения MONGODB_URI в файле .env.local");
+    }
   }
 
   enforceSecurityPolicy();
@@ -55,7 +60,7 @@ export const dbConnect = async (): Promise<typeof mongoose> => {
 
     while (retries < maxRetries) {
       try {
-        const connection = await mongoose.connect(MONGODB_URI, {
+        const connection = await mongoose.connect(MONGODB_URI!, {
           serverSelectionTimeoutMS: 5000, 
           socketTimeoutMS: 15000, 
         });
