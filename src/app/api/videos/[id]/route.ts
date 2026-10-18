@@ -8,6 +8,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { getGridFSBuckets } from "@/lib/gridfs";
 import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
+import { deleteVideoFromTelegramStorage } from "@/actions/telegram.action";
 
 export const dynamic = 'force-dynamic';
 
@@ -131,6 +132,16 @@ export async function DELETE(
             console.error("Delete Video GridFS Error:", fsError);
         }
 
+        // Очистка файла из общего котла Telegram
+        if (video.telegramMessageId) {
+            try {
+                await deleteVideoFromTelegramStorage(video.telegramMessageId);
+                console.log(`[TELEGRAM CLEANUP] Сообщение ${video.telegramMessageId} удалено из общего котла Telegram.`);
+            } catch (tgDelErr: any) {
+                console.warn(`[TELEGRAM DELETE WARNING] Не удалось удалить файл из хранилища Telegram:`, tgDelErr.message);
+            }
+        }
+
         const deletedVideo = await (Video as any).findByIdAndDelete(id);
         if (!deletedVideo) {
             return NextResponse.json({ error: "Клип не найден в базе данных при удалении" }, { status: 404 });
@@ -215,7 +226,6 @@ export async function PUT(
             }, { status: 403 });
         }
 
-        // Сохраняем старые ссылки для последующей очистки
         const oldCoverUrl = video.cover;
         const oldVideoUrl = video.videoUrl;
 
@@ -253,7 +263,6 @@ export async function PUT(
 
         await video.save();
 
-        // АВТОМАТИЧЕСКАЯ УДАЛЕНИЕ СТАРОГО МУСОРА (если файл был заменен)
         try {
             const { bucket } = await getGridFSBuckets();
             const extractGridFsId = (url: string) => {
@@ -263,7 +272,6 @@ export async function PUT(
                 return Types.ObjectId.isValid(idStr) ? new Types.ObjectId(idStr) : null;
             };
 
-            // Если обложка изменилась и старая лежала в GridFS — удаляем её
             if (body.cover !== undefined && body.cover !== oldCoverUrl && oldCoverUrl) {
                 const oldCoverId = extractGridFsId(oldCoverUrl);
                 if (oldCoverId) {
@@ -272,7 +280,6 @@ export async function PUT(
                 }
             }
 
-            // Если видеофайл изменился и старый лежал в GridFS — удаляем его
             if (body.videoUrl !== undefined && body.videoUrl !== oldVideoUrl && oldVideoUrl) {
                 const oldVideoId = extractGridFsId(oldVideoUrl);
                 if (oldVideoId) {
