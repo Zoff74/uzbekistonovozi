@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export const maxDuration = 300;
+export const maxDuration = 600;
 export const runtime = 'nodejs';
 
 import { NextResponse, NextRequest } from "next/server";
@@ -110,8 +110,9 @@ export async function POST(request: NextRequest) {
                         .size('?x480')
                         .outputOptions([
                             '-preset ultrafast',
-                            '-b:v 600k',
-                            '-r 24'
+                            '-tune zerolatency',
+                            '-crf 33',
+                            '-pix_fmt yuv420p'
                         ])
                         .on('end', () => resolve())
                         .on('error', (err) => reject(err))
