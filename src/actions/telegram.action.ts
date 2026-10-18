@@ -202,36 +202,61 @@ export async function uploadVideoToTelegramStorage(
         return { success: false, error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" };
     }
 
+    // Проверяем ограничение Telegram Bot API (50 МБ)
+    if (videoBuffer.length > 50 * 1024 * 1024) {
+        return { 
+            success: false, 
+            error: "Файл превышает лимит Telegram Bot API в 50 МБ. Пожалуйста, сожмите видео или выберите файл меньшего размера." 
+        };
+    }
+
     try {
         const formData = new globalThis.FormData();
         formData.append('chat_id', storageChatId);
         
+        // Возвращаем твой простой и чистый вариант без лишней сложности
         const uint8Array = new Uint8Array(videoBuffer);
-        const blob = new Blob([uint8Array]);
+        const blob = new Blob([uint8Array], { type: 'video/mp4' });
         
         formData.append('document', blob, fileName || 'video.mp4');
         formData.append('caption', caption);
         formData.append('parse_mode', 'HTML');
 
-        // Отправляем запрос на официальный Telegram Bot API
+        // Отправляем запрос на официальный Telegram Bot API с таймаутом
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 минут таймаут
+
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
             body: formData,
+            signal: controller.signal,
         });
 
-        const data = await response.json();
+        clearTimeout(timeoutId);
 
-        if (data && data.ok && data.result && data.result.document) {
+        const responseText = await response.text();
+        let data;
+        try {
+            data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+            return { success: false, error: `Ошибка ответа Telegram (HTTP ${response.status}): ${responseText}` };
+        }
+
+        if (response.ok && data && data.ok && data.result && data.result.document) {
             return {
                 success: true,
                 fileId: data.result.document.file_id,
             };
         }
 
-        const errorMsg = data.description || "Неизвестная ошибка Telegram API";
+        const errorMsg = data.description || `Ошибка Telegram API: HTTP ${response.status}`;
         console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", errorMsg);
         return { success: false, error: errorMsg };
     } catch (error: any) {
+        if (error.name === 'AbortError') {
+            console.error("ОШИБКА: Превышено время ожидания отправки в Telegram (таймаут 5 минут)");
+            return { success: false, error: "Превышено время ожидания загрузки файла в Telegram" };
+        }
         console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", error.message || error);
         return { success: false, error: error.message || "Ошибка сети" };
     }

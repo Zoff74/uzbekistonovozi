@@ -29,9 +29,16 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
         }
 
-        const uploadType = request.headers.get("x-upload-type") || "video";
+        const formData = await request.formData();
+        const file = formData.get("file") as File | null;
+        const uploadType = (formData.get("type") as string) || request.headers.get("x-upload-type") || "video";
+
+        if (!file) {
+            return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
+        }
+
         const headerName = request.headers.get("x-file-name");
-        let originalName = "video.mp4";
+        let originalName = file.name || "video.mp4";
         if (headerName) {
             try {
                 originalName = decodeURIComponent(headerName);
@@ -40,16 +47,9 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Если это картинка (аватарка/обложка), используем FormData
-        if (uploadType !== "video") {
-            const formData = await request.formData();
-            const file = formData.get("file") as File | null;
+        // 1. ЕСЛИ ЭТО ИЗОБРАЖЕНИЕ (ОБЛОЖКА / АВАТАРКА)
+        if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar") {
             const oldFileId = formData.get("oldFileId") as string | null;
-
-            if (!file) {
-                return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
-            }
-
             const buffer = Buffer.from(await file.arrayBuffer());
             const uniqueFileName = `${Date.now()}_${file.name}`;
             const mainFolder = process.env.NEXT_PUBLIC_IMAGEKIT_FOLDER || "";
@@ -77,15 +77,8 @@ export async function POST(request: NextRequest) {
                 name: uploadResponse.name,
             });
         } 
-        
-        // РАБОТА С ВИДЕО: принимаем FormData с файлом
-        const formData = await request.formData();
-        const file = formData.get("file") as File | null;
 
-        if (!file) {
-            return NextResponse.json({ error: "Видеофайл не передан" }, { status: 400 });
-        }
-
+        // 2. РАБОТА С ВИДЕО
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
@@ -96,40 +89,47 @@ export async function POST(request: NextRequest) {
         let fileToSendBuffer = buffer;
         let finalFileName = originalName;
 
-        // УМНАЯ ПРОВЕРКА: Если файл больше 48 МБ, сжимаем на сервере в 480p
+        // Если файл больше 48 МБ — сжимаем через системный FFmpeg
         if (buffer.length > 48 * 1024 * 1024) {
             const tempDir = os.tmpdir();
             const uniqueId = Date.now();
-            const inputPath = path.join(tempDir, `input_${uniqueId}_${originalName}`);
+            const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
+            const inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
             const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
             await fs.writeFile(inputPath, buffer);
 
             console.log("🎬 Файл больше 48 МБ. Запускаем серверное сжатие в 480p через ffmpeg...");
 
-            await new Promise<void>((resolve, reject) => {
-                ffmpeg(inputPath)
-                    .output(outputPath)
-                    .videoCodec('libx264')
-                    .audioCodec('copy')
-                    .size('?x480')          // Золотая середина: 480p
-                    .outputOptions([
-                        '-preset ultrafast', // Максимальная скорость работы процессора
-                        '-b:v 600k',         // Битрейт 600 kbps для четкой картинки
-                        '-r 24'              // 24 кадра в секунду
-                    ])
-                    .on('end', () => resolve())
-                    .on('error', (err) => reject(err))
-                    .run();
-            });
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    ffmpeg(inputPath)
+                        .output(outputPath)
+                        .videoCodec('libx264')
+                        .audioCodec('copy')
+                        .size('?x480')
+                        .outputOptions([
+                            '-preset ultrafast',
+                            '-b:v 600k',
+                            '-r 24'
+                        ])
+                        .on('end', () => resolve())
+                        .on('error', (err) => reject(err))
+                        .run();
+                });
 
-            console.log("✅ Серверное сжатие видео успешно завершено!");
+                console.log("✅ Серверное сжатие видео успешно завершено!");
 
-            fileToSendBuffer = await fs.readFile(outputPath);
-            finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p_optimized.mp4";
+                fileToSendBuffer = await fs.readFile(outputPath);
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p_optimized.mp4";
 
-            await fs.unlink(inputPath).catch(() => {});
-            await fs.unlink(outputPath).catch(() => {});
+            } catch (ffmpegErr: any) {
+                console.error("FFmpeg compression error:", ffmpegErr);
+                return NextResponse.json({ error: "Ошибка при сжатии видео на сервере: " + ffmpegErr.message }, { status: 500 });
+            } finally {
+                await fs.unlink(inputPath).catch(() => {});
+                await fs.unlink(outputPath).catch(() => {});
+            }
 
             if (fileToSendBuffer.length > 50 * 1024 * 1024) {
                 return NextResponse.json({ error: "Файл слишком большой даже после сжатия (превышает 50 МБ)" }, { status: 400 });

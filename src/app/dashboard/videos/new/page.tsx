@@ -188,9 +188,16 @@ export default function NewVideoPage() {
                 body: metadataFormData,
             });
 
-            const result = await response.json();
+            const responseText = await response.text();
+            let result;
+            try {
+                result = responseText ? JSON.parse(responseText) : {};
+            } catch {
+                throw new Error(`Ошибка сервера (HTTP ${response.status}): ${responseText || 'Пустой ответ'}`);
+            }
+
             if (!response.ok || !result.success) {
-                throw new Error(result.message || "Ошибка сохранения видео в базе данных");
+                throw new Error(result.message || result.error || `Ошибка сервера: HTTP ${response.status}`);
             }
 
             setUploadProgress(100);
@@ -355,7 +362,7 @@ export default function NewVideoPage() {
                                     ) : (
                                         <>
                                             <p className="mb-0.5 text-xs text-neutral-300">
-                                                <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash учун bosing", "Нажмите для выбора", "Click to select")}</span>
+                                                <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash uchun bosing", "Нажмите для выбора", "Click to select")}</span>
                                             </p>
                                             <p className="text-[11px] text-neutral-500">MP4, MOV</p>
                                         </>
