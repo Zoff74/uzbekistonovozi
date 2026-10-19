@@ -94,21 +94,23 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        if (fileStats.size > 45 * 1024 * 1024) {
+        // Сжимаем, если файл больше 18 МБ (чтобы гарантированно пролетать в лимиты Telegram Bot API для стриминга)
+        if (fileStats.size > 18 * 1024 * 1024) {
             try {
                 await new Promise<void>((resolve, reject) => {
                     ffmpeg(inputPath)
                         .output(outputPath)
                         .videoCodec('libx264')
                         .audioCodec('aac')
-                        .audioBitrate('128k')
-                        .size('?x480')
+                        .audioBitrate('96k')
                         .outputOptions([
                             '-preset ultrafast', 
                             '-crf 32',
+                            '-vf scale=-2:360', // 360p обеспечивает идеальный баланс веса до 20 МБ и четкости
                             '-pix_fmt yuv420p',
                             '-movflags +faststart',
-                            '-threads 0'
+                            '-threads 0',
+                            '-tune fastdecode'
                         ])
                         .on('end', () => resolve())
                         .on('error', (err) => reject(err))
@@ -116,7 +118,7 @@ export async function POST(request: NextRequest) {
                 });
 
                 finalPathToUpload = outputPath;
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p.mp4";
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_360p.mp4";
 
             } catch (ffmpegErr: any) {
                 console.error("FFmpeg error:", ffmpegErr);
@@ -142,12 +144,10 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища" }, { status: 500 });
         }
 
-        // Прямой стриминг без readFile в памяти
         const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
         
-        // Преобразуем файловый поток для отправки
         const blob = await new Response(Readable.toWeb(stream) as any).blob();
         tgFormData.append('document', blob, finalFileName);
         tgFormData.append('caption', `🎥 Video: ${(session.user as any).name || (session.user as any).id}`);

@@ -25,7 +25,7 @@ export async function GET(
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
         const data = await response.json();
 
-        // ЕБАТЬ КАК ВАЖНО: Telegram возвращает HTTP 200, но ok: false, если файл удален вручную!
+        // ВАЖНО: Telegram возвращает HTTP 200, но ok: false, если файл удален вручную!
         if (!data || !data.ok || !data.result || !data.result.file_path) {
             console.error("Telegram getFile error (файл удален вручную из Telegram):", data);
             return NextResponse.json({ error: "Файл удален из хранилища Telegram" }, { status: 404 });

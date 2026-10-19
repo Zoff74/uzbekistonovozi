@@ -426,7 +426,7 @@ export default function NewVideoPage() {
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0">{uploadProgress}%</span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
-                                {tr("Илтимос, жараён тугамагунча ёки хатолик ҳақида маълумот келмагунча саҳифани ёпманг", "Iltimos, jarayon tugamaguncha yoki xatolik haqida ma'lumot kelmaguncha sahifani yopmang", "Пожалуйста, не закрывайте страницу до завершения процесса", "Please do not close the page until the process completes")}
+                                {tr("Жараён тугамагунча ёки хатолик ҳақида маълумот келмагунча саҳифани ёпманг", "Jarayon tugamaguncha yoki xatolik haqida ma'lumot kelmaguncha sahifani yopmang", "Не закрывайте страницу до завершения процесса", "Do not close the page until the process completes")}
                             </p>
                         </div>
                     )}
