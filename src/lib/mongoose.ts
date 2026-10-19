@@ -29,6 +29,11 @@ const enforceSecurityPolicy = () => {
 };
 
 export const dbConnect = async (): Promise<typeof mongoose> => {
+  // 🛑 ЕСЛИ ИДЕТ ПРОЦЕСС СБОРКИ (NEXT_PHASE / NEXT BUILD), НЕ ПОДКЛЮЧАЕМСЯ К БД
+  if (process.env.NEXT_PHASE === 'phase-production-build' || process.env.BUILDING === 'true') {
+    return mongoose;
+  }
+
   if (cached.conn) {
     return cached.conn;
   }
@@ -37,20 +42,14 @@ export const dbConnect = async (): Promise<typeof mongoose> => {
     return cached.promise;
   }
 
-  let MONGODB_URI = process.env.MONGODB_URI;
+  const MONGODB_URI = process.env.MONGODB_URI;
 
   if (!MONGODB_URI) {
-    // Если мы на этапе сборки в Docker (когда PORT еще не назначен), подставляем фейковый URI
-    if (process.env.NODE_ENV === 'production' && !process.env.PORT) {
-      MONGODB_URI = "mongodb+srv://dummy:dummy@cluster.mongodb.net/dummy";
-    } else {
-      throw new Error("Пожалуйста, определите переменную окружения MONGODB_URI в файле .env.local");
-    }
+    throw new Error("Пожалуйста, определите переменную окружения MONGODB_URI в файле .env.local");
   }
 
   enforceSecurityPolicy();
 
-  // Сокращаем до 3 попыток и 1 секунды задержки, чтобы страница не висела по 20 секунд
   const maxRetries = 3;
   const retryDelay = 1000; 
   
@@ -60,7 +59,7 @@ export const dbConnect = async (): Promise<typeof mongoose> => {
 
     while (retries < maxRetries) {
       try {
-        const connection = await mongoose.connect(MONGODB_URI!, {
+        const connection = await mongoose.connect(MONGODB_URI, {
           serverSelectionTimeoutMS: 5000, 
           socketTimeoutMS: 15000, 
         });
