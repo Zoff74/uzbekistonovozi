@@ -8,6 +8,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
+# Копируем весь проект
 COPY . .
 
 # Пробрасываем ВСЕ ключи ImageKit и настройки на этап сборки
@@ -23,7 +24,14 @@ ENV NEXTAUTH_URL="https://uzbekistonovozi.onrender.com"
 ENV NEXTAUTH_SECRET="fd35h1gf6jfg6j4f616fg4k6g156fd6hjsh8"
 ENV JWT_SECRET="fd35h1gf6jfg6j4f616fg4k6g156fd6hjsh8"
 
+# Принудительно удаляем старый кэш сборки перед компиляцией
+RUN rm -rf .next
+
+# Собираем проект заново
 RUN npm run build
 
-EXPOSE 3000
+# Порт берем из переменной окружения Render или ставим 10000 по умолчанию
+ENV PORT=10000
+EXPOSE 10000
+
 CMD ["npm", "start"]
