@@ -149,6 +149,7 @@ export async function DELETE(
 
         revalidatePath('/dashboard');
         revalidatePath('/catalogVideos');
+        revalidatePath('/api/videos');
         revalidatePath('/', 'layout');
 
         return NextResponse.json({ 
@@ -293,6 +294,7 @@ export async function PUT(
 
         revalidatePath('/dashboard');
         revalidatePath('/catalogVideos');
+        revalidatePath('/api/videos');
         revalidatePath('/', 'layout');
 
         return NextResponse.json({ 

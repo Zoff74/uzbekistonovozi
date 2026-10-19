@@ -18,30 +18,12 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
     console.log("[VIDEO GET] Запрос на получение списка видео получен");
     try {
-        console.log("[VIDEO GET] Подключение к базе данных...");
         await dbConnect();
         
         const searchParams = req.nextUrl.searchParams;
         const authorId = searchParams.get("author") || searchParams.get("userId");
 
         let filter: any = {};
-
-        // Бронированная фильтрация без дублирования ключей
-        filter.$and = [
-            {
-                $and: [
-                    { videoUrl: { $exists: true,$ne: "" } },
-                    { 
-                        $or: [
-                            { videoFileId: { $exists: true,$ne: "" } },
-                            { fileId: { $exists: true,$ne: "" } },
-                            { videoUrl: { $regex: /^\/api\/videos\/stream\// } },
-                            { videoUrl: { $regex: /^https?:\/\// } }
-                        ]
-                    }
-                ]
-            }
-        ];
 
         if (authorId) {
             const authorOrConditions: any[] = [
@@ -54,17 +36,18 @@ export async function GET(req: NextRequest) {
                 authorOrConditions.push({ author: new Types.ObjectId(authorId) });
                 authorOrConditions.push({ userId: new Types.ObjectId(authorId) });
             }
-            filter.$and.push({$or: authorOrConditions });
-            console.log(`[VIDEO GET] Фильтрация видео по автору: ${authorId}`);
-        } else {
-            console.log("[VIDEO GET] Параметр автора не передан. Загрузка общего каталога видео (общий котел).");
+            filter.$or = authorOrConditions;
         }
         
-        console.log("[VIDEO GET] Запрос видео из MongoDB...");
         const videos = await (Video as any).find(filter).sort({ createdAt: -1 }).lean();
-        console.log(`[VIDEO GET] Успешно получено валидных видео: ${videos.length} шт.`);
         
-        return NextResponse.json({ success: true, videos });
+        return NextResponse.json({ success: true, videos }, {
+            headers: {
+                'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+            }
+        });
     } catch (error) {
         console.error("[VIDEO GET ERROR] Ошибка при получении видео:", error);
         return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
