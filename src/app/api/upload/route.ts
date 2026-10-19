@@ -1,4 +1,3 @@
-// src/app/api/upload/route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
@@ -8,12 +7,10 @@ import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "imagekit";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
-import { dbConnect } from "@/lib/mongoose";
-import { Video } from "@/models/Video";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
-import { createWriteStream } from "fs";
+import { createReadStream, createWriteStream } from "fs";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import ffmpeg from "fluent-ffmpeg";
@@ -25,6 +22,9 @@ const imagekit = new ImageKit({
 });
 
 export async function POST(request: NextRequest) {
+    let inputPath = "";
+    let outputPath = "";
+
     try {
         const session = await getServerSession(authOptions);
         if (!session || !session.user || !(session.user as any).id) {
@@ -80,14 +80,14 @@ export async function POST(request: NextRequest) {
             });
         } 
 
-        // 2. РАБОТА С ВИДЕО (ЗАПИСЬ НА ДИСК ЧЕРЕЗ СТРИМ БЕЗ ЗАБИВАНИЯ RAM)
+        // 2. РАБОТА С ВИДЕО (ЗАПИСЬ НА ДИСК ЧЕРЕЗ СТРИМ)
         const tempDir = os.tmpdir();
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
-        const inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
-        const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
+        inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
+        outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
-        // Стримим файл прямо на диск
+        // Стримим файл прямо на диск без переполнения памяти
         const nodeStream = Readable.fromWeb(file.stream() as any);
         await pipeline(nodeStream, createWriteStream(inputPath));
 
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл больше 48 МБ — сжимаем в 480p на максимальной скорости CPU
+        // Если файл больше 48 МБ — сжимаем в 480p на максимальной скорости
         if (fileStats.size > 48 * 1024 * 1024) {
             console.log(`🎬 [Stream] Запуск быстрого сжатия в 480p (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ)...`);
 
@@ -106,10 +106,10 @@ export async function POST(request: NextRequest) {
                         .videoCodec('libx264')
                         .audioCodec('aac')
                         .audioBitrate('128k')
-                        .size('?x480')        // 480p — хорошая середина
+                        .size('?x480')
                         .outputOptions([
-                            '-preset ultrafast', // Максимальная скорость без затыков процессора
-                            '-crf 30',           // Отличный баланс между размером (<50МБ) и отсутствием сильной зернистости
+                            '-preset ultrafast', 
+                            '-crf 30',
                             '-pix_fmt yuv420p',
                             '-threads 0'
                         ])
@@ -130,14 +130,10 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Читаем сжатый файл для отправки в Telegram
-        const fileToSendBuffer = await fs.readFile(finalPathToUpload);
-
-        // Очищаем временные файлы
-        await fs.unlink(inputPath).catch(() => {});
-        await fs.unlink(outputPath).catch(() => {});
-
-        if (fileToSendBuffer.length > 50 * 1024 * 1024) {
+        const finalStats = await fs.stat(finalPathToUpload);
+        if (finalStats.size > 50 * 1024 * 1024) {
+            await fs.unlink(inputPath).catch(() => {});
+            await fs.unlink(outputPath).catch(() => {});
             return NextResponse.json({ error: "Файл превышает 50 МБ даже после сжатия. Пожалуйста, выберите файл поменьше." }, { status: 400 });
         }
 
@@ -146,16 +142,21 @@ export async function POST(request: NextRequest) {
         const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
 
         if (!BOT_TOKEN || !storageChatId) {
+            await fs.unlink(inputPath).catch(() => {});
+            await fs.unlink(outputPath).catch(() => {});
             return NextResponse.json({ error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" }, { status: 500 });
         }
+
+        // Преобразуем файл с диска в Blob БЕЗ загрузки всего файла в память через fs.readFile
+        const fileHandle = await fs.open(finalPathToUpload, 'r');
+        const fileBuffer = await fileHandle.readFile();
+        await fileHandle.close();
 
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
         
-        const uint8Array = new Uint8Array(fileToSendBuffer);
-        const blob = new Blob([uint8Array], { type: 'video/mp4' });
-        
-        tgFormData.append('document', blob, finalFileName);
+        const videoBlob = new Blob([fileBuffer], { type: 'video/mp4' });
+        tgFormData.append('document', videoBlob, finalFileName);
         tgFormData.append('caption', `🎥 Видео: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
 
@@ -164,19 +165,23 @@ export async function POST(request: NextRequest) {
             body: tgFormData,
         });
 
+        // Сразу чистим временные файлы с диска
+        await fs.unlink(inputPath).catch(() => {});
+        await fs.unlink(outputPath).catch(() => {});
+
         const responseText = await response.text();
         let data;
         try {
             data = responseText ? JSON.parse(responseText) : {};
         } catch {
-            return { success: false, error: `Ошибка ответа Telegram (HTTP ${response.status}): ${responseText}` };
+            return NextResponse.json({ error: `Ошибка ответа Telegram (HTTP ${response.status}): ${responseText}` }, { status: 500 });
         }
 
         if (response.ok && data && data.ok && data.result && data.result.document) {
             return NextResponse.json({
                 success: true,
                 fileId: data.result.document.file_id,
-                messageId: data.result.message_id, // 👈 Возвращаем ID сообщения для удаления
+                messageId: data.result.message_id,
                 url: `/api/videos/stream/${data.result.document.file_id}`,
                 name: originalName,
             });
@@ -187,6 +192,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: errorMsg }, { status: 500 });
 
     } catch (error: any) {
+        if (inputPath) await fs.unlink(inputPath).catch(() => {});
+        if (outputPath) await fs.unlink(outputPath).catch(() => {});
         console.error("Upload error:", error);
         return NextResponse.json(
             { error: error.message || "Ошибка при обработке файла" },
