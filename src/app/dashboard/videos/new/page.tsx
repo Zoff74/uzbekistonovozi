@@ -126,13 +126,12 @@ export default function NewVideoPage() {
                 xhr.open("POST", "/api/upload");
                 xhr.timeout = 900000; // 15 минут таймаут
 
-                // Честный трекинг прогресса отправки файла на сервер (0 - 80%)
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
                         const percentComplete = Math.round((event.loaded / event.total) * 80);
                         setUploadProgress(percentComplete);
                         if (percentComplete >= 80) {
-                            setStatusMessage(tr("Сервер видеони қайта ишламоқда ва Telegram'га юбормоқда...", "Server videoni qayta ishlamoqda va Telegram'ga yubormoqda...", "Сервер обрабатывает видео и отправляет в Telegram...", "Server is processing video and uploading to Telegram..."));
+                            setStatusMessage(tr("Сервер видеони қайта ишламоқда...", "Server videoni qayta ishlamoqda...", "Сервер обрабатывает видео...", "Server is processing video..."));
                         }
                     }
                 };
@@ -147,20 +146,27 @@ export default function NewVideoPage() {
                                 reject(new Error(res.error || "Ошибка загрузки или сжатия видео на сервере"));
                             }
                         } catch {
-                            reject(new Error("Ошибка обработки ответа сервера"));
+                            reject(new Error(`Ошибка парсинга ответа: ${xhr.responseText || 'пустой ответ'}`));
                         }
                     } else {
+                        // Точно вытягиваем текст ошибки, присланный сервером или прокси
+                        let detailedError = `HTTP ${xhr.status} (${xhr.statusText || 'Неизвестная ошибка'})`;
                         try {
-                            const errRes = JSON.parse(xhr.responseText);
-                            reject(new Error(errRes.error || `Ошибка: HTTP ${xhr.status}`));
+                            if (xhr.responseText) {
+                                const errRes = JSON.parse(xhr.responseText);
+                                detailedError = errRes.error || errRes.message || xhr.responseText;
+                            }
                         } catch {
-                            reject(new Error(`Ошибка загрузки: HTTP ${xhr.status}`));
+                            if (xhr.responseText) {
+                                detailedError = xhr.responseText;
+                            }
                         }
+                        reject(new Error(detailedError));
                     }
                 };
 
                 xhr.onerror = () => {
-                    reject(new Error(tr("Сетевая ошибка при загрузке видео", "Tarmoq xatoligi", "Сетевая ошибка", "Network error")));
+                    reject(new Error("Сетевой сбой (ERR_NETWORK_CHANGED / Обрыв соединения с сервером Render)"));
                 };
                 xhr.ontimeout = () => {
                     reject(new Error(tr("Превышено время ожидания видео", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
@@ -184,7 +190,6 @@ export default function NewVideoPage() {
             metadataFormData.append("videoFileId", uploadedVideo.fileId);
             metadataFormData.append("videoUrl", uploadedVideo.url);
             
-            // Передаем telegramMessageId для корректного удаления из общего котла
             if (uploadedVideo.messageId) {
                 metadataFormData.append("telegramMessageId", uploadedVideo.messageId.toString());
             }
