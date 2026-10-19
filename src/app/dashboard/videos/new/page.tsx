@@ -396,14 +396,14 @@ export default function NewVideoPage() {
                     {loading && (
                         <div className="space-y-3 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
                             <div className="flex items-start gap-2 text-xs text-neutral-400">
-                                <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={14} />
+                                <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={15} />
                                 <div className="space-y-1 text-neutral-300 leading-relaxed">
                                     {isLargeVideo ? (
                                         <>
                                             <p className="text-amber-400 font-medium">
-                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтириляпти. Бунга 1 дан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytirilyapti. Bunga 1 dan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
+                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтириляпти. Бунга 1 дақиқадан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytirilyapti. Bunga 1 daqiqadan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
                                             </p>
-                                            <p className="text-amber-400 text-[11px]">
+                                            <p className="text-amber-400 text-[12px]">
                                                 {tr("Илтимос сабр қилиб тугашини кутинг ёки ҳажми максимум 48 МБ бўлган видео танланг...", "Iltimos sabr qilib tugashini kuting yoki hajmi maksimum 48 MB bo'lgan video tanlang...", "Пожалуйста, подождите или выберите видео размером до 48 МБ...", "Please wait or select a video file up to 48 MB...")}
                                             </p>
                                         </>
