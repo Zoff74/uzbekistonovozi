@@ -1,4 +1,3 @@
-// src/app/api/tracks/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
@@ -6,8 +5,6 @@ import Category from "@/models/Category";
 import User from "@/models/User";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
-import { getGridFSBuckets } from "@/lib/gridfs";
-import { Readable } from "stream";
 import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
 
@@ -53,7 +50,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-    console.log("[TRACK POST] Получен запрос на создание/загрузку нового трека через GridFS");
+    console.log("[TRACK POST] Получен запрос на создание/загрузку нового трека");
     try {
         console.log("[TRACK POST] Подключение к базе данных...");
         await dbConnect();
@@ -100,13 +97,14 @@ export async function POST(req: NextRequest) {
         const singer = formData.get("singer") as string;
         const genre = formData.get("genre") as string;
         const description = (formData.get("description") as string) || "";
-        const coverFile = formData.get("cover") as File | null;
-        const audioFile = formData.get("audio") as File | null;
+        
+        // Архитектурное изменение: обложка с ImageKit (URL), аудиофайл — через Telegram (URL или fileId)
+        const coverUrlFromClient = formData.get("cover") as string;
+        const audioUrlFromClient = formData.get("audioUrl") as string || formData.get("audio") as string;
 
         console.log(`[TRACK POST FORMDATA] Данные формы: title="${title}", singer="${singer}", genre="${genre}"`);
-        console.log(`[TRACK POST FORMDATA] Файлы: coverFile=${coverFile ? coverFile.name + ' (' + coverFile.size + ' bytes)' : 'отсутствует'}, audioFile=${audioFile ? audioFile.name + ' (' + audioFile.size + ' bytes)' : 'отсутствует'}`);
 
-        if (!title || !singer || !audioFile) {
+        if (!title || !singer || !audioUrlFromClient) {
             console.warn("[TRACK POST VALIDATION] Ошибка: Обязательные поля (название, исполнитель или аудиофайл) не заполнены");
             return NextResponse.json({ 
                 success: false, 
@@ -119,54 +117,9 @@ export async function POST(req: NextRequest) {
             }, { status: 400 });
         }
 
-        let coverUrl = "/default-cover.webp";
-        let audioUrl = "";
-
-        const { bucket } = await getGridFSBuckets();
-
-        if (coverFile && coverFile.size > 0) {
-            console.log("[TRACK POST COVER] Начало обработки обложки для GridFS...");
-            const coverBuffer = Buffer.from(await coverFile.arrayBuffer());
-            const coverFilename = `track_cover_${Date.now()}_${coverFile.name.replace(/\s+/g, '_')}`;
-            console.log(`[TRACK POST COVER] Запись обложки в GridFS... Имя файла: ${coverFilename}`);
-
-            const coverUploadStream = bucket.openUploadStream(coverFilename, {
-                contentType: coverFile.type,
-            });
-
-            Readable.from(coverBuffer).pipe(coverUploadStream);
-
-            await new Promise((resolve, reject) => {
-                coverUploadStream.on("finish", resolve);
-                coverUploadStream.on("error", reject);
-            });
-
-            coverUrl = `/api/media/${coverUploadStream.id}`;
-            console.log(`[TRACK POST COVER] Обложка успешно сохранена в GridFS. Ссылка: ${coverUrl}`);
-        } else {
-            console.log("[TRACK POST COVER] Обложка не передана, используется дефолтная.");
-        }
-
-        if (audioFile && audioFile.size > 0) {
-            console.log("[TRACK POST AUDIO] Начало обработки аудиофайла для GridFS...");
-            const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
-            const audioFilename = `audio_${Date.now()}_${audioFile.name.replace(/\s+/g, '_')}`;
-            console.log(`[TRACK POST AUDIO] Запись аудио в GridFS... Имя файла: ${audioFilename}`);
-
-            const audioUploadStream = bucket.openUploadStream(audioFilename, {
-                contentType: audioFile.type,
-            });
-
-            Readable.from(audioBuffer).pipe(audioUploadStream);
-
-            await new Promise((resolve, reject) => {
-                audioUploadStream.on("finish", resolve);
-                audioUploadStream.on("error", reject);
-            });
-
-            audioUrl = `/api/media/${audioUploadStream.id}`;
-            console.log(`[TRACK POST AUDIO] Аудио успешно сохранено в GridFS. Ссылка: ${audioUrl}`);
-        }
+        let coverUrl = coverUrlFromClient || "/default-cover.webp";
+        console.log(`[TRACK POST COVER] Используется ссылка на обложку (ImageKit): ${coverUrl}`);
+        console.log(`[TRACK POST AUDIO] Используется аудиоресурс (Telegram): ${audioUrlFromClient}`);
 
         const selectedGenre = genre || "Pop";
         console.log(`[TRACK POST CATEGORY] Поиск категории для жанра: "${selectedGenre}"`);
@@ -191,7 +144,7 @@ export async function POST(req: NextRequest) {
             description,
             categoryId: matchedCategory ? (matchedCategory as any)._id : undefined,
             cover: coverUrl,
-            audioUrl: audioUrl,
+            audioUrl: audioUrlFromClient,
             authorId: Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId,
             status: 'ACTIVE',
             expiresAt: expiresAt,

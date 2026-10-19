@@ -1,5 +1,4 @@
 'use server';
-// src/actions/videoActions.ts
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import User from "@/models/User";

@@ -1,4 +1,3 @@
-// src/app/api/videos/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
@@ -6,8 +5,6 @@ import Category from "@/models/Category";
 import User from "@/models/User";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
-import { getGridFSBuckets } from "@/lib/gridfs";
-import { Readable } from "stream";
 import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
 
@@ -102,7 +99,9 @@ export async function POST(req: NextRequest) {
         const singer = formData.get("singer") as string;
         const genre = formData.get("genre") as string;
         const duration = (formData.get("duration") as string) || "0:00";
-        const coverFile = formData.get("cover") as File | null;
+        
+        // Архитектурное изменение: обложка через ImageKit, видео — через Telegram
+        const coverUrlFromClient = formData.get("cover") as string;
         const videoFileId = formData.get("videoFileId") as string;
         const videoUrlFromClient = formData.get("videoUrl") as string;
         const telegramMessageIdStr = formData.get("telegramMessageId") as string;
@@ -122,30 +121,8 @@ export async function POST(req: NextRequest) {
             }, { status: 400 });
         }
 
-        let coverUrl = "/default-cover.webp";
-        const { bucket } = await getGridFSBuckets();
-
-        // 1. Обработка обложки (картинки маленькие, храним в GridFS)
-        if (coverFile && coverFile.size > 0) {
-            console.log("[VIDEO POST COVER] Начало обработки обложки для GridFS...");
-            const bytes = await coverFile.arrayBuffer();
-            const buffer = Buffer.from(bytes);
-            
-            const coverFilename = `video_cover_${Date.now()}_${coverFile.name.replace(/\s+/g, '_')}`;
-            const coverUploadStream = bucket.openUploadStream(coverFilename, {
-                contentType: coverFile.type,
-            });
-
-            Readable.from(buffer).pipe(coverUploadStream);
-
-            await new Promise((resolve, reject) => {
-                coverUploadStream.on("finish", resolve);
-                coverUploadStream.on("error", reject);
-            });
-
-            coverUrl = `/api/media/${coverUploadStream.id}`;
-            console.log(`[VIDEO POST COVER] Обложка успешно сохранена в GridFS. Ссылка: ${coverUrl}`);
-        }
+        const coverUrl = coverUrlFromClient || "/default-cover.webp";
+        console.log(`[VIDEO POST COVER] Используется ссылка на обложку (ImageKit): ${coverUrl}`);
 
         const selectedGenre = genre || "Pop";
         console.log(`[VIDEO POST CATEGORY] Поиск категории для жанра: "${selectedGenre}"`);
@@ -166,8 +143,8 @@ export async function POST(req: NextRequest) {
             duration,
             cover: coverUrl,
             videoUrl: videoUrlFromClient || `/api/videos/stream/${videoFileId}`,
-            videoFileId: videoFileId, // Сохраняем Telegram file_id
-            telegramMessageId: telegramMessageIdStr ? Number(telegramMessageIdStr) : undefined, // 👈 Сохраняем ID сообщения для удаления из котла
+            videoFileId: videoFileId, 
+            telegramMessageId: telegramMessageIdStr ? Number(telegramMessageIdStr) : undefined, 
             authorId: Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId,
             status: 'ACTIVE',
             expiresAt: expiresAt,

@@ -5,10 +5,12 @@ import { ObjectId } from "mongodb";
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const fileId = params.id;
+        const resolvedParams = await params;
+        const fileId = resolvedParams.id;
+        
         if (!ObjectId.isValid(fileId)) {
             return NextResponse.json({ error: "Неверный ID файла" }, { status: 400 });
         }
@@ -16,7 +18,6 @@ export async function GET(
         const { bucket, db } = await getGridFSBuckets();
         const filesCollection = db.collection("uploads.files");
         
-        // Добавляем allowDiskUse: true, чтобы MongoDB не падала по лимиту памяти при поиске чанков
         const fileDoc = await filesCollection.findOne(
             { _id: new ObjectId(fileId) },
             { allowDiskUse: true } as any
@@ -49,13 +50,11 @@ export async function GET(
 
         const chunksize = (end - start) + 1;
 
-        // Открываем нативный поток чтения из GridFS с учетом диапазона
         const downloadStream = bucket.openDownloadStream(new ObjectId(fileId), {
             start,
             end: end + 1,
         });
 
-        // Конвертируем Node.js Stream в Web ReadableStream для Next.js App Router
         const webStream = new ReadableStream({
             start(controller) {
                 downloadStream.on("data", (chunk) => {

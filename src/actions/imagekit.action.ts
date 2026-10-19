@@ -1,5 +1,4 @@
 "use server";
-// src/actions/imagekit.action.ts
 import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
@@ -75,9 +74,6 @@ export async function getImageKitAuth() {
 
 export async function uploadImageBase64(fileData: string, fileName: string, folderPath: string): Promise<UploadResult> {
     try {
-        // Убираем жесткую блокировку сессии, так как регистрация происходит до создания сессии
-        // const userId = await getSessionUserId();
-
         if (!PRIVATE_KEY) {
             return { success: false, error: "Критическая ошибка: Приватный ключ ImageKit не загружен." };
         }

@@ -1,5 +1,4 @@
 "use server";
-// src/actions/telegram.action.ts
 import { Telegraf } from 'telegraf';
 import { InlineKeyboardMarkup as TelegramInlineKeyboardMarkup, ParseMode } from '@telegraf/types';
 import mongoose, { Types } from 'mongoose';
@@ -7,8 +6,13 @@ import TelegramToken from '@/models/TelegramToken';
 import User from '@/models/User';
 import { dbConnect } from '@/lib/mongoose';
 import { nanoid } from 'nanoid';
-import { Readable } from 'stream';
+import { exec } from 'child_process';
+import util from 'util';
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
 
+const execPromise = util.promisify(exec);
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'UzbekistonOvoziBot';
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
@@ -189,6 +193,7 @@ export async function notifyAuthorAboutSale(chatId: string, trackTitle: string, 
 
 /**
  * Загрузка видеофайла в публичное хранилище Telegram через официальный Telegram Bot API
+ * Включает сжатие видеофайла перед отправкой, если размер превышает 20 МБ.
  */
 export async function uploadVideoToTelegramStorage(
     videoBuffer: Buffer,
@@ -202,7 +207,37 @@ export async function uploadVideoToTelegramStorage(
         return { success: false, error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" };
     }
 
-    if (videoBuffer.length > 50 * 1024 * 1024) {
+    let bufferToUpload = videoBuffer;
+    const sizeInMB = videoBuffer.length / (1024 * 1024);
+
+    // Утвержденная архитектурная проверка: если видео > 20 МБ, проводим предварительное сжатие
+    if (sizeInMB > 20) {
+        console.log(`[VIDEO COMPRESSION] Файл ${fileName} весит ${sizeInMB.toFixed(2)} МБ (> 20 МБ). Запуск предварительного сжатия...`);
+        const tempDir = os.tmpdir();
+        const inputPath = path.join(tempDir, `input_${Date.now()}_${fileName.replace(/\s+/g, '_')}`);
+        const outputPath = path.join(tempDir, `output_${Date.now()}_${fileName.replace(/\s+/g, '_')}`);
+
+        try {
+            await fs.writeFile(inputPath, videoBuffer);
+            const ffmpegCommand = `ffmpeg -y -i "${inputPath}" -vcodec libx264 -crf 28 -preset fast -acodec aac -b:a 128k "${outputPath}"`;
+            await execPromise(ffmpegCommand);
+
+            const compressedBuffer = await fs.readFile(outputPath);
+            const compressedSizeMB = compressedBuffer.length / (1024 * 1024);
+
+            if (compressedBuffer.length < videoBuffer.length) {
+                bufferToUpload = compressedBuffer;
+                console.log(`[VIDEO COMPRESSION SUCCESS] Видео сжато: ${sizeInMB.toFixed(2)} МБ -> ${compressedSizeMB.toFixed(2)} МБ`);
+            }
+
+            await fs.unlink(inputPath).catch(() => {});
+            await fs.unlink(outputPath).catch(() => {});
+        } catch (err) {
+            console.error("[VIDEO COMPRESSION ERROR] Не удалось сжать через ffmpeg, предпринимается попытка отправки оригинала:", err);
+        }
+    }
+
+    if (bufferToUpload.length > 50 * 1024 * 1024) {
         return { 
             success: false, 
             error: "Файл превышает лимит Telegram Bot API в 50 МБ. Пожалуйста, сожмите видео или выберите файл меньшего размера." 
@@ -213,7 +248,7 @@ export async function uploadVideoToTelegramStorage(
         const formData = new globalThis.FormData();
         formData.append('chat_id', storageChatId);
         
-        const uint8Array = new Uint8Array(videoBuffer);
+        const uint8Array = new Uint8Array(bufferToUpload);
         const blob = new Blob([uint8Array], { type: 'video/mp4' });
         
         formData.append('document', blob, fileName || 'video.mp4');
