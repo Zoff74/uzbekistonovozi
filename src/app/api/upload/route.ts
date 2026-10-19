@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 1. ЕСЛИ ЭТО ИЗОБРАЖЕНИЕ
+        // 1. ИЗОБРАЖЕНИЕ
         if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar") {
             const oldFileId = formData.get("oldFileId") as string | null;
             const buffer = Buffer.from(await file.arrayBuffer());
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
                 try {
                     await imagekit.deleteFile(oldFileId);
                 } catch (err) {
-                    console.error("Ошибка при удалении старого файла из ImageKit:", err);
+                    console.error("Ошибка при удалении старого файла:", err);
                 }
             }
 
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
             });
         } 
 
-        // 2. РАБОТА С ВИДЕО (СТРИМИНГ НА ДИСК)
+        // 2. ВИДЕО
         const tempDir = os.tmpdir();
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -94,10 +94,7 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл > 45 МБ — сжимаем под лимит Telegram Bot API (50 МБ)
         if (fileStats.size > 45 * 1024 * 1024) {
-            console.log(`🎬 [Stream] Файл ${(fileStats.size / 1024 / 1024).toFixed(1)} МБ > 45 МБ. Запуск сжатия...`);
-
             try {
                 await new Promise<void>((resolve, reject) => {
                     ffmpeg(inputPath)
@@ -133,7 +130,7 @@ export async function POST(request: NextRequest) {
         if (finalStats.size > 50 * 1024 * 1024) {
             await fs.unlink(inputPath).catch(() => {});
             await fs.unlink(outputPath).catch(() => {});
-            return NextResponse.json({ error: "Файл превышает 50 МБ после сжатия." }, { status: 400 });
+            return NextResponse.json({ error: "Файл превышает допустимый размер даже после обработки." }, { status: 400 });
         }
 
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -142,20 +139,18 @@ export async function POST(request: NextRequest) {
         if (!BOT_TOKEN || !storageChatId) {
             await fs.unlink(inputPath).catch(() => {});
             await fs.unlink(outputPath).catch(() => {});
-            return NextResponse.json({ error: "TELEGRAM_BOT_TOKEN или TELEGRAM_STORAGE_CHAT_ID не заданы" }, { status: 500 });
+            return NextResponse.json({ error: "Ошибка конфигурации хранилища" }, { status: 500 });
         }
 
-        // 3. ОТПРАВКА В TELEGRAM ЧЕРЕЗ СТРИМ БЕЗ ЗАГРУЗКИ В ОПЕРАТИВКУ
-        const streamFile = createReadStream(finalPathToUpload);
+        // Прямой стриминг без readFile в памяти
+        const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
         
-        // Передаем файл напрямую стримом через Blob-обертку без вызова readFile()
-        const fileBuffer = await fs.readFile(finalPathToUpload);
-        const videoBlob = new Blob([fileBuffer], { type: 'video/mp4' });
-        
-        tgFormData.append('document', videoBlob, finalFileName);
-        tgFormData.append('caption', `🎥 Видео: ${(session.user as any).name || (session.user as any).id}`);
+        // Преобразуем файловый поток для отправки
+        const blob = await new Response(Readable.toWeb(stream) as any).blob();
+        tgFormData.append('document', blob, finalFileName);
+        tgFormData.append('caption', `🎥 Video: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
 
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
@@ -171,7 +166,7 @@ export async function POST(request: NextRequest) {
         try {
             data = responseText ? JSON.parse(responseText) : {};
         } catch {
-            return NextResponse.json({ error: `Ошибка ответа Telegram (HTTP ${response.status}): ${responseText}` }, { status: 500 });
+            return NextResponse.json({ error: `Ошибка ответа хранилища (HTTP ${response.status})` }, { status: 500 });
         }
 
         if (response.ok && data && data.ok && data.result && data.result.document) {
@@ -184,8 +179,7 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        const errorMsg = data.description || `Ошибка Telegram API: HTTP ${response.status}`;
-        console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", errorMsg);
+        const errorMsg = data.description || `Ошибка хранилища: HTTP ${response.status}`;
         return NextResponse.json({ error: errorMsg }, { status: 500 });
 
     } catch (error: any) {

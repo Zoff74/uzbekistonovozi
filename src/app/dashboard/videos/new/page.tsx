@@ -124,7 +124,7 @@ export default function NewVideoPage() {
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "/api/upload");
-                xhr.timeout = 900000; // 15 минут таймаут
+                // Убираем xhr.timeout вообще, чтобы браузер не рубил соединение во время сжатия на сервере
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
@@ -149,7 +149,6 @@ export default function NewVideoPage() {
                             reject(new Error(`Ошибка парсинга ответа: ${xhr.responseText || 'пустой ответ'}`));
                         }
                     } else {
-                        // Точно вытягиваем текст ошибки, присланный сервером или прокси
                         let detailedError = `HTTP ${xhr.status} (${xhr.statusText || 'Неизвестная ошибка'})`;
                         try {
                             if (xhr.responseText) {
@@ -168,9 +167,7 @@ export default function NewVideoPage() {
                 xhr.onerror = () => {
                     reject(new Error("Сетевой сбой (ERR_NETWORK_CHANGED / Обрыв соединения с сервером Render)"));
                 };
-                xhr.ontimeout = () => {
-                    reject(new Error(tr("Превышено время ожидания видео", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
-                };
+                // xhr.ontimeout УДАЛЕН, больше никаких ложных "Превышено время ожидания" не будет!
 
                 const data = new FormData();
                 data.append("file", videoFile);
@@ -406,7 +403,7 @@ export default function NewVideoPage() {
                                     {isLargeVideo ? (
                                         <>
                                             <p className="text-amber-400 font-medium">
-                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтириляпти. Бунга 1 дақиқадан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytirilyapti. Bunga 1 daqiqadan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
+                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтирилади. Бунга 1 дақиқадан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytiriladi. Bunga 1 daqiqadan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
                                             </p>
                                             <p className="text-amber-400 text-[12px]">
                                                 {tr("Илтимос сабр қилиб тугашини кутинг ёки ҳажми максимум 49,99 МБгача бўлган видео танланг...", "Iltimos sabr qilib tugashini kuting yoki hajmi maksimum 49,99 MBgacha bo'lgan video tanlang...", "Пожалуйста, подождите или выберите видео размером до 49,99 МБ...", "Please wait or select a video file up to 48 MB...")}
