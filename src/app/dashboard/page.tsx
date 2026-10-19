@@ -1,71 +1,80 @@
 // src/app/dashboard/page.tsx
-import { dbConnect } from "@/lib/mongoose";
-import { Track } from "@/models/Track";
-import { Video } from "@/models/Video";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
-import { redirect } from "next/navigation";
+"use client";
+
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, Film, Music, Settings } from "lucide-react";
+import { ArrowLeft, Plus, Film, Music, Settings, Loader2 } from "lucide-react";
 import TrackCard from "@/components/TrackCard";
 import VideoCard from "@/components/VideoCard";
-import { Types, isValidObjectId } from "mongoose";
 import { tr } from "@/utils/translate";
 
-interface SessionUser {
-    id?: string;
-    name?: string | null;
-    email?: string | null;
-}
+export default function DashboardPage() {
+    const { data: session, status } = useSession();
+    const router = useRouter();
 
-interface SessionData {
-    user?: SessionUser;
-}
+    const [tracks, setTracks] = useState<any[]>([]);
+    const [videos, setVideos] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
-export default async function DashboardPage() {
-    const session = (await getServerSession(authOptions)) as SessionData | null;
+    useEffect(() => {
+        if (status === "unauthenticated") {
+            router.push("/auth/login");
+        }
+    }, [status, router]);
 
-    if (!session || !session.user || !session.user.id) {
-        redirect("/auth/login");
-    }
+    useEffect(() => {
+        if (status === "authenticated") {
+            fetch("/api/user/profile") // Или ваш эндпоинт для получения данных дашборда
+                .catch(() => {})
+                .finally(() => {});
+        }
+    }, [status]);
 
-    await dbConnect();
+    // Альтернативно загружаем данные пользователя через API или держим текущий серверный вариант, 
+    // но раз мы на клиенте для мгновенного удаления, подгружаем через fetch:
+    useEffect(() => {
+        async function loadData() {
+            try {
+                const res = await fetch("/api/user/profile"); // Или отдельный роут для треков/видео пользователя
+                // Но проще получить видео по нашему ID автора
+                const userId = (session?.user as any)?.id;
+                if (userId) {
+                    const [tracksRes, videosRes] = await Promise.all([
+                        fetch(`/api/tracks?author=${userId}`),
+                        fetch(`/api/videos?author=${userId}`)
+                    ]);
+                    
+                    const tracksData = await tracksRes.json();
+                    const videosData = await videosRes.json();
 
-    const userId = session.user.id;
+                    if (tracksData.success) setTracks(tracksData.tracks || tracksData.data || []);
+                    if (videosData.success) setVideos(videosData.videos || videosData.data || []);
+                }
+            } catch (err) {
+                console.error("Dashboard load error:", err);
+            } finally {
+                setLoading(false);
+            }
+        }
 
-    // Формируем безопасный массив условий для поиска строго по нашему ID (поддерживает строковые ID и ObjectId, а также разные варианты названий полей автора)
-    const authorConditions = [
-        { authorId: userId },
-        { author: userId },
-        { userId: userId },
-    ];
+        if (session?.user) {
+            loadData();
+        }
+    }, [session]);
 
-    if (isValidObjectId(userId)) {
-        authorConditions.push(
-            { authorId: new Types.ObjectId(userId) } as any,
-            { author: new Types.ObjectId(userId) } as any,
-            { userId: new Types.ObjectId(userId) } as any
+    const handleVideoDeleted = (deletedId: string) => {
+        setVideos((prev) => prev.filter((v) => (v._id || v.id) !== deletedId));
+    };
+
+    if (status === "loading" || loading) {
+        return (
+            <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+            </div>
         );
     }
-
-    // Параллельный запрос треков и видеоклипов пользователя исключительно по его ID
-    const [rawTracks, rawVideos] = await Promise.all([
-        (Track as any).find({ $or: authorConditions }).sort({ createdAt: -1 }).lean(),
-        (Video as any).find({ $or: authorConditions }).sort({ createdAt: -1 }).lean(),
-    ]);
-
-    // Сериализация документов Mongoose для клиентских компонентов
-    const userTracks = rawTracks.map((track: any) => ({
-        ...track,
-        _id: track._id.toString(),
-        authorId: track.authorId?.toString(),
-    }));
-
-    const userVideos = rawVideos.map((video: any) => ({
-        ...video,
-        _id: video._id.toString(),
-        authorId: video.authorId?.toString(),
-    }));
 
     return (
         <div className="min-h-screen bg-neutral-950 text-white p-4 sm:p-6 md:p-12 overflow-x-hidden font-sans">
@@ -99,11 +108,10 @@ export default async function DashboardPage() {
                             {tr("Ижодкорнинг шахсий кабинети", "Ijodkorning shaxsiy kabineti", "Личный кабинет музыканта", "Musician Dashboard")}
                         </h1>
                         <p className="text-base sm:text-lg text-neutral-400 mt-1">
-                            {tr("Хуш келибсиз", "Xush kelibsiz", "Добро пожаловать", "Welcome")} {session.user.name || session.user.email}! <br />{tr("Трек ва видеоклипларингизни бошқаринг.", "Trek va videokliplaringizni boshqaring.", "Управляйте своими треками и видеоклипами.", "Manage your tracks and video clips.")}
+                            {tr("Хуш келибсиз", "Xush kelibsiz", "Добро пожаловать", "Welcome")} {(session?.user as any)?.name || (session?.user as any)?.email}! <br />{tr("Трек ва видеоклипларингизни бошқаринг.", "Trek va videokliplaringizni boshqaring.", "Управляйте своими треками и видеоклипами.", "Manage your tracks and video clips.")}
                         </p>
                     </div>
 
-                    {/* Блок кнопок с правильной шириной подложки (w-fit) */}
                     <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
                         
                         {/* Кнопка 1: Настройки профиля */}
@@ -175,7 +183,7 @@ export default async function DashboardPage() {
                         </h2>
                     </div>
 
-                    {userTracks.length === 0 ? (
+                    {tracks.length === 0 ? (
                         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 text-center space-y-4">
                             <p className="text-neutral-400 text-xs">
                                 {tr("Сизда юкланган қўшиқлар йўқ.", "Sizda yuklangan qo'shiqlar yo'q.", "У вас пока нет загруженных треков.", "You have no uploaded tracks yet.")}
@@ -199,7 +207,7 @@ export default async function DashboardPage() {
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 gap-4">
-                            {userTracks.map((track: any) => (
+                            {tracks.map((track: any) => (
                                 <TrackCard key={track._id} track={track} />
                             ))}
                         </div>
@@ -215,7 +223,7 @@ export default async function DashboardPage() {
                         </h2>
                     </div>
 
-                    {userVideos.length === 0 ? (
+                    {videos.length === 0 ? (
                         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 text-center space-y-4">
                             <p className="text-neutral-400 text-xs">
                                 {tr("Сизда юкланган видеоклиплар йўқ.", "Sizda yuklangan videokliplar yo'q.", "У вас пока нет загруженных видеоклипов.", "You have no uploaded video clips yet.")}
@@ -239,8 +247,8 @@ export default async function DashboardPage() {
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 gap-4">
-                            {userVideos.map((video: any) => (
-                                <VideoCard key={video._id} video={video} />
+                            {videos.map((video: any) => (
+                                <VideoCard key={video._id} video={video} onDelete={handleVideoDeleted} />
                             ))}
                         </div>
                     )}
