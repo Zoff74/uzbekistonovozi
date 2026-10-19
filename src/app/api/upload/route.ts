@@ -80,14 +80,13 @@ export async function POST(request: NextRequest) {
             });
         } 
 
-        // 2. РАБОТА С ВИДЕО (ЗАПИСЬ НА ДИСК ЧЕРЕЗ СТРИМ)
+        // 2. РАБОТА С ВИДЕО (СТРИМИНГ НА ДИСК)
         const tempDir = os.tmpdir();
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
         inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
         outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
-        // Стримим файл прямо на диск без переполнения памяти
         const nodeStream = Readable.fromWeb(file.stream() as any);
         await pipeline(nodeStream, createWriteStream(inputPath));
 
@@ -95,9 +94,9 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл больше 48 МБ — сжимаем в 480p на максимальной скорости
-        if (fileStats.size > 48 * 1024 * 1024) {
-            console.log(`🎬 [Stream] Запуск быстрого сжатия в 480p (${(fileStats.size / 1024 / 1024).toFixed(1)} МБ)...`);
+        // Если файл > 45 МБ — сжимаем под лимит Telegram Bot API (50 МБ)
+        if (fileStats.size > 45 * 1024 * 1024) {
+            console.log(`🎬 [Stream] Файл ${(fileStats.size / 1024 / 1024).toFixed(1)} МБ > 45 МБ. Запуск сжатия...`);
 
             try {
                 await new Promise<void>((resolve, reject) => {
@@ -109,8 +108,9 @@ export async function POST(request: NextRequest) {
                         .size('?x480')
                         .outputOptions([
                             '-preset ultrafast', 
-                            '-crf 30',
+                            '-crf 32',
                             '-pix_fmt yuv420p',
+                            '-movflags +faststart',
                             '-threads 0'
                         ])
                         .on('end', () => resolve())
@@ -118,7 +118,6 @@ export async function POST(request: NextRequest) {
                         .run();
                 });
 
-                console.log("✅ Быстрое сжатие в 480p завершено!");
                 finalPathToUpload = outputPath;
                 finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_480p.mp4";
 
@@ -134,28 +133,27 @@ export async function POST(request: NextRequest) {
         if (finalStats.size > 50 * 1024 * 1024) {
             await fs.unlink(inputPath).catch(() => {});
             await fs.unlink(outputPath).catch(() => {});
-            return NextResponse.json({ error: "Файл превышает 50 МБ даже после сжатия. Пожалуйста, выберите файл поменьше." }, { status: 400 });
+            return NextResponse.json({ error: "Файл превышает 50 МБ после сжатия." }, { status: 400 });
         }
 
-        console.log("📤 Отправка файла в Telegram...");
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
         const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
 
         if (!BOT_TOKEN || !storageChatId) {
             await fs.unlink(inputPath).catch(() => {});
             await fs.unlink(outputPath).catch(() => {});
-            return NextResponse.json({ error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" }, { status: 500 });
+            return NextResponse.json({ error: "TELEGRAM_BOT_TOKEN или TELEGRAM_STORAGE_CHAT_ID не заданы" }, { status: 500 });
         }
 
-        // Преобразуем файл с диска в Blob БЕЗ загрузки всего файла в память через fs.readFile
-        const fileHandle = await fs.open(finalPathToUpload, 'r');
-        const fileBuffer = await fileHandle.readFile();
-        await fileHandle.close();
-
+        // 3. ОТПРАВКА В TELEGRAM ЧЕРЕЗ СТРИМ БЕЗ ЗАГРУЗКИ В ОПЕРАТИВКУ
+        const streamFile = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
         
+        // Передаем файл напрямую стримом через Blob-обертку без вызова readFile()
+        const fileBuffer = await fs.readFile(finalPathToUpload);
         const videoBlob = new Blob([fileBuffer], { type: 'video/mp4' });
+        
         tgFormData.append('document', videoBlob, finalFileName);
         tgFormData.append('caption', `🎥 Видео: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
@@ -165,7 +163,6 @@ export async function POST(request: NextRequest) {
             body: tgFormData,
         });
 
-        // Сразу чистим временные файлы с диска
         await fs.unlink(inputPath).catch(() => {});
         await fs.unlink(outputPath).catch(() => {});
 
