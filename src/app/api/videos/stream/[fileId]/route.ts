@@ -8,10 +8,10 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 export async function GET(
     request: NextRequest,
-    { params }: { params: { fileId: string } }
+    { params }: { params: Promise<{ fileId: string }> }
 ) {
     try {
-        const fileId = params?.fileId;
+        const { fileId } = await params;
 
         if (!fileId || fileId === "undefined" || fileId === "null") {
             return NextResponse.json({ error: "Не указан или невалидный fileId" }, { status: 400 });
@@ -21,12 +21,14 @@ export async function GET(
             return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
         }
 
+        // Запрашиваем путь к файлу у официального Telegram Bot API
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
         const data = await response.json();
 
+        // ЕБАТЬ КАК ВАЖНО: Telegram возвращает HTTP 200, но ok: false, если файл удален вручную!
         if (!data || !data.ok || !data.result || !data.result.file_path) {
-            console.error("Telegram getFile error:", data);
-            return NextResponse.json({ error: "Файл не найден в Telegram" }, { status: 404 });
+            console.error("Telegram getFile error (файл удален вручную из Telegram):", data);
+            return NextResponse.json({ error: "Файл удален из хранилища Telegram" }, { status: 404 });
         }
 
         const filePath = data.result.file_path;
@@ -48,7 +50,6 @@ export async function GET(
         }
 
         const responseHeaders = new Headers();
-        // ЖЕСТКО ЗАДАЕМ video/mp4, чтобы браузер не ругался
         responseHeaders.set("Content-Type", "video/mp4");
         responseHeaders.set("Accept-Ranges", "bytes");
 
@@ -60,7 +61,6 @@ export async function GET(
             responseHeaders.set("Content-Range", contentRange);
         }
 
-        // Гарантируем 206 статус при наличии Range, если Telegram отдал 200 но кусок
         const status = rangeHeader && telegramRes.status === 200 ? 206 : telegramRes.status;
 
         return new NextResponse(telegramRes.body, {
