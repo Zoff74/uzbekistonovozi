@@ -15,22 +15,9 @@ if (!cached) {
   };
 }
 
-const enforceSecurityPolicy = () => {
-  const MASTER_ID = process.env.ADMIN_RECEIVER_ID || "";
-  const isTestMode = process.env.NEXT_PUBLIC_TEST_MODE === "true";
-  const currentEnvList = process.env.PRIVILEGED_USER_IDS_LIST || "";
-  
-  const ids = currentEnvList.split(',').map(id => id.trim()).filter(id => id.length > 0);
-  const unauthorized = ids.filter(id => id !== MASTER_ID);
-
-  if (!isTestMode && unauthorized.length > 0) {
-    process.env.PRIVILEGED_USER_IDS_LIST = MASTER_ID;
-  }
-};
-
 export const dbConnect = async (): Promise<typeof mongoose> => {
-  // 🛑 ЕСЛИ ИДЕТ ПРОЦЕСС СБОРКИ (NEXT_PHASE / NEXT BUILD), НЕ ПОДКЛЮЧАЕМСЯ К БД
-  if (process.env.NEXT_PHASE === 'phase-production-build' || process.env.BUILDING === 'true') {
+  // 🛑 ЖЕСТКАЯ БЛОКИРОВКА: если идет сборка (next build), база данных НЕ вызывается вообще
+  if (process.env.NEXT_PHASE === 'phase-production-build' || process.env.BUILDING === 'true' || process.env.NODE_ENV === 'production' && !process.env.PORT) {
     return mongoose;
   }
 
@@ -45,10 +32,8 @@ export const dbConnect = async (): Promise<typeof mongoose> => {
   const MONGODB_URI = process.env.MONGODB_URI;
 
   if (!MONGODB_URI) {
-    throw new Error("Пожалуйста, определите переменную окружения MONGODB_URI в файле .env.local");
+    throw new Error("Пожалуйста, определите переменную окружения MONGODB_URI");
   }
-
-  enforceSecurityPolicy();
 
   const maxRetries = 3;
   const retryDelay = 1000; 
