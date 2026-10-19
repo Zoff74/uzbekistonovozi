@@ -25,17 +25,31 @@ export async function GET(req: NextRequest) {
         const authorId = searchParams.get("author") || searchParams.get("userId");
 
         let filter: any = {};
+
+        // Бронированная фильтрация: отсекаем мусорные остатки, у которых нет videoFileId или валидного видео-урла
+        filter.$and = [
+            {
+                $or: [
+                    { videoFileId: { $exists: true,$ne: "" } },
+                    { fileId: { $exists: true,$ne: "" } },
+                    { videoUrl: { $regex: /^\/api\/videos\/stream\// } },
+                    { videoUrl: { $regex: /^https?:\/\// } }
+                ]
+            }
+        ];
+
         if (authorId) {
-            filter.$or = [
+            const authorOrConditions: any[] = [
                 { authorId: authorId },
                 { author: authorId },
                 { userId: authorId }
             ];
             if (Types.ObjectId.isValid(authorId)) {
-                filter.$or.push({ authorId: new Types.ObjectId(authorId) });
-                filter.$or.push({ author: new Types.ObjectId(authorId) });
-                filter.$or.push({ userId: new Types.ObjectId(authorId) });
+                authorOrConditions.push({ authorId: new Types.ObjectId(authorId) });
+                authorOrConditions.push({ author: new Types.ObjectId(authorId) });
+                authorOrConditions.push({ userId: new Types.ObjectId(authorId) });
             }
+            filter.$and.push({$or: authorOrConditions });
             console.log(`[VIDEO GET] Фильтрация видео по автору: ${authorId}`);
         } else {
             console.log("[VIDEO GET] Параметр автора не передан. Загрузка общего каталога видео (общий котел).");
@@ -43,7 +57,7 @@ export async function GET(req: NextRequest) {
         
         console.log("[VIDEO GET] Запрос видео из MongoDB...");
         const videos = await (Video as any).find(filter).sort({ createdAt: -1 }).lean();
-        console.log(`[VIDEO GET] Успешно получено видео: ${videos.length} шт.`);
+        console.log(`[VIDEO GET] Успешно получено валидных видео: ${videos.length} шт.`);
         
         return NextResponse.json({ success: true, videos });
     } catch (error) {
