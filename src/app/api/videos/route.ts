@@ -26,14 +26,19 @@ export async function GET(req: NextRequest) {
 
         let filter: any = {};
 
-        // Бронированная фильтрация: отсекаем мусорные остатки, у которых нет videoFileId или валидного видео-урла
+        // Бронированная фильтрация без дублирования ключей
         filter.$and = [
             {
-                $or: [
-                    { videoFileId: { $exists: true,$ne: "" } },
-                    { fileId: { $exists: true,$ne: "" } },
-                    { videoUrl: { $regex: /^\/api\/videos\/stream\// } },
-                    { videoUrl: { $regex: /^https?:\/\// } }
+                $and: [
+                    { videoUrl: { $exists: true,$ne: "" } },
+                    { 
+                        $or: [
+                            { videoFileId: { $exists: true,$ne: "" } },
+                            { fileId: { $exists: true,$ne: "" } },
+                            { videoUrl: { $regex: /^\/api\/videos\/stream\// } },
+                            { videoUrl: { $regex: /^https?:\/\// } }
+                        ]
+                    }
                 ]
             }
         ];
