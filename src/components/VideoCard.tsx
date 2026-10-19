@@ -27,7 +27,7 @@ interface VideoCardProps {
         videoUrl?: string;
         fileUrl?: string;
         fileId?: string;
-        videoFileId?: string; // Добавили поддержку videoFileId из базы
+        videoFileId?: string;
     };
     onDelete?: (id: string) => void;
     isOwner?: boolean;
@@ -41,7 +41,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const { data: session } = useSession();
 
     const [isDeleting, setIsDeleting] = useState(false);
-    const [showTariffs, setShowTariffs] = useState(false);
     const [isRemoved, setIsRemoved] = useState(false);
     
     // Состояния для реального встроенного плеера
@@ -52,15 +51,18 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
     const videoId = video._id.toString();
 
-    // 1. Точное определение fileId из любого источника (fileId, videoFileId или парсинг из videoUrl)
-    const rawFileId = video.fileId || video.videoFileId;
+    // 1. Надежное извлечение fileId из любого доступного поля
+    const rawFileId = video.videoFileId || video.fileId;
     let computedFileId = rawFileId;
 
-    if (!computedFileId && video.videoUrl && video.videoUrl.includes("/api/videos/stream/")) {
-        computedFileId = video.videoUrl.split("/api/videos/stream/")[1];
+    if (!computedFileId) {
+        const targetUrl = video.videoUrl || video.fileUrl || "";
+        if (targetUrl.includes("/api/videos/stream/")) {
+            computedFileId = targetUrl.split("/api/videos/stream/")[1]?.split("?")[0];
+        }
     }
 
-    // 2. Итоговый URL для стриминга через наш локальный роут
+    // 2. Итоговый защищенный URL для стриминга через локальный эндпоинт
     const videoSrc = computedFileId 
         ? `/api/videos/stream/${computedFileId}` 
         : (video.videoUrl || video.fileUrl || "");
@@ -169,7 +171,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 alert(data.error || tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred"));
                 setIsDeleting(false);
             }
-        } catch (err) {
+        } catch {
             alert(tr("Сервер билан алоқада хатолик", "Server bilan aloqada xatolik", "Ошибка связи с сервером", "Server connection error"));
             setIsDeleting(false);
         }
@@ -182,7 +184,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 {/* МЕДИАТЕКА / ПЛЕЕР ИЛИ ОБЛОЖКА */}
                 <div className="relative w-full sm:w-48 aspect-video sm:aspect-square rounded-2xl object-cover border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
                     {!isPlayingVideo ? (
-                        /* Обложка с кнопкой Play */
                         <div 
                             onClick={handlePlayVideo}
                             className="relative w-full h-full cursor-pointer group"
@@ -197,7 +198,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                             </div>
                         </div>
                     ) : (
-                        /* Реальный тег видео с поддержкой source и автоплеем */
                         <div className="relative w-full h-full flex items-center justify-center">
                             {isLoadingVideo && !videoError && (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10 gap-1.5">
@@ -266,7 +266,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 </div>
             </div>
 
-            {/* ПРИВАТНЫЙ БЛОК: Сроки хранения видны СТРОГО владельцу или админу */}
             {canManage && (
                 <div className="flex flex-col gap-3 bg-neutral-950/70 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 text-sm sm:text-base">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -285,7 +284,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 </div>
             )}
 
-            {/* Кнопки управления отображаются СТРОГО для владельца или админа */}
             {canManage && (
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
                     <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">

@@ -21,7 +21,6 @@ export async function GET(
             return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
         }
 
-        // 1. Запрашиваем путь к файлу у официального Telegram Bot API
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
         const data = await response.json();
 
@@ -33,14 +32,12 @@ export async function GET(
         const filePath = data.result.file_path;
         const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
-        // 2. Протягиваем заголовок Range для поддержки перемотки видео в плеере
         const rangeHeader = request.headers.get("range");
         const fetchHeaders: HeadersInit = {};
         if (rangeHeader) {
             fetchHeaders["Range"] = rangeHeader;
         }
 
-        // 3. Запрашиваем поток данных у серверов Telegram
         const telegramRes = await fetch(fileDownloadUrl, {
             headers: fetchHeaders,
             cache: "no-store",
@@ -51,17 +48,23 @@ export async function GET(
         }
 
         const responseHeaders = new Headers();
-        responseHeaders.set("Content-Type", telegramRes.headers.get("content-type") || "video/mp4");
+        // ЖЕСТКО ЗАДАЕМ video/mp4, чтобы браузер не ругался
+        responseHeaders.set("Content-Type", "video/mp4");
         responseHeaders.set("Accept-Ranges", "bytes");
 
         const contentLength = telegramRes.headers.get("content-length");
         if (contentLength) responseHeaders.set("Content-Length", contentLength);
 
         const contentRange = telegramRes.headers.get("content-range");
-        if (contentRange) responseHeaders.set("Content-Range", contentRange);
+        if (contentRange) {
+            responseHeaders.set("Content-Range", contentRange);
+        }
+
+        // Гарантируем 206 статус при наличии Range, если Telegram отдал 200 но кусок
+        const status = rangeHeader && telegramRes.status === 200 ? 206 : telegramRes.status;
 
         return new NextResponse(telegramRes.body, {
-            status: telegramRes.status,
+            status: status,
             headers: responseHeaders,
         });
 

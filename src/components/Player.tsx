@@ -68,8 +68,10 @@ export default function Player() {
     return null;
   }
 
-  const hasVideo = Boolean(currentTrack?.videoUrl);
-  const mediaSrc = currentTrack?.videoUrl || currentTrack?.audioUrl;
+  const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
+  const mediaSrc = (currentTrack as any)?.videoFileId 
+    ? `/api/videos/stream/${(currentTrack as any).videoFileId}` 
+    : (currentTrack?.videoUrl || currentTrack?.audioUrl);
 
   const formatTime = (time: number) => {
     if (isNaN(time) || time === 0) return "0:00";
