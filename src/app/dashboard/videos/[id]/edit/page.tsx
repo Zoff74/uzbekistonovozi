@@ -216,7 +216,7 @@ export default function EditVideoPage() {
 
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    
+
     reader.onload = async () => {
       try {
         const base64String = reader.result as string;
@@ -339,7 +339,7 @@ export default function EditVideoPage() {
   }
 
   const GradientBorder = () => (
-    <div 
+    <div
       className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
       style={{
         padding: '2px',
@@ -378,7 +378,7 @@ export default function EditVideoPage() {
               {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               <span>{tr("Видеони ўчириш", "Videoni o'chirish", "Удалить видео", "Delete video")}</span>
             </button>
-            <div 
+            <div
               className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(239,68,68,0.3)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
               style={{
                 padding: '2px',
@@ -396,7 +396,7 @@ export default function EditVideoPage() {
             <h1 className="text-lg sm:text-xl text-amber-400 mb-1">{tr("Видеоклипни таҳрирлаш", "Videoklipni tahrirlash", "Редактировать клип", "Edit Video Clip")}</h1>
             <p className="text-sm text-neutral-400">{tr("Видео ва маълумотларни янгилаш қоидаларини бошқариш", "Video va ma'lumotlarni yangilash qoidalarini boshqarish", "Управление правилами обновления видео и данных", "Manage video and data update rules")}</p>
           </div>
-          
+
           {error && (
             <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">
               {error}
@@ -449,8 +449,8 @@ export default function EditVideoPage() {
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>
-                    {isCustomGenre 
-                      ? tr("Руйхатдан танлаш", "Ro'yxatdan tanlash", "Выбрать из списка", "Select from list") 
+                    {isCustomGenre
+                      ? tr("Руйхатдан танлаш", "Ro'yxatdan tanlash", "Выбрать из списка", "Select from list")
                       : tr("Бошқа жанр ёзиш", "Boshqa janr yozish", "Ввести свой жанр", "Enter custom genre")}
                   </span>
                 </button>
@@ -529,8 +529,8 @@ export default function EditVideoPage() {
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
               <div className="flex items-center justify-between">
                 <label className="block text-sm font-medium text-neutral-300">
-                  {uploadingVideo 
-                    ? tr(`Видео серверга юкланмоқда: ${uploadProgress}%`, `Video yuklanmoqda: ${uploadProgress}%`, `Загрузка видео: ${uploadProgress}%`, `Uploading video: ${uploadProgress}%`) 
+                  {uploadingVideo
+                    ? tr(`Видео серверга юкланмоқда: ${uploadProgress}%`, `Video yuklanmoqda: ${uploadProgress}%`, `Загрузка видео: ${uploadProgress}%`, `Uploading video: ${uploadProgress}%`)
                     : tr("Видеоклип файли (Янгисига алмаштириш)", "Videoklip fayli (Yangiiga almashtirish)", "Видеофайл (Заменить новым)", "Video File (Replace)")}
                 </label>
 
@@ -544,7 +544,7 @@ export default function EditVideoPage() {
                     >
                       <span>🗑️ {tr("Файлни ўчириш", "Faylni o'chirish", "Удалить файл", "Delete file")}</span>
                     </button>
-                    <div 
+                    <div
                       className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(239,68,68,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
                       style={{
                         padding: '2px',
@@ -560,7 +560,7 @@ export default function EditVideoPage() {
 
               {uploadingVideo && (
                 <div className="w-full bg-neutral-900 rounded-full h-3 overflow-hidden border border-neutral-800">
-                  <div 
+                  <div
                     className="bg-amber-400 h-full transition-all duration-300"
                     style={{ width: `${uploadProgress}%` }}
                   />
@@ -601,9 +601,9 @@ export default function EditVideoPage() {
               <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800">
                 <span className="block text-neutral-500">{tr("Ҳолати (Status)", "Holati (Status)", "Состояние (Status)", "Status")}</span>
                 <span className={`font-semibold mt-0.5 block ${videoMeta.status === 'ACTIVE' ? 'text-emerald-400' : videoMeta.status === 'FROZEN' ? 'text-blue-400' : 'text-red-400'}`}>
-                  {videoMeta.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активный", "Active") : 
-                   videoMeta.status === 'FROZEN' ? tr("Музlatilgan (Заморозка / Оплата кутиляпти)", "Muzlatilgan (Zamorozka / To'lov kutilayotgan)", "Заморожен (Ожидает оплаты)", "Frozen / Awaiting Payment") : 
-                   tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired")}
+                  {videoMeta.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активный", "Active") :
+                    videoMeta.status === 'FROZEN' ? tr("Музlatilgan (Заморозка / Оплата кутиляпти)", "Muzlatilgan (Zamorozka / To'lov kutilayotgan)", "Заморожен (Ожидает оплаты)", "Frozen / Awaiting Payment") :
+                      tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired")}
                 </span>
               </div>
               <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800">
@@ -621,13 +621,12 @@ export default function EditVideoPage() {
                   type="button"
                   disabled={isLocked}
                   onClick={handleToggleFreeze}
-                  className={`relative z-10 w-full px-4 py-2.5 rounded-xl text-xs font-semibold transition bg-neutral-950 flex items-center gap-1.5 justify-center cursor-pointer ${
-                    videoMeta.status === 'FROZEN' ? 'text-blue-400' : 'text-amber-400'
-                  }`}
+                  className={`relative z-10 w-full px-4 py-2.5 rounded-xl text-xs font-semibold transition bg-neutral-950 flex items-center gap-1.5 justify-center cursor-pointer ${videoMeta.status === 'FROZEN' ? 'text-blue-400' : 'text-amber-400'
+                    }`}
                 >
                   <span>
-                    {videoMeta.status === 'FROZEN' ? 
-                      `💳 ${tr(" Тўлов қилиш ва отморозка қилиш", " To'lov qilish va otmorozka qilish", " Оплатить и разморозить", " Pay & Unfreeze")}` : 
+                    {videoMeta.status === 'FROZEN' ?
+                      `💳 ${tr(" Тўлов қилиш ва отморозка қилиш", " To'lov qilish va otmorozka qilish", " Оплатить и разморозить", " Pay & Unfreeze")}` :
                       `❄️ ${tr("Вақтинча музлатиш (Заморозка)", "Vaqtincha muzlatish (Zamorozka)", "Временно заморозить", "Freeze Video")}`
                     }
                   </span>
@@ -647,22 +646,19 @@ export default function EditVideoPage() {
                   <GradientBorder />
                 </div>
 
-                <div className={`relative rounded-xl inline-block group ${isLocked ? "opacity-50 pointer-events-none" : ""}`}>
+                <div className={`relative rounded-xl inline-block group ${isLocked ? "opacity-50 pointer-events-none cursor-not-allowed" : ""}`}>
                   <button
                     type="submit"
                     disabled={isLocked}
-                    className="relative z-10 bg-neutral-950 text-amber-400 disabled:opacity-50 font-semibold px-6 py-2.5 rounded-xl transition cursor-pointer text-sm disabled:cursor-not-allowed flex items-center gap-2"
+                    className="relative z-10 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-neutral-950 font-bold transition text-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
-                    <span className="flex items-center gap-2">
-                      {saving && <Loader2 className="animate-spin" size={16} />}
-                      <span>{saving ? tr("Сақланмоқда...", "Saqlanmoqda...", "Сохранение...", "Saving...") : tr("Ўзгаришларни сақлаш", "O'zgarishlarni saqlash", "Сохранить изменения", "Save changes")}</span>
-                    </span>
+                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>{tr("Сақлаш", "Saqlash", "Сохранить", "Save")}</span>
                   </button>
                   <GradientBorder />
                 </div>
               </div>
             </div>
-
           </form>
         </div>
       </div>
