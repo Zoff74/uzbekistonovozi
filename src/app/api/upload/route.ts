@@ -96,17 +96,17 @@ export async function POST(request: NextRequest) {
             try {
                 await new Promise<void>((resolve, reject) => {
                     ffmpeg(inputPath)
-                        .output(outputPath)
-                        .videoCodec('libx264')
-                        .audioCodec('aac')
-                        .audioBitrate('64k')
-                        .outputOptions([
-                            '-preset fast', 
-                            '-crf 34', 
-                            '-vf scale=-2:360', 
-                            '-pix_fmt yuv420p',
-                            '-movflags +faststart',
-                        ])
+    .output(outputPath)
+    .videoCodec('libx264')
+    .audioCodec('aac')
+    .audioBitrate('128k') // 👈 Хороший чистый звук для клипов
+    .outputOptions([
+        '-preset ultrafast', // 👈 Исключает 502 ошибку Render
+        '-crf 32',
+        '-vf scale=-2:360',
+        '-pix_fmt yuv420p',
+        '-movflags +faststart',
+    ])
                         .on('end', () => resolve())
                         .on('error', (err) => reject(err))
                         .run();
