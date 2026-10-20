@@ -7,17 +7,15 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
-import ImageKit from "imagekit";
+import ImageKit from "@imagekit/nodejs";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 60;
 
-// Инициализация инстанса ImageKit для загрузки обложек прямо из бэкенда
+// Инициализация серверного ImageKit
 const imagekit = new ImageKit({
-    publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "dummy_public_key",
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
-    urlEndpoint: process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT || "https://ik.imagekit.io/tyhsos05b",
 });
 
 export async function GET(req: NextRequest) {
@@ -83,7 +81,7 @@ export async function POST(req: NextRequest) {
         const genre = formData.get("genre") as string;
         const duration = (formData.get("duration") as string) || "0:00";
 
-        const coverInput = formData.get("cover"); // Может прийти как File или как string (URL)
+        const coverInput = formData.get("cover"); 
         const videoFileId = formData.get("videoFileId") as string;
         const videoUrlFromClient = formData.get("videoUrl") as string;
         const telegramMessageIdStr = formData.get("telegramMessageId") as string;
@@ -92,15 +90,15 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, message: "Заполните название, исполнителя и ID видео" }, { status: 400 });
         }
 
-        // Автоматическая обработка обложки: если пришел File, грузим в ImageKit, если строка — оставляем
+        // Автоматическая обработка обложки через imagekit.files.upload
         let coverUrl = "/default-cover.webp";
         if (coverInput instanceof File && coverInput.size > 0) {
             console.log("[VIDEO POST COVER] Обнаружен файл обложки, загружаем в ImageKit...");
             const coverBuffer = Buffer.from(await coverInput.arrayBuffer());
             const uniqueCoverName = `${Date.now()}_${coverInput.name.replace(/\s+/g, '_')}`;
 
-            const uploadResponse = await imagekit.upload({
-                file: coverBuffer,
+            const uploadResponse: any = await imagekit.files.upload({
+                file: coverBuffer.toString("base64"),
                 fileName: uniqueCoverName,
                 folder: "/uzbekistonovozi/covers",
             });

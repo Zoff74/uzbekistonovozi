@@ -4,7 +4,7 @@ export const maxDuration = 600;
 export const runtime = 'nodejs';
 
 import { NextResponse, NextRequest } from "next/server";
-import ImageKit from "imagekit";
+import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import path from "path";
@@ -16,9 +16,7 @@ import { pipeline } from "stream/promises";
 import ffmpeg from "fluent-ffmpeg";
 
 const imagekit = new ImageKit({
-    publicKey: process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY || "dummy_public_key",
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
-    urlEndpoint: process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT || "https://ik.imagekit.io/tyhsos05b",
 });
 
 export async function POST(request: NextRequest) {
@@ -49,24 +47,24 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 1. ИЗОБРАЖЕНИЕ
+        // 1. ИЗОБРАЖЕНИЕ / ОБЛОЖКА
         if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar") {
             const oldFileId = formData.get("oldFileId") as string | null;
             const buffer = Buffer.from(await file.arrayBuffer());
-            const uniqueFileName = `${Date.now()}_${file.name}`;
+            const uniqueFileName = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
             const mainFolder = process.env.NEXT_PUBLIC_IMAGEKIT_FOLDER || "";
-            const defaultFolder = mainFolder ? `/${mainFolder}/avatars` : "/avatars";
+            const defaultFolder = mainFolder ? `/${mainFolder}/covers` : "/uzbekistonovozi/covers";
             const folder = (formData.get("folder") as string) || defaultFolder;
 
-            const uploadResponse = await imagekit.upload({
-                file: buffer,
+            const uploadResponse: any = await imagekit.files.upload({
+                file: buffer.toString("base64"),
                 fileName: uniqueFileName,
                 folder: folder,
             });
 
             if (oldFileId && !oldFileId.startsWith("BAACAg")) {
                 try {
-                    await imagekit.deleteFile(oldFileId);
+                    await imagekit.files.delete(oldFileId);
                 } catch (err) {
                     console.error("Ошибка при удалении старого файла:", err);
                 }
@@ -94,37 +92,36 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Сжимаем, если файл больше 18 МБ
-if (fileStats.size > 18 * 1024 * 1024) {
-    try {
-        await new Promise<void>((resolve, reject) => {
-            ffmpeg(inputPath)
-                .output(outputPath)
-                .videoCodec('libx264')
-                .audioCodec('aac')
-                .audioBitrate('64k') // Снижаем аудиобитрейт для экономии веса
-                .outputOptions([
-                    '-preset fast', 
-                    '-crf 34', // Более агрессивное сжатие гарантированно впишет 74 МБ в ~15-18 МБ
-                    '-vf scale=-2:360', // 360p для идеального стриминга
-                    '-pix_fmt yuv420p',
-                    '-movflags +faststart',
-                ])
-                .on('end', () => resolve())
-                .on('error', (err) => reject(err))
-                .run();
-        });
+        if (fileStats.size > 18 * 1024 * 1024) {
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    ffmpeg(inputPath)
+                        .output(outputPath)
+                        .videoCodec('libx264')
+                        .audioCodec('aac')
+                        .audioBitrate('64k')
+                        .outputOptions([
+                            '-preset fast', 
+                            '-crf 34', 
+                            '-vf scale=-2:360', 
+                            '-pix_fmt yuv420p',
+                            '-movflags +faststart',
+                        ])
+                        .on('end', () => resolve())
+                        .on('error', (err) => reject(err))
+                        .run();
+                });
 
-        finalPathToUpload = outputPath;
-        finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
+                finalPathToUpload = outputPath;
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
 
-    } catch (ffmpegErr: any) {
-        console.error("FFmpeg error:", ffmpegErr);
-        await fs.unlink(inputPath).catch(() => {});
-        await fs.unlink(outputPath).catch(() => {});
-        return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
-    }
-}
+            } catch (ffmpegErr: any) {
+                console.error("FFmpeg error:", ffmpegErr);
+                await fs.unlink(inputPath).catch(() => {});
+                await fs.unlink(outputPath).catch(() => {});
+                return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
+            }
+        }
 
         const finalStats = await fs.stat(finalPathToUpload);
         if (finalStats.size > 50 * 1024 * 1024) {
