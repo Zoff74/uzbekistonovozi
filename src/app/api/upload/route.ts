@@ -93,37 +93,40 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл > 18 МБ — запускаем FFmpeg
-        if (fileStats.size > 18 * 1024 * 1024) {
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    ffmpeg(inputPath)
-                        .output(outputPath)
-                        .videoCodec('libx264')
-                        .audioCodec('aac')
-                        .audioBitrate('128k')
-                        .outputOptions([
-                            '-preset ultrafast', // Минимизирует CPU нагрузку
-                            '-crf 32',
-                            '-vf scale=-2:360',  // Принудительное 360p для укладывания в лимит 20 МБ
-                            '-pix_fmt yuv420p',
-                            '-movflags +faststart',
-                        ])
-                        .on('end', () => resolve())
-                        .on('error', (err) => reject(err))
-                        .run();
-                });
+        // Если файл > 18 МБ — запускаем FFmpeg сжатие с гарантированным лимитом размера
+if (fileStats.size > 18 * 1024 * 1024) {
+    try {
+        await new Promise<void>((resolve, reject) => {
+            ffmpeg(inputPath)
+                .output(outputPath)
+                .videoCodec('libx264')
+                .audioCodec('aac')
+                .audioBitrate('96k')
+                .outputOptions([
+                    '-preset ultrafast',
+                    '-crf 34',            // Чуть сильнее сжимаем для укладывания в лимит
+                    '-b:v 450k',          // Ограничиваем битрейт до ~450 kbps
+                    '-maxrate 500k',
+                    '-bufsize 1000k',
+                    '-vf scale=-2:360',   // 360p
+                    '-pix_fmt yuv420p',
+                    '-movflags +faststart',
+                ])
+                .on('end', () => resolve())
+                .on('error', (err) => reject(err))
+                .run();
+        });
 
-                finalPathToUpload = outputPath;
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
+        finalPathToUpload = outputPath;
+        finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
 
-            } catch (ffmpegErr: any) {
-                console.error("FFmpeg error:", ffmpegErr);
-                await fs.unlink(inputPath).catch(() => {});
-                await fs.unlink(outputPath).catch(() => {});
-                return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
-            }
-        }
+    } catch (ffmpegErr: any) {
+        console.error("FFmpeg error:", ffmpegErr);
+        await fs.unlink(inputPath).catch(() => {});
+        await fs.unlink(outputPath).catch(() => {});
+        return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
+    }
+}
 
         const finalStats = await fs.stat(finalPathToUpload);
         if (finalStats.size > 50 * 1024 * 1024) {
