@@ -10,9 +10,8 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
-import { createReadStream, createWriteStream } from "fs";
+import { createReadStream } from "fs";
 import { Readable } from "stream";
-import { pipeline } from "stream/promises";
 import ffmpeg from "fluent-ffmpeg";
 
 const imagekit = new ImageKit({
@@ -85,28 +84,31 @@ export async function POST(request: NextRequest) {
         inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
         outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
-        const nodeStream = Readable.fromWeb(file.stream() as any);
-        await pipeline(nodeStream, createWriteStream(inputPath));
+        // Безопасное сохранение файла на диск целиком (без сбоев стрима)
+        const bytes = await file.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+        await fs.writeFile(inputPath, buffer);
 
         const fileStats = await fs.stat(inputPath);
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
+        // Если файл > 18 МБ — запускаем FFmpeg
         if (fileStats.size > 18 * 1024 * 1024) {
             try {
                 await new Promise<void>((resolve, reject) => {
                     ffmpeg(inputPath)
-    .output(outputPath)
-    .videoCodec('libx264')
-    .audioCodec('aac')
-    .audioBitrate('128k') // 👈 Хороший чистый звук для клипов
-    .outputOptions([
-        '-preset ultrafast', // 👈 Исключает 502 ошибку Render
-        '-crf 32',
-        '-vf scale=-2:360',
-        '-pix_fmt yuv420p',
-        '-movflags +faststart',
-    ])
+                        .output(outputPath)
+                        .videoCodec('libx264')
+                        .audioCodec('aac')
+                        .audioBitrate('128k')
+                        .outputOptions([
+                            '-preset ultrafast', // Минимизирует CPU нагрузку
+                            '-crf 32',
+                            '-vf scale=-2:360',  // Принудительное 360p для укладывания в лимит 20 МБ
+                            '-pix_fmt yuv420p',
+                            '-movflags +faststart',
+                        ])
                         .on('end', () => resolve())
                         .on('error', (err) => reject(err))
                         .run();
@@ -126,7 +128,7 @@ export async function POST(request: NextRequest) {
         const finalStats = await fs.stat(finalPathToUpload);
         if (finalStats.size > 50 * 1024 * 1024) {
             await fs.unlink(inputPath).catch(() => {});
-            await fs.unlink(outputPath).catch(() => {});
+            if (outputPath) await fs.unlink(outputPath).catch(() => {});
             return NextResponse.json({ error: "Файл превышает допустимый размер даже после обработки." }, { status: 400 });
         }
 
@@ -135,10 +137,11 @@ export async function POST(request: NextRequest) {
 
         if (!BOT_TOKEN || !storageChatId) {
             await fs.unlink(inputPath).catch(() => {});
-            await fs.unlink(outputPath).catch(() => {});
+            if (outputPath) await fs.unlink(outputPath).catch(() => {});
             return NextResponse.json({ error: "Ошибка конфигурации хранилища" }, { status: 500 });
         }
 
+        // Отправка готового файла в Telegram
         const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
@@ -153,8 +156,9 @@ export async function POST(request: NextRequest) {
             body: tgFormData,
         });
 
+        // Очищаем временные файлы
         await fs.unlink(inputPath).catch(() => {});
-        await fs.unlink(outputPath).catch(() => {});
+        if (outputPath) await fs.unlink(outputPath).catch(() => {});
 
         const responseText = await response.text();
         let data;
