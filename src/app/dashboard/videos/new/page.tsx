@@ -403,10 +403,10 @@ export default function NewVideoPage() {
                                     {isLargeVideo ? (
                                         <>
                                             <p className="text-amber-400 font-medium">
-                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтирилади. Жараён Сизнинг интернет тезлигига боғлиқ ва бунга 1 дақиқадан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytiriladi. Jarayon Sizning internet tezligiga bogliq va bunga 1 daqiqadan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это займет от 1 до 10 минут...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
+                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтирилади. Бу жараён Сизнинг интернет тезлигига боғлиқ ва 1 дақиқадан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytiriladi. Bu jarayon Sizning internet tezligiga bogliq va 1 daqiqadan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это может занять от 1 до 10 минут в зависимости от Вашего скорости интернета...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
                                             </p>
                                             <p className="text-amber-400 text-[12px]">
-                                                {tr("Илтимос сабр қилиб тугашини кутинг ёки кутмаслик учун, ҳажми максимум 49,99 МБгача бўлган видео юкланг...", "Iltimos sabr qilib tugashini kuting yoki kutmaslik uchun, hajmi maksimum 49,99 MBgacha bo'lgan video tanlang...", "Пожалуйста, подождите или выберите видео размером до 49,99 МБ...", "Please wait or select a video file up to 48 MB...")}
+                                                {tr("Илтимос сабр қилиб тугашини кутинг...", "Iltimos sabr qilib tugashini kuting...", "Пожалуйста, подождите...", "Please wait...")}
                                             </p>
                                         </>
                                     ) : (

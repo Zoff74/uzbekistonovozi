@@ -94,39 +94,37 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Сжимаем, если файл больше 18 МБ (чтобы гарантированно пролетать в лимиты Telegram Bot API для стриминга)
-        if (fileStats.size > 18 * 1024 * 1024) {
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    ffmpeg(inputPath)
-                        .output(outputPath)
-                        .videoCodec('libx264')
-                        .audioCodec('aac')
-                        .audioBitrate('96k')
-                        .outputOptions([
-                            '-preset ultrafast', 
-                            '-crf 32',
-                            '-vf scale=-2:360', // 360p обеспечивает идеальный баланс веса до 20 МБ и четкости
-                            '-pix_fmt yuv420p',
-                            '-movflags +faststart',
-                            '-threads 0',
-                            '-tune fastdecode'
-                        ])
-                        .on('end', () => resolve())
-                        .on('error', (err) => reject(err))
-                        .run();
-                });
+        // Сжимаем, если файл больше 18 МБ
+if (fileStats.size > 18 * 1024 * 1024) {
+    try {
+        await new Promise<void>((resolve, reject) => {
+            ffmpeg(inputPath)
+                .output(outputPath)
+                .videoCodec('libx264')
+                .audioCodec('aac')
+                .audioBitrate('64k') // Снижаем аудиобитрейт для экономии веса
+                .outputOptions([
+                    '-preset fast', 
+                    '-crf 34', // Более агрессивное сжатие гарантированно впишет 74 МБ в ~15-18 МБ
+                    '-vf scale=-2:360', // 360p для идеального стриминга
+                    '-pix_fmt yuv420p',
+                    '-movflags +faststart',
+                ])
+                .on('end', () => resolve())
+                .on('error', (err) => reject(err))
+                .run();
+        });
 
-                finalPathToUpload = outputPath;
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_360p.mp4";
+        finalPathToUpload = outputPath;
+        finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
 
-            } catch (ffmpegErr: any) {
-                console.error("FFmpeg error:", ffmpegErr);
-                await fs.unlink(inputPath).catch(() => {});
-                await fs.unlink(outputPath).catch(() => {});
-                return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
-            }
-        }
+    } catch (ffmpegErr: any) {
+        console.error("FFmpeg error:", ffmpegErr);
+        await fs.unlink(inputPath).catch(() => {});
+        await fs.unlink(outputPath).catch(() => {});
+        return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
+    }
+}
 
         const finalStats = await fs.stat(finalPathToUpload);
         if (finalStats.size > 50 * 1024 * 1024) {
