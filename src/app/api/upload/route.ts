@@ -93,22 +93,49 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // Если файл > 18 МБ — запускаем FFmpeg сжатие с гарантированным лимитом размера
+// Если файл > 18 МБ — запускаем умное сжатие для длинных видео под лимит < 20 МБ
 if (fileStats.size > 18 * 1024 * 1024) {
     try {
+        const duration = await new Promise<number>((resolve) => {
+            ffmpeg.ffprobe(inputPath, (err, metadata) => {
+                if (err || !metadata.format.duration) {
+                    resolve(480); // 8 минут по умолчанию если не определилось
+                } else {
+                    resolve(metadata.format.duration);
+                }
+            });
+        });
+
+        // Целимся в 15 МБ для запаса
+        const targetSizeMB = 15;
+        const totalBits = targetSizeMB * 1024 * 1024 * 8;
+        const audioBitrateKbps = 64; // Чуть прижмем звук до 64k, чтобы освободить битрейт для видео
+        const audioBits = audioBitrateKbps * 1000 * duration;
+        
+        let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
+
+        // Для длинных видео ставим безопасные рамки: от 200k до 500k
+        if (videoBitrateKbps < 200) videoBitrateKbps = 200;
+        if (videoBitrateKbps > 500) videoBitrateKbps = 500;
+
+        const videoBitrateStr = `${videoBitrateKbps}k`;
+        const maxRateStr = `${Math.floor(videoBitrateKbps * 1.2)}k`;
+        const bufSizeStr = `${videoBitrateKbps * 2}k`;
+
+        console.log(`📊 Длительность: ${duration.toFixed(1)}с. Расчетный битрейт видео: ${videoBitrateStr}`);
+
         await new Promise<void>((resolve, reject) => {
             ffmpeg(inputPath)
                 .output(outputPath)
                 .videoCodec('libx264')
                 .audioCodec('aac')
-                .audioBitrate('96k')
+                .audioBitrate('64k')
                 .outputOptions([
                     '-preset ultrafast',
-                    '-crf 34',            // Чуть сильнее сжимаем для укладывания в лимит
-                    '-b:v 450k',          // Ограничиваем битрейт до ~450 kbps
-                    '-maxrate 500k',
-                    '-bufsize 1000k',
-                    '-vf scale=-2:360',   // 360p
+                    `-b:v ${videoBitrateStr}`,
+                    `-maxrate ${maxRateStr}`,
+                    `-bufsize ${bufSizeStr}`,
+                    '-vf scale=-2:270',  // 270p: компромисс для длинных видео, чтобы убрать кубики при низком битрейте
                     '-pix_fmt yuv420p',
                     '-movflags +faststart',
                 ])
