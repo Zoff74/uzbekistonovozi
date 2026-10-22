@@ -264,28 +264,39 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
             {canManage && (
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
                     <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">
-                        <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
-                        
-                        <Link
-                            href={`/dashboard/tracks/${trackId}/edit`}
-                            className={`relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap ${
-                                !isWithinFirst24Hours ? "opacity-50 pointer-events-none" : ""
-                            }`}
-                            style={{ 
-                                borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
-                                borderImageSlice: 1 
-                            }}
-                        >
-                            <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
-                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/40 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                            </div>
+    <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
+    
+    <button
+        type="button"
+        onClick={(e) => {
+            if (!isWithinFirst24Hours) {
+                e.preventDefault();
+                alert(tr(
+                    "Қўшиқ файлига ўзгартириш киритиш муддати (24 соат) тугаган!",
+                    "Qo'shiq fayliga o'zgartirish kiritish muddati (24 soat) tugagan!",
+                    "Разрешенный срок для внесения изменений в аудиофайл (24 часа) истек!",
+                    "The time limit (24 hours) for changing the audio file has expired!"
+                ));
+                return;
+            }
+            router.push(`/dashboard/tracks/${trackId}/edit`);
+        }}
+        className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer"
+        style={{ 
+            borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
+            borderImageSlice: 1 
+        }}
+    >
+        <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/40 to-transparent -translate-x-full group-hover:animate-shimmer" />
+        </div>
 
-                            <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
-                            <span className="relative z-10">
-                                {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
-                            </span>
-                        </Link>
-                    </div>
+        <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
+        <span className="relative z-10">
+            {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
+        </span>
+    </button>
+</div>
                     
                     <div className="relative rounded-xl inline-block group">
                         <button

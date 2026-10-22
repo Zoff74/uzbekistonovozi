@@ -287,24 +287,35 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
             {canManage && (
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
                     <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">
-                        <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
-                        
-                        <Link
-                            href={`/dashboard/videos/${videoId}/edit`}
-                            className={`relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap ${
-                                !isWithinFirst24Hours ? "opacity-50 pointer-events-none" : ""
-                            }`}
-                            style={{ 
-                                borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
-                                borderImageSlice: 1 
-                            }}
-                        >
-                            <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
-                            <span className="relative z-10">
-                                {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
-                            </span>
-                        </Link>
-                    </div>
+    <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
+    
+    <button
+        type="button"
+        onClick={(e) => {
+            if (!isWithinFirst24Hours) {
+                e.preventDefault();
+                alert(tr(
+                    "Видеофайлга ўзгартириш киритиш муддати (24 соат) тугаган!",
+                    "Videofaylga o'zgartirish kiritish muddati (24 soat) tugagan!",
+                    "Разрешенный срок для внесения изменений в видеофайл (24 часа) истек!",
+                    "The time limit (24 hours) for changing the video file has expired!"
+                ));
+                return;
+            }
+            router.push(`/dashboard/videos/${videoId}/edit`);
+        }}
+        className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer"
+        style={{ 
+            borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
+            borderImageSlice: 1 
+        }}
+    >
+        <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
+        <span className="relative z-10">
+            {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
+        </span>
+    </button>
+</div>
                     
                     <div className="relative rounded-xl inline-block group">
                         <button
