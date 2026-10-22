@@ -64,55 +64,69 @@ export default function NewTrackPage() {
         setUploadProgress(0);
 
         try {
-            const data = new FormData();
-            data.append("title", formData.title);
-            data.append("singer", formData.singer);
-            data.append("genre", formData.genre);
-            data.append("audio", audioFile);
-            if (coverFile) {
-                data.append("cover", coverFile);
-            }
+            // ШАГ 1: Загружаем аудиофайл через универсальный загрузчик (/api/upload)
+            setUploadProgress(20);
+            const audioUploadData = new FormData();
+            audioUploadData.append("file", audioFile);
+            audioUploadData.append("type", "audio"); // или document/track
 
-            await new Promise<void>((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open("POST", "/api/tracks");
-                xhr.timeout = 300000; // 5 минут таймаут
-
-                xhr.upload.onprogress = (event) => {
-                    if (event.lengthComputable) {
-                        const percent = Math.round((event.loaded * 100) / event.total);
-                        setUploadProgress(percent);
-                    }
-                };
-
-                xhr.onload = () => {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            const resData = JSON.parse(xhr.responseText);
-                            if (resData.success === false) {
-                                reject(new Error(resData.message || "Ошибка сервера"));
-                            } else {
-                                resolve();
-                            }
-                        } catch {
-                            resolve(); // Если ответ не JSON, но статус успешный
-                        }
-                    } else {
-                        try {
-                            const errData = JSON.parse(xhr.responseText);
-                            reject(new Error(errData.message || errData.error || `Ошибка: HTTP ${xhr.status}`));
-                        } catch {
-                            reject(new Error(`Ошибка загрузки: HTTP ${xhr.status}`));
-                        }
-                    }
-                };
-
-                xhr.onerror = () => reject(new Error(tr("Сетевая ошибка при загрузке", "Tarmoq xatoligi", "Сетевая ошибка", "Network error")));
-                xhr.ontimeout = () => reject(new Error(tr("Превышено время ожидания", "Vaqt tugadi", "Превышено время ожидания", "Timeout exceeded")));
-
-                xhr.send(data);
+            const uploadRes = await fetch("/api/upload", {
+                method: "POST",
+                body: audioUploadData,
             });
 
+            const uploadResult = await uploadRes.json();
+            if (!uploadRes.ok || !uploadResult.success) {
+                throw new Error(uploadResult.error || "Не удалось загрузить аудиофайл на сервер");
+            }
+            const audioUrl = uploadResult.url; // Получаем строковый URL
+
+            setUploadProgress(60);
+
+            // ШАГ 2: Если есть обложка, загружаем её в ImageKit через /api/upload
+            let coverUrl = "/default-cover.webp";
+            if (coverFile) {
+                const coverUploadData = new FormData();
+                coverUploadData.append("file", coverFile);
+                coverUploadData.append("type", "cover");
+
+                const coverRes = await fetch("/api/upload", {
+                    method: "POST",
+                    body: coverUploadData,
+                });
+                const coverResult = await coverRes.json();
+                if (coverRes.ok && coverResult.success) {
+                    coverUrl = coverResult.url;
+                }
+            }
+
+            setUploadProgress(80);
+
+            // ШАГ 3: Отправляем метаданные и готовые строковые ссылки на /api/tracks
+            const trackFormData = new FormData();
+            trackFormData.append("title", formData.title);
+            trackFormData.append("singer", formData.singer);
+            trackFormData.append("genre", formData.genre || "Pop");
+            trackFormData.append("audioUrl", audioUrl); // Передаем строку!
+            trackFormData.append("cover", coverUrl);     // Передаем строку!
+
+            const trackRes = await fetch("/api/tracks", {
+                method: "POST",
+                body: trackFormData,
+            });
+
+            const trackResult = await trackRes.json();
+
+            // Обработка исчерпания триала (402 Payment Required)
+            if (trackRes.status === 402) {
+                throw new Error(trackResult.error || trackResult.message || "Бесплатный лимит треков исчерпан. Требуется оплата.");
+            }
+
+            if (!trackRes.ok || !trackResult.success) {
+                throw new Error(trackResult.message || trackResult.error || "Ошибка при сохранении трека в базу");
+            }
+
+            setUploadProgress(100);
             setLoading(false);
             setSuccessModal(true);
 
@@ -329,7 +343,6 @@ export default function NewTrackPage() {
                     </div>
                 </form>
             </div>
-            {/* МОДАЛЬНОЕ ОКНО УСПЕХА */}
             {successModal && (
                 <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
