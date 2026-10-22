@@ -1,4 +1,3 @@
-// src/app/api/media/[id]/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { getGridFSBuckets } from "@/lib/gridfs";
 import { ObjectId } from "mongodb";
@@ -11,7 +10,10 @@ export async function GET(
         const resolvedParams = await params;
         const fileId = resolvedParams.id;
         
+        console.log("🔍 [MEDIA API] Запрос файла с ID:", fileId);
+
         if (!ObjectId.isValid(fileId)) {
+            console.warn("❌ [MEDIA API] Неверный формат ObjectId:", fileId);
             return NextResponse.json({ error: "Неверный ID файла" }, { status: 400 });
         }
 
@@ -24,8 +26,11 @@ export async function GET(
         );
 
         if (!fileDoc) {
+            console.warn("❌ [MEDIA API] Документ НЕ найден в collection 'uploads.files' для ID:", fileId);
             return NextResponse.json({ error: "Файл не найден" }, { status: 404 });
         }
+
+        console.log("✅ [MEDIA API] Файл найден:", fileDoc.filename, "Размер:", fileDoc.length);
 
         const fileSize = fileDoc.length;
         const range = req.headers.get("range");
@@ -49,7 +54,6 @@ export async function GET(
         }
 
         const chunksize = (end - start) + 1;
-
         const downloadStream = bucket.openDownloadStream(new ObjectId(fileId), {
             start,
             end: end + 1,
@@ -57,29 +61,22 @@ export async function GET(
 
         const webStream = new ReadableStream({
             start(controller) {
-                downloadStream.on("data", (chunk) => {
-                    controller.enqueue(chunk);
-                });
+                downloadStream.on("data", (chunk) => controller.enqueue(chunk));
                 downloadStream.on("end", () => {
-                    try {
-                        controller.close();
-                    } catch {}
+                    try { controller.close(); } catch {}
                 });
                 downloadStream.on("error", (err) => {
-                    try {
-                        controller.error(err);
-                    } catch {}
+                    console.error("❌ [MEDIA API] Ошибка стрима GridFS:", err);
+                    try { controller.error(err); } catch {}
                 });
             },
             cancel() {
-                try {
-                    downloadStream.destroy();
-                } catch {}
+                try { downloadStream.destroy(); } catch {}
             },
         });
 
         const headers: Record<string, string> = {
-            "Content-Type": fileDoc.contentType || "application/octet-stream",
+            "Content-Type": fileDoc.contentType || "image/png",
             "Accept-Ranges": "bytes",
         };
 
@@ -92,7 +89,7 @@ export async function GET(
             return new NextResponse(webStream, { status: 200, headers });
         }
     } catch (error) {
-        console.error("Ошибка при стриминге из GridFS:", error);
+        console.error("🔥 [MEDIA API ERROR]:", error);
         return NextResponse.json({ error: "Ошибка сервера" }, { status: 500 });
     }
 }
