@@ -13,7 +13,6 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 60;
 
-// Инициализация серверного ImageKit
 const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
 });
@@ -90,10 +89,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, message: "Заполните название, исполнителя и ID видео" }, { status: 400 });
         }
 
-        // Автоматическая обработка обложки через imagekit.files.upload
         let coverUrl = "/default-cover.webp";
         if (coverInput instanceof File && coverInput.size > 0) {
-            console.log("[VIDEO POST COVER] Обнаружен файл обложки, загружаем в ImageKit...");
+            console.log("[VIDEO POST COVER] Загрузка обложки в ImageKit...");
             const coverBuffer = Buffer.from(await coverInput.arrayBuffer());
             const uniqueCoverName = `${Date.now()}_${coverInput.name.replace(/\s+/g, '_')}`;
 
@@ -103,13 +101,44 @@ export async function POST(req: NextRequest) {
                 folder: "/uzbekistonovozi/covers",
             });
             coverUrl = uploadResponse.url;
-            console.log("[VIDEO POST COVER] Обложка успешно загружена в ImageKit:", coverUrl);
+            console.log("[VIDEO POST COVER] Успешно загружено:", coverUrl);
         } else if (typeof coverInput === 'string' && coverInput.trim() !== '') {
             coverUrl = coverInput;
         }
 
         const selectedGenre = genre || "Pop";
         const matchedCategory = await Category.findOne({ name: selectedGenre }).lean();
+
+        // --- ЛОГИКА ТРИАЛА И ОПЛАТЫ ДЛЯ ВИДЕО ---
+        let isTrial = false;
+        let expiresAt = new Date();
+
+        if (!currentUser.hasUsedFreeVideo && !isAdmin) {
+            isTrial = true;
+            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000); // 24 часа
+
+            // Сжигаем право навсегда
+            currentUser.hasUsedFreeVideo = true;
+            await currentUser.save();
+            console.log(`[VIDEO POST TRIAL] Пользователь ${userId} активировал бесплатный 24-часовой триал для видео.`);
+        } else {
+            const isPaid = formData.get("isPaid") === "true" || isAdmin;
+
+            if (!isPaid && !isAdmin) {
+                console.warn(`[VIDEO POST PAYMENT] Отказ: Лимит бесплатных видео исчерпан.`);
+                return NextResponse.json({
+                    success: false,
+                    message: tr(
+                        "Бесплатный лимит видеоклипов исчерпан. Пожалуйста, оплатите размещение.",
+                        "Bepul videolar limiti tugagan. Iltimos, to'lov qiling.",
+                        "Бесплатный лимит видеоклипов исчерпан. Пожалуйста, оплатите размещение.",
+                        "Free video limit exceeded. Please pay."
+                    )
+                }, { status: 402 });
+            }
+
+            expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        }
 
         const newVideo = await (Video as any).create({
             title,
@@ -123,13 +152,14 @@ export async function POST(req: NextRequest) {
             telegramMessageId: telegramMessageIdStr ? Number(telegramMessageIdStr) : undefined,
             authorId: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId,
             status: 'ACTIVE',
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            isPaidActive: isAdmin ? true : false,
+            expiresAt: expiresAt,
+            isPaidActive: isAdmin || !isTrial,
             views: 0,
             downloadsCount: 0,
         });
 
-        return NextResponse.json({ success: true, video: newVideo }, { status: 201 });
+        console.log("[VIDEO POST SUCCESS] Видео сохранено в БД.");
+        return NextResponse.json({ success: true, video: newVideo, isTrial }, { status: 201 });
     } catch (error: any) {
         console.error("[VIDEO POST ERROR] Ошибка:", error);
         return NextResponse.json({ success: false, message: error?.message || "Server error" }, { status: 500 });

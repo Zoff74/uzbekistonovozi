@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
             }
             console.log(`[TRACK GET] Фильтрация треков по автору: ${authorId}`);
         } else {
-            console.log("[TRACK GET] Параметр автора не передан. Загрузка общего каталога треков (общий котел).");
+            console.log("[TRACK GET] Параметр автора не передан. Загрузка общего каталога треков.");
         }
         
         console.log("[TRACK GET] Запрос треков из MongoDB...");
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         console.log("[TRACK POST] Проверка сессии пользователя...");
         const session = await getServerSession(authOptions);
         if (!session || !session.user || !(session.user as any).id) {
-            console.warn("[TRACK POST AUTH] Ошибка: Неавторизованный запрос или отсутствует ID пользователя");
+            console.warn("[TRACK POST AUTH] Ошибка: Неавторизованный запрос");
             return NextResponse.json({ 
                 success: false, 
                 message: tr(
@@ -98,14 +98,13 @@ export async function POST(req: NextRequest) {
         const genre = formData.get("genre") as string;
         const description = (formData.get("description") as string) || "";
         
-        // Архитектурное изменение: обложка с ImageKit (URL), аудиофайл — через Telegram (URL или fileId)
         const coverUrlFromClient = formData.get("cover") as string;
         const audioUrlFromClient = formData.get("audioUrl") as string || formData.get("audio") as string;
 
         console.log(`[TRACK POST FORMDATA] Данные формы: title="${title}", singer="${singer}", genre="${genre}"`);
 
         if (!title || !singer || !audioUrlFromClient) {
-            console.warn("[TRACK POST VALIDATION] Ошибка: Обязательные поля (название, исполнитель или аудиофайл) не заполнены");
+            console.warn("[TRACK POST VALIDATION] Ошибка: Обязательные поля не заполнены");
             return NextResponse.json({ 
                 success: false, 
                 message: tr(
@@ -118,8 +117,8 @@ export async function POST(req: NextRequest) {
         }
 
         let coverUrl = coverUrlFromClient || "/default-cover.webp";
-        console.log(`[TRACK POST COVER] Используется ссылка на обложку (ImageKit): ${coverUrl}`);
-        console.log(`[TRACK POST AUDIO] Используется аудиоресурс (Telegram): ${audioUrlFromClient}`);
+        console.log(`[TRACK POST COVER] Обложка: ${coverUrl}`);
+        console.log(`[TRACK POST AUDIO] Аудио: ${audioUrlFromClient}`);
 
         const selectedGenre = genre || "Pop";
         console.log(`[TRACK POST CATEGORY] Поиск категории для жанра: "${selectedGenre}"`);
@@ -129,13 +128,41 @@ export async function POST(req: NextRequest) {
                 { slug: selectedGenre.toLowerCase() }
             ]
         }).lean();
-        console.log(`[TRACK POST CATEGORY] Найдена категория ID: ${matchedCategory ? (matchedCategory as any)._id : 'не найдена'}`);
+        console.log(`[TRACK POST CATEGORY] Категория ID: ${matchedCategory ? (matchedCategory as any)._id : 'не найдена'}`);
 
-        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        console.log(`[TRACK POST EXPIRATION] Установлен общий срок жизни трека на сайте до: ${expiresAt}`);
+        // --- ЛОГИКА ТРИАЛА И ОПЛАТЫ ДЛЯ ТРЕКА ---
+        let isTrial = false;
+        let expiresAt = new Date();
+
+        if (!currentUser.hasUsedFreeTrack && !isAdmin) {
+            isTrial = true;
+            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000); // Ровно 24 часа
+
+            // Сжигаем право навсегда (удаление трека не сбросит этот флаг)
+            currentUser.hasUsedFreeTrack = true;
+            await currentUser.save();
+            console.log(`[TRACK POST TRIAL] Пользователь ${userId} активировал бесплатный 24-часовой триал для первого трека.`);
+        } else {
+            const isPaid = formData.get("isPaid") === "true" || isAdmin;
+            
+            if (!isPaid && !isAdmin) {
+                console.warn(`[TRACK POST PAYMENT] Отказ: Лимит бесплатных треков исчерпан.`);
+                return NextResponse.json({
+                    success: false,
+                    error: tr(
+                        "Бесплатный лимит треков исчерпан. Пожалуйста, оплатите размещение.",
+                        "Bepul treklar limiti tugagan. Iltimos, joylashtirish uchun to'lov qiling.",
+                        "Бесплатный лимит треков исчерпан. Пожалуйста, оплатите размещение.",
+                        "Free track limit exceeded. Please pay for placement."
+                    )
+                }, { status: 402 }); // Payment Required
+            }
+
+            expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 дней для платного
+        }
 
         const cleanUserId = userId.toString();
-        console.log(`[TRACK POST DB] Создание документа трека в базе данных MongoDB для автора: ${cleanUserId}`);
+        console.log(`[TRACK POST DB] Создание документа трека для автора: ${cleanUserId}`);
 
         const newTrack = await (Track as any).create({
             title,
@@ -148,16 +175,16 @@ export async function POST(req: NextRequest) {
             authorId: Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId,
             status: 'ACTIVE',
             expiresAt: expiresAt,
-            isPaidActive: isAdmin ? true : false,
+            isPaidActive: isAdmin || !isTrial,
             plays: 0,
             downloadsCount: 0,
         });
-        console.log(`[TRACK POST DB] Трек успешно сохранен в БД. ID трека: ${newTrack._id}`);
+        console.log(`[TRACK POST DB] Трек успешно сохранен. ID: ${newTrack._id}`);
 
-        console.log("[TRACK POST SUCCESS] Запрос успешно завершен, возвращаем ответ клиенту.");
-        return NextResponse.json({ success: true, track: newTrack }, { status: 201 });
+        console.log("[TRACK POST SUCCESS] Запрос завершен.");
+        return NextResponse.json({ success: true, track: newTrack, isTrial }, { status: 201 });
     } catch (error: any) {
-        console.error("[TRACK POST ERROR] Произошла критическая ошибка при создании трека:", error);
+        console.error("[TRACK POST ERROR] Ошибка:", error);
         return NextResponse.json({ 
             success: false, 
             message: error.message || tr(

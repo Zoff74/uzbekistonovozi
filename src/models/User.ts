@@ -1,13 +1,12 @@
-// src/models/User.ts
 import mongoose, { Schema, Document, Model, HydratedDocument, Types } from "mongoose";
 
 export interface IUser extends Document {
     username: string;
     occupation?: string | null;
-    instrument?: string | null;      // Музыкальный инструмент (старый / основной для обратной совместимости)
-    instrumentId?: string | null;    // Слаг для поиска инструмента
-    instruments: string[];           // Массив музыкальных инструментов для мультиинструменталистов
-    instrumentIds: string[];         // Массив слагов инструментов
+    instrument?: string | null;
+    instrumentId?: string | null;
+    instruments: string[];
+    instrumentIds: string[];
     image: string;
     imageFileId?: string | null;
     email: string;
@@ -42,6 +41,8 @@ export interface IUser extends Document {
     freeCategoriesClaimed: string[];
     freeTracksCount: number; 
     freeVideosCount: number; 
+    hasUsedFreeTrack: boolean; // Несгораемый флаг бесплатного трека
+    hasUsedFreeVideo: boolean; // Несгораемый флаг бесплатного видео
     role: 'user' | 'admin' | 'savdogar';
     dailyViewCount: number;
     lastViewDate?: Date | null;
@@ -102,6 +103,8 @@ const userSchema = new Schema<IUser>({
     freeCategoriesClaimed: { type: [String], required: true, default: [] },
     freeTracksCount: { type: Number, required: true, default: 0 },
     freeVideosCount: { type: Number, required: true, default: 0 },
+    hasUsedFreeTrack: { type: Boolean, required: true, default: false },
+    hasUsedFreeVideo: { type: Boolean, required: true, default: false },
     role: { 
         type: String, 
         required: true, 
