@@ -1,3 +1,7 @@
+// src/app/api/media/[id]/route.ts
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextResponse, NextRequest } from "next/server";
 import { getGridFSBuckets } from "@/lib/gridfs";
 import { ObjectId } from "mongodb";
@@ -12,9 +16,18 @@ export async function GET(
         
         console.log("🔍 [MEDIA API] Запрос файла с ID:", fileId);
 
+        if (!fileId || fileId === "undefined" || fileId === "null") {
+            return NextResponse.json({ error: "ID файла не указан" }, { status: 400 });
+        }
+
+        // Если это Telegram file_id (начинается с BAACAg...), этот роут не должен его обрабатывать
+        if (fileId.startsWith("BAACAg")) {
+            return NextResponse.json({ error: "Используйте Telegram стриминг для этого файла" }, { status: 400 });
+        }
+
         if (!ObjectId.isValid(fileId)) {
             console.warn("❌ [MEDIA API] Неверный формат ObjectId:", fileId);
-            return NextResponse.json({ error: "Неверный ID файла" }, { status: 400 });
+            return NextResponse.json({ error: "Неверный формат ID файла" }, { status: 400 });
         }
 
         const { bucket, db } = await getGridFSBuckets();
@@ -27,7 +40,7 @@ export async function GET(
 
         if (!fileDoc) {
             console.warn("❌ [MEDIA API] Документ НЕ найден в collection 'uploads.files' для ID:", fileId);
-            return NextResponse.json({ error: "Файл не найден" }, { status: 404 });
+            return NextResponse.json({ error: "Файл не найден в хранилище" }, { status: 404 });
         }
 
         console.log("✅ [MEDIA API] Файл найден:", fileDoc.filename, "Размер:", fileDoc.length);
@@ -76,7 +89,7 @@ export async function GET(
         });
 
         const headers: Record<string, string> = {
-            "Content-Type": fileDoc.contentType || "image/png",
+            "Content-Type": fileDoc.contentType || "application/octet-stream",
             "Accept-Ranges": "bytes",
         };
 
@@ -88,8 +101,8 @@ export async function GET(
             headers["Content-Length"] = fileSize.toString();
             return new NextResponse(webStream, { status: 200, headers });
         }
-    } catch (error) {
-        console.error("🔥 [MEDIA API ERROR]:", error);
-        return NextResponse.json({ error: "Ошибка сервера" }, { status: 500 });
+    } catch (error: any) {
+        console.error("🔥 [MEDIA API ERROR]:", error?.message || error);
+        return NextResponse.json({ error: "Ошибка сервера при получении медиа" }, { status: 500 });
     }
 }
