@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
 
         const formData = await request.formData();
         const file = formData.get("file") as File | null;
+        const coverFile = formData.get("cover") as File | null;
         const uploadType = (formData.get("type") as string) || request.headers.get("x-upload-type") || "video";
 
         if (!file) {
@@ -185,6 +186,13 @@ export async function POST(request: NextRequest) {
         tgFormData.append('document', blob, finalFileName);
         tgFormData.append('caption', `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
+
+        // Прикрепляем обложку как thumbnail в Telegram (если она передана)
+        if (coverFile) {
+            const coverBuffer = await coverFile.arrayBuffer();
+            const coverBlob = new Blob([coverBuffer], { type: coverFile.type || 'image/jpeg' });
+            tgFormData.append('thumbnail', coverBlob, 'cover.jpg');
+        }
 
         console.log(`📤 Отправка файла в Telegram хранилище (тип: ${uploadType}, чат: ${storageChatId})...`);
 
