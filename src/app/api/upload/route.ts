@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
         }
 
         const headerName = request.headers.get("x-file-name");
-        let originalName = file.name || "video.mp4";
+        let originalName = file.name || (uploadType === "audio" ? "audio.mp3" : "video.mp4");
         if (headerName) {
             try {
                 originalName = decodeURIComponent(headerName);
@@ -77,89 +77,93 @@ export async function POST(request: NextRequest) {
             });
         } 
 
-        // 2. ВИДЕО
+        // Подготовка временных путей
         const tempDir = os.tmpdir();
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
         inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
-        outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
+        outputPath = path.join(tempDir, `output_${uniqueId}${uploadType === "audio" ? ".mp3" : ".mp4"}`);
 
-        // Безопасное сохранение файла на диск целиком (без сбоев стрима)
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
         await fs.writeFile(inputPath, buffer);
 
-        const fileStats = await fs.stat(inputPath);
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-// Если файл > 18 МБ — запускаем умное сжатие для длинных видео под лимит < 20 МБ
-if (fileStats.size > 18 * 1024 * 1024) {
-    try {
-        const duration = await new Promise<number>((resolve) => {
-            ffmpeg.ffprobe(inputPath, (err, metadata) => {
-                if (err || !metadata.format.duration) {
-                    resolve(480); // 8 минут по умолчанию если не определилось
-                } else {
-                    resolve(metadata.format.duration);
+        // 2. АУДИО (Треки) — пропускаем без конвертации видео
+        if (uploadType === "audio") {
+            finalPathToUpload = inputPath;
+            finalFileName = originalName;
+        } else {
+            // 3. ВИДЕО — сжатие при необходимости
+            const fileStats = await fs.stat(inputPath);
+
+            if (fileStats.size > 18 * 1024 * 1024) {
+                try {
+                    const duration = await new Promise<number>((resolve) => {
+                        ffmpeg.ffprobe(inputPath, (err, metadata) => {
+                            if (err || !metadata.format.duration) {
+                                resolve(480);
+                            } else {
+                                resolve(metadata.format.duration);
+                            }
+                        });
+                    });
+
+                    const targetSizeMB = 15;
+                    const totalBits = targetSizeMB * 1024 * 1024 * 8;
+                    const audioBitrateKbps = 64;
+                    const audioBits = audioBitrateKbps * 1000 * duration;
+                    
+                    let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
+
+                    if (videoBitrateKbps < 200) videoBitrateKbps = 200;
+                    if (videoBitrateKbps > 500) videoBitrateKbps = 500;
+
+                    const videoBitrateStr = `${videoBitrateKbps}k`;
+                    const maxRateStr = `${Math.floor(videoBitrateKbps * 1.2)}k`;
+                    const bufSizeStr = `${videoBitrateKbps * 2}k`;
+
+                    console.log(`📊 Длительность видео: ${duration.toFixed(1)}с. Битрейт: ${videoBitrateStr}`);
+
+                    await new Promise<void>((resolve, reject) => {
+                        ffmpeg(inputPath)
+                            .output(outputPath)
+                            .videoCodec('libx264')
+                            .audioCodec('aac')
+                            .audioBitrate('64k')
+                            .outputOptions([
+                                '-preset ultrafast',
+                                `-b:v ${videoBitrateStr}`,
+                                `-maxrate ${maxRateStr}`,
+                                `-bufsize ${bufSizeStr}`,
+                                '-vf scale=-2:270',
+                                '-pix_fmt yuv420p',
+                                '-movflags +faststart',
+                            ])
+                            .on('end', () => resolve())
+                            .on('error', (err) => reject(err))
+                            .run();
+                    });
+
+                    finalPathToUpload = outputPath;
+                    finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
+
+                } catch (ffmpegErr: any) {
+                    console.error("FFmpeg video error:", ffmpegErr);
+                    await fs.unlink(inputPath).catch(() => {});
+                    await fs.unlink(outputPath).catch(() => {});
+                    return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
                 }
-            });
-        });
-
-        // Целимся в 15 МБ для запаса
-        const targetSizeMB = 15;
-        const totalBits = targetSizeMB * 1024 * 1024 * 8;
-        const audioBitrateKbps = 64; // Чуть прижмем звук до 64k, чтобы освободить битрейт для видео
-        const audioBits = audioBitrateKbps * 1000 * duration;
-        
-        let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
-
-        // Для длинных видео ставим безопасные рамки: от 200k до 500k
-        if (videoBitrateKbps < 200) videoBitrateKbps = 200;
-        if (videoBitrateKbps > 500) videoBitrateKbps = 500;
-
-        const videoBitrateStr = `${videoBitrateKbps}k`;
-        const maxRateStr = `${Math.floor(videoBitrateKbps * 1.2)}k`;
-        const bufSizeStr = `${videoBitrateKbps * 2}k`;
-
-        console.log(`📊 Длительность: ${duration.toFixed(1)}с. Расчетный битрейт видео: ${videoBitrateStr}`);
-
-        await new Promise<void>((resolve, reject) => {
-            ffmpeg(inputPath)
-                .output(outputPath)
-                .videoCodec('libx264')
-                .audioCodec('aac')
-                .audioBitrate('64k')
-                .outputOptions([
-                    '-preset ultrafast',
-                    `-b:v ${videoBitrateStr}`,
-                    `-maxrate ${maxRateStr}`,
-                    `-bufsize ${bufSizeStr}`,
-                    '-vf scale=-2:270',  // 270p: компромисс для длинных видео, чтобы убрать кубики при низком битрейте
-                    '-pix_fmt yuv420p',
-                    '-movflags +faststart',
-                ])
-                .on('end', () => resolve())
-                .on('error', (err) => reject(err))
-                .run();
-        });
-
-        finalPathToUpload = outputPath;
-        finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
-
-    } catch (ffmpegErr: any) {
-        console.error("FFmpeg error:", ffmpegErr);
-        await fs.unlink(inputPath).catch(() => {});
-        await fs.unlink(outputPath).catch(() => {});
-        return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
-    }
-}
+            }
+        }
 
         const finalStats = await fs.stat(finalPathToUpload);
         if (finalStats.size > 50 * 1024 * 1024) {
             await fs.unlink(inputPath).catch(() => {});
             if (outputPath) await fs.unlink(outputPath).catch(() => {});
-            return NextResponse.json({ error: "Файл превышает допустимый размер даже после обработки." }, { status: 400 });
+            return NextResponse.json({ error: "Файл превышает допустимый размер (50 МБ)." }, { status: 400 });
         }
 
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -177,8 +181,9 @@ if (fileStats.size > 18 * 1024 * 1024) {
         tgFormData.append('chat_id', storageChatId);
         
         const blob = await new Response(Readable.toWeb(stream) as any).blob();
+        const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
         tgFormData.append('document', blob, finalFileName);
-        tgFormData.append('caption', `🎥 Video: ${(session.user as any).name || (session.user as any).id}`);
+        tgFormData.append('caption', `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
 
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
