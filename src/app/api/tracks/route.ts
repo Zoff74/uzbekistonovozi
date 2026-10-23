@@ -1,3 +1,7 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const maxDuration = 120;
+
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
@@ -7,10 +11,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
-
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-export const maxDuration = 120;
 
 export async function GET(req: NextRequest) {
     console.log("[TRACK GET] Запрос на получение списка треков получен");
@@ -23,16 +23,19 @@ export async function GET(req: NextRequest) {
 
         let filter: any = {};
         if (authorId) {
-            filter.$or = [
+            const conditions: any[] = [
                 { authorId: authorId },
                 { author: authorId },
                 { userId: authorId }
             ];
+            
             if (Types.ObjectId.isValid(authorId)) {
-                filter.$or.push({ authorId: new Types.ObjectId(authorId) });
-                filter.$or.push({ author: new Types.ObjectId(authorId) });
-                filter.$or.push({ userId: new Types.ObjectId(authorId) });
+                conditions.push({ authorId: new Types.ObjectId(authorId) });
+                conditions.push({ author: new Types.ObjectId(authorId) });
+                conditions.push({ userId: new Types.ObjectId(authorId) });
             }
+            
+            filter = { $or: conditions };
             console.log(`[TRACK GET] Фильтрация треков по автору: ${authorId}`);
         } else {
             console.log("[TRACK GET] Параметр автора не передан. Загрузка общего каталога треков.");
@@ -91,6 +94,12 @@ export async function POST(req: NextRequest) {
         const isAdmin = currentUser.role === 'admin';
         console.log(`[TRACK POST USER] Роль: ${currentUser.role}, Администратор: ${isAdmin}`);
 
+        // Проверка безлимита из .env
+        const rawUnlimitedIds = process.env.UNLIMITED_USER_IDS || "";
+        const unlimitedIds = rawUnlimitedIds.split(",").map(id => id.trim()).filter(Boolean);
+        const hasUnlimited = unlimitedIds.includes(userId.toString());
+        console.log(`[TRACK POST UNLIMITED] Безлимит по .env для пользователя: ${hasUnlimited}`);
+
         console.log("[TRACK POST FORMDATA] Чтение данных из FormData...");
         const formData = await req.formData();
         const title = formData.get("title") as string;
@@ -134,31 +143,31 @@ export async function POST(req: NextRequest) {
         let isTrial = false;
         let expiresAt = new Date();
 
-        if (!currentUser.hasUsedFreeTrack && !isAdmin) {
-            isTrial = true;
-            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000); // Ровно 24 часа
-
-            // Сжигаем право навсегда (удаление трека не сбросит этот флаг)
-            currentUser.hasUsedFreeTrack = true;
-            await currentUser.save();
-            console.log(`[TRACK POST TRIAL] Пользователь ${userId} активировал бесплатный 24-часовой триал для первого трека.`);
+        if ((!currentUser.hasUsedFreeTrack && !isAdmin && !hasUnlimited) || (hasUnlimited && !currentUser.hasUsedFreeTrack)) {
+            if (!hasUnlimited) {
+                currentUser.hasUsedFreeTrack = true;
+                await currentUser.save();
+            }
+            isTrial = !hasUnlimited;
+            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
+            console.log(`[TRACK POST TRIAL] Пользователь ${userId} активировал бесплатный/безлимитный период для первого трека.`);
         } else {
-            const isPaid = formData.get("isPaid") === "true" || isAdmin;
+            const isPaid = formData.get("isPaid") === "true" || isAdmin || hasUnlimited;
             
-            if (!isPaid && !isAdmin) {
+            if (!isPaid && !isAdmin && !hasUnlimited) {
                 console.warn(`[TRACK POST PAYMENT] Отказ: Лимит бесплатных треков исчерпан.`);
                 return NextResponse.json({
                     success: false,
                     error: tr(
-                        "Бесплатный лимит треков исчерпан. Пожалуйста, оплатите размещение.",
-                        "Bepul treklar limiti tugagan. Iltimos, joylashtirish uchun to'lov qiling.",
+                        "Бепул треклар жойлаштириш лимити тугаган. Эндиги трекларни жойлаштириш учун, тўлов қилиш керак",
+                        "Bepul treklar joylashtirish limiti tugagan. Endigi treklarni joylashtirish uchun, to'lov qilish kerak.",
                         "Бесплатный лимит треков исчерпан. Пожалуйста, оплатите размещение.",
                         "Free track limit exceeded. Please pay for placement."
                     )
                 }, { status: 402 }); // Payment Required
             }
 
-            expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 дней для платного
+            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000));
         }
 
         const cleanUserId = userId.toString();
@@ -175,7 +184,7 @@ export async function POST(req: NextRequest) {
             authorId: Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId,
             status: 'ACTIVE',
             expiresAt: expiresAt,
-            isPaidActive: isAdmin || !isTrial,
+            isPaidActive: isAdmin || hasUnlimited || !isTrial,
             plays: 0,
             downloadsCount: 0,
         });

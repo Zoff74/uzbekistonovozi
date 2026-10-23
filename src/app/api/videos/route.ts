@@ -1,3 +1,8 @@
+//src\app\api\videos\route.ts
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const maxDuration = 60;
+
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
@@ -8,10 +13,6 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
 import ImageKit from "@imagekit/nodejs";
-
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-export const maxDuration = 60;
 
 const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
@@ -39,9 +40,13 @@ export async function GET(req: NextRequest) {
                 authorOrConditions.push({ userId: new Types.ObjectId(authorId) });
             }
             filter.$or = authorOrConditions;
+            console.log(`[VIDEO GET] Фильтрация видео по автору: ${authorId}`);
+        } else {
+            console.log("[VIDEO GET] Параметр автора не передан. Загрузка общего каталога видео.");
         }
 
         const videos = await (Video as any).find(filter).sort({ createdAt: -1 }).lean();
+        console.log(`[VIDEO GET] Успешно получено видео: ${videos.length} шт.`);
 
         return NextResponse.json({ success: true, videos }, {
             headers: {
@@ -73,6 +78,12 @@ export async function POST(req: NextRequest) {
         }
 
         const isAdmin = currentUser.role === 'admin';
+
+        // Проверка безлимита из .env
+        const rawUnlimitedIds = process.env.UNLIMITED_USER_IDS || "";
+        const unlimitedIds = rawUnlimitedIds.split(",").map(id => id.trim()).filter(Boolean);
+        const hasUnlimited = unlimitedIds.includes(userId.toString());
+
         const formData = await req.formData();
 
         const title = formData.get("title") as string;
@@ -113,18 +124,18 @@ export async function POST(req: NextRequest) {
         let isTrial = false;
         let expiresAt = new Date();
 
-        if (!currentUser.hasUsedFreeVideo && !isAdmin) {
-            isTrial = true;
-            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000); // 24 часа
-
-            // Сжигаем право навсегда
-            currentUser.hasUsedFreeVideo = true;
-            await currentUser.save();
-            console.log(`[VIDEO POST TRIAL] Пользователь ${userId} активировал бесплатный 24-часовой триал для видео.`);
+        if ((!currentUser.hasUsedFreeVideo && !isAdmin && !hasUnlimited) || (hasUnlimited && !currentUser.hasUsedFreeVideo)) {
+            if (!hasUnlimited) {
+                currentUser.hasUsedFreeVideo = true;
+                await currentUser.save();
+            }
+            isTrial = !hasUnlimited;
+            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000)); // 24 часа или год
+            console.log(`[VIDEO POST TRIAL] Пользователь ${userId} активировал бесплатный/безлимитный период для видео.`);
         } else {
-            const isPaid = formData.get("isPaid") === "true" || isAdmin;
+            const isPaid = formData.get("isPaid") === "true" || isAdmin || hasUnlimited;
 
-            if (!isPaid && !isAdmin) {
+            if (!isPaid && !isAdmin && !hasUnlimited) {
                 console.warn(`[VIDEO POST PAYMENT] Отказ: Лимит бесплатных видео исчерпан.`);
                 return NextResponse.json({
                     success: false,
@@ -137,7 +148,7 @@ export async function POST(req: NextRequest) {
                 }, { status: 402 });
             }
 
-            expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000));
         }
 
         const newVideo = await (Video as any).create({
@@ -153,7 +164,7 @@ export async function POST(req: NextRequest) {
             authorId: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId,
             status: 'ACTIVE',
             expiresAt: expiresAt,
-            isPaidActive: isAdmin || !isTrial,
+            isPaidActive: isAdmin || hasUnlimited || !isTrial,
             views: 0,
             downloadsCount: 0,
         });
