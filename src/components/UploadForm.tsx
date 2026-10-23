@@ -5,7 +5,7 @@ import { useState } from "react";
 export default function UploadForm() {
   const [file, setFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [receiptFile, setReceiptFile] = useState<File | null>(null); // 👈 Файл чека
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [title, setTitle] = useState<string>("");
   const [singer, setSinger] = useState<string>("");
   const [genre, setGenre] = useState<string>("Pop");
@@ -24,66 +24,79 @@ export default function UploadForm() {
 
     try {
       setIsProcessing(true);
-      setStatus("Отправка файла на сервер для быстрой оптимизации...");
+      setStatus("Отправка аудиофайла на сервер...");
 
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
-      uploadFormData.append("type", "video");
+      uploadFormData.append("type", "audio"); // Указываем тип audio для треков
 
       const uploadRes = await fetch("/api/upload", {
         method: "POST",
         body: uploadFormData, 
       });
 
-      const uploadData = await uploadRes.json();
+      const uploadText = await uploadRes.text();
+      let uploadData;
+      try {
+        uploadData = uploadText ? JSON.parse(uploadText) : {};
+      } catch (err) {
+        throw new Error(`Ошибка ответа сервера загрузки: ${uploadText || uploadRes.status}`);
+      }
+
       if (!uploadRes.ok || !uploadData.success) {
-        throw new Error(uploadData.error || "Не удалось загрузить и сжать файл на сервере");
+        throw new Error(uploadData.error || "Не удалось загрузить аудиофайл на сервер");
       }
 
       const { fileId, url } = uploadData;
 
-      setStatus("Сохранение метаданных в базу...");
-      const videoFormData = new FormData();
-      videoFormData.append("title", title);
-      videoFormData.append("singer", singer);
-      videoFormData.append("genre", genre);
-      videoFormData.append("videoFileId", fileId);
-      videoFormData.append("videoUrl", url || "");
+      setStatus("Сохранение трека в базу данных...");
+      const trackFormData = new FormData();
+      trackFormData.append("title", title);
+      trackFormData.append("singer", singer);
+      trackFormData.append("genre", genre);
+      trackFormData.append("audioUrl", url || fileId); // Передаем ссылку на аудио
       
       if (isPaidOverride) {
-        videoFormData.append("isPaid", "true");
-        videoFormData.append("paymentId", `p2p_${Date.now()}`);
+        trackFormData.append("isPaid", "true");
+        trackFormData.append("paymentId", `p2p_${Date.now()}`);
         if (receiptFile) {
-          videoFormData.append("receipt", receiptFile);
+          trackFormData.append("receipt", receiptFile);
         }
       }
 
       if (coverFile) {
-        videoFormData.append("cover", coverFile);
+        trackFormData.append("cover", coverFile);
       }
 
-      const videoRes = await fetch("/api/videos", {
+      // 👉 Отправляем на правильный эндпоинт треков
+      const trackRes = await fetch("/api/tracks", {
         method: "POST",
-        body: videoFormData,
+        body: trackFormData,
       });
 
-      const videoResult = await videoRes.json();
-      
-      // 👉 Перехватом статуса 402 включаем блок оплаты
-      if (videoRes.status === 402) {
+      // Перехватываем статус 402 (требуется оплата)
+      if (trackRes.status === 402) {
         setNeedsPayment(true);
         setStatus("Бесплатный триал исчерпан. Пожалуйста, оплатите размещение.");
         setIsProcessing(false);
         return;
       }
 
-      if (!videoRes.ok || !videoResult.success) {
-        throw new Error(videoResult.message || "Ошибка при сохранении видео в базу");
+      const trackText = await trackRes.text();
+      let trackResult;
+      try {
+        trackResult = trackText ? JSON.parse(trackText) : {};
+      } catch (err) {
+        throw new Error(`Ошибка ответа базы треков: ${trackText || trackRes.status}`);
+      }
+
+      if (!trackRes.ok || !trackResult.success) {
+        throw new Error(trackResult.message || trackResult.error || "Ошибка при сохранении трека в базу");
       }
 
       setStatus(
         isPaidOverride
-          ? "Оплата отправлена на проверку! Клип успешно опубликован."
+          ? "Оплата отправлена на проверку! Трек успешно опубликован."
           : "Первый релиз опубликован! Вам доступен 24-часовой бесплатный период."
       );
       setFile(null);
@@ -94,7 +107,7 @@ export default function UploadForm() {
       setNeedsPayment(false);
     } catch (err: any) {
       console.error(err);
-      setStatus(`Ошибка: ${err.message || "Не удалось обработать видео"}`);
+      setStatus(`Ошибка: ${err.message || "Не удалось обработать трек"}`);
     } finally {
       if (!needsPayment) {
         setIsProcessing(false);
@@ -113,12 +126,12 @@ export default function UploadForm() {
 
   return (
     <div className="p-6 max-w-lg mx-auto bg-white rounded-xl shadow-md space-y-4">
-      <h2 className="text-xl font-bold text-gray-800">Загрузка клипа на платформу</h2>
+      <h2 className="text-xl font-bold text-gray-800">Загрузка трека на платформу</h2>
       
       {!needsPayment ? (
         <form onSubmit={(e) => handleUpload(e, false)} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Название клипа</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Название трека</label>
             <input
               type="text"
               required
@@ -151,16 +164,16 @@ export default function UploadForm() {
               onChange={(e) => setGenre(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
-              <option value="Клип">Клип</option>
-              <option value="Концерт">Концерт</option>
-              <option value="Uzbek Estrada">Uzbek Estrada</option>
               <option value="Pop">Pop</option>
+              <option value="Estrada">Estrada</option>
+              <option value="Traditional">Traditional</option>
+              <option value="Instrumental">Instrumental</option>
               <option value="Dance">Dance</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Обложка (заставка)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Обложка трека</label>
             <input
               type="file"
               accept="image/*"
@@ -171,10 +184,10 @@ export default function UploadForm() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Видеофайл</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Аудиофайл (MP3/WAV)</label>
             <input
               type="file"
-              accept="video/*"
+              accept="audio/*"
               required
               disabled={isProcessing}
               onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -187,13 +200,12 @@ export default function UploadForm() {
             disabled={!file || !title || !singer || isProcessing}
             className="w-full py-2.5 px-4 bg-violet-600 text-white font-semibold rounded-lg shadow-md hover:bg-violet-700 disabled:opacity-50 cursor-pointer"
           >
-            {isProcessing ? "Обработка файла..." : "Опубликовать релиз"}
+            {isProcessing ? "Обработка трека..." : "Опубликовать трек"}
           </button>
         </form>
       ) : (
-        /* 👉 ФОРМА ОПЛАТЫ ПО РЕКВИЗИТАМ KARTY И ОТПРАВКИ ЧЕКА */
         <div className="p-5 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl space-y-4">
-          <div className="text-amber-900 font-bold text-lg text-center">💳 Оплата размещения релиза</div>
+          <div className="text-amber-900 font-bold text-lg text-center">💳 Оплата размещения трека</div>
           
           <div className="bg-white p-4 rounded-lg shadow-inner text-sm space-y-2 border border-amber-100">
             <div className="flex justify-between text-gray-600">
