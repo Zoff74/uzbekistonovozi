@@ -1,8 +1,10 @@
 "use client";
 // src/components/UploadForm.tsx
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function UploadForm() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -99,12 +101,17 @@ export default function UploadForm() {
           ? "Оплата отправлена на проверку! Трек успешно опубликован."
           : "Первый релиз опубликован! Вам доступен 24-часовой бесплатный период."
       );
+      
       setFile(null);
       setCoverFile(null);
       setReceiptFile(null);
       setTitle("");
       setSinger("");
       setNeedsPayment(false);
+
+      // 👉 ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ДАШБОРД И СТРАНИЦЫ
+      router.refresh();
+
     } catch (err: any) {
       console.error(err);
       setStatus(`Ошибка: ${err.message || "Не удалось обработать трек"}`);
