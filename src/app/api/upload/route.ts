@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
         if (!BOT_TOKEN || !storageChatId) {
             await fs.unlink(inputPath).catch(() => {});
             if (outputPath) await fs.unlink(outputPath).catch(() => {});
-            return NextResponse.json({ error: "Ошибка конфигурации хранилища" }, { status: 500 });
+            return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
         // Отправка готового файла в Telegram
@@ -186,6 +186,8 @@ export async function POST(request: NextRequest) {
         tgFormData.append('caption', `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
 
+        console.log(`📤 Отправка файла в Telegram хранилище (тип: ${uploadType}, чат: ${storageChatId})...`);
+
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
             body: tgFormData,
@@ -196,11 +198,13 @@ export async function POST(request: NextRequest) {
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
 
         const responseText = await response.text();
+        console.log("📥 Ответ от Telegram API:", responseText);
+
         let data;
         try {
             data = responseText ? JSON.parse(responseText) : {};
         } catch {
-            return NextResponse.json({ error: `Ошибка ответа хранилища (HTTP ${response.status})` }, { status: 500 });
+            return NextResponse.json({ error: `Ошибка ответа хранилища (HTTP ${response.status}): ${responseText}` }, { status: 500 });
         }
 
         if (response.ok && data && data.ok && data.result && data.result.document) {
@@ -219,7 +223,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         if (inputPath) await fs.unlink(inputPath).catch(() => {});
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
-        console.error("Upload error:", error);
+        console.error("🔥 [UPLOAD CRITICAL ERROR]:", error);
         return NextResponse.json(
             { error: error.message || "Ошибка при обработке файла" },
             { status: 500 }

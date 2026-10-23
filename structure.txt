@@ -88,6 +88,8 @@
 │   │   │   └── page.tsx
 │   │   ├── catalogInstrumentalMusic
 │   │   │   └── page.tsx
+│   │   ├── catalogMusic
+│   │   │   └── page.tsx
 │   │   ├── catalogMusiqachilar
 │   │   │   └── page.tsx
 │   │   ├── catalogSongs
