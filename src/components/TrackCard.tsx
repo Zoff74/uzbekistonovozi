@@ -54,6 +54,8 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     const isOwner = currentUserId && trackAuthor && trackAuthor.toString() === currentUserId.toString();
     const canManage = isOwner || isAdmin;
 
+    // Проверяем, безлимитный ли пользователь (можно дублировать проверку из .env на клиенте, если нужно, но isAdmin перекрывает всё)
+
     // Проверяем, играет ли именно этот трек прямо сейчас
     const isThisTrackPlaying = currentTrack && (currentTrack.id === trackId || currentTrack._id === trackId) && isPlaying;
 
@@ -213,18 +215,20 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                         </span>
                         
                         <span className="text-neutral-200 font-semibold">
-                            {diffDays > 0 
-                                ? `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}. ${tr(
-                                    "Диққат! 24 соат ичида тўлов қилинмаса, Сизнинг медиа бошқарувингиз тўхтатилади!", 
-                                    "Diqqat! 24 soat ichida to'lov qilinmasa, Sizning media boshqaruvingiz to'xtatiladi!", 
-                                    "Внимание! Если оплата не будет произведена в течение 24 часов, ваше управление медиа будет остановлено!", 
-                                    "Attention! If payment is not made within 24 hours, your media management will be suspended!"
-                                )}` 
-                                : tr("Муддат тугади", "Muddat tugadi", "Срок истек", "Term expired")}
+                            {isAdmin ? (
+                                <span className="text-emerald-400">
+                                    {tr("Чексиз фаол (Администратор)", "Cheksiz faol (Administrator)", "Активен бессрочно (Администратор)", "Active indefinitely (Administrator)")}
+                                </span>
+                            ) : diffDays > 0 ? (
+                                `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}.`
+                            ) : (
+                                tr("Муддат тугади", "Muddat tugadi", "Срок истек", "Term expired")
+                            )}
                         </span>
                     </div>
 
-                    {!isWithinFirst24Hours && (
+                    {/* БЛОК ПРЕДУПРЕЖДЕНИЯ О ТАРИФАХ: Скрыт для Администратора */}
+                    {!isAdmin && !track.isPaidActive && !isWithinFirst24Hours && (
                         <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3 text-sm sm:text-base">
                             <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-400">
                                 <span>⚠️ {tr("Диққат! Бошқарув вақтинча ёпилди:", "Diqqat! Boshqaruv vaqtincha yopildi:", "Внимание! Управление временно закрыто:", "Attention! Management temporarily closed:")}</span>
@@ -269,7 +273,8 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     <button
         type="button"
         onClick={(e) => {
-            if (!isWithinFirst24Hours) {
+            // Для администратора снимаем лимит в 24 часа на редактирование файла
+            if (!isAdmin && !isWithinFirst24Hours) {
                 e.preventDefault();
                 alert(tr(
                     "Қўшиқ файлига ўзгартириш киритиш муддати (24 соат) тугаган!",

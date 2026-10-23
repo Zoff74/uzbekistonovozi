@@ -276,9 +276,15 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                         </span>
                         
                         <span className="text-neutral-200 font-semibold">
-                            {diffDays > 0 
-                                ? `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}.` 
-                                : tr("Муддат тугади", "Muddat tugadi", "Срок истек", "Term expired")}
+                            {isAdmin ? (
+                                <span className="text-emerald-400">
+                                    {tr("Чексиз фаол (Администратор)", "Cheksiz faol (Administrator)", "Активен бессрочно (Администратор)", "Active indefinitely (Administrator)")}
+                                </span>
+                            ) : diffDays > 0 ? (
+                                `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}.`
+                            ) : (
+                                tr("Муддат тугади", "Muddat tugadi", "Срок истек", "Term expired")
+                            )}
                         </span>
                     </div>
                 </div>
@@ -292,7 +298,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     <button
         type="button"
         onClick={(e) => {
-            if (!isWithinFirst24Hours) {
+            if (!isAdmin && !isWithinFirst24Hours) {
                 e.preventDefault();
                 alert(tr(
                     "Видеофайлга ўзгартириш киритиш муддати (24 соат) тугаган!",
