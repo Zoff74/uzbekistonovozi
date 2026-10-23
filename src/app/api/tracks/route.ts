@@ -143,18 +143,21 @@ export async function POST(req: NextRequest) {
         let isTrial = false;
         let expiresAt = new Date();
 
-        if ((!currentUser.hasUsedFreeTrack && !isAdmin && !hasUnlimited) || (hasUnlimited && !currentUser.hasUsedFreeTrack)) {
-            if (!hasUnlimited) {
-                currentUser.hasUsedFreeTrack = true;
-                await currentUser.save();
-            }
-            isTrial = !hasUnlimited;
-            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
-            console.log(`[TRACK POST TRIAL] Пользователь ${userId} активировал бесплатный/безлимитный период для первого трека.`);
+        if (isAdmin || hasUnlimited) {
+            // Администраторам и безлимитным пользователям ставим год без триалов
+            expiresAt.setTime(Date.now() + 365 * 24 * 60 * 60 * 1000);
+            console.log(`[TRACK POST ADMIN/UNLIMITED] Пользователь имеет полный безлимит.`);
+        } else if (!currentUser.hasUsedFreeTrack) {
+            isTrial = true;
+            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000); // 24 часа
+
+            currentUser.hasUsedFreeTrack = true;
+            await currentUser.save();
+            console.log(`[TRACK POST TRIAL] Пользователь ${userId} активировал бесплатный 24-часовой триал.`);
         } else {
-            const isPaid = formData.get("isPaid") === "true" || isAdmin || hasUnlimited;
+            const isPaid = formData.get("isPaid") === "true";
             
-            if (!isPaid && !isAdmin && !hasUnlimited) {
+            if (!isPaid) {
                 console.warn(`[TRACK POST PAYMENT] Отказ: Лимит бесплатных треков исчерпан.`);
                 return NextResponse.json({
                     success: false,
@@ -164,15 +167,18 @@ export async function POST(req: NextRequest) {
                         "Бесплатный лимит треков исчерпан. Пожалуйста, оплатите размещение.",
                         "Free track limit exceeded. Please pay for placement."
                     )
-                }, { status: 402 }); // Payment Required
+                }, { status: 402 });
             }
 
-            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000));
+            expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
         }
 
         const cleanUserId = userId.toString();
+        const authorObjectId = Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId;
+
         console.log(`[TRACK POST DB] Создание документа трека для автора: ${cleanUserId}`);
 
+        // ЖЕСТКО дублируем во все возможные поля автора, чтобы в базе данные никогда не терялись
         const newTrack = await (Track as any).create({
             title,
             singer,
@@ -181,7 +187,9 @@ export async function POST(req: NextRequest) {
             categoryId: matchedCategory ? (matchedCategory as any)._id : undefined,
             cover: coverUrl,
             audioUrl: audioUrlFromClient,
-            authorId: Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId,
+            authorId: authorObjectId,
+            author: authorObjectId,
+            userId: authorObjectId,
             status: 'ACTIVE',
             expiresAt: expiresAt,
             isPaidActive: isAdmin || hasUnlimited || !isTrial,

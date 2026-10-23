@@ -29,8 +29,24 @@ export async function createTrackAction(data: CreateTrackInput) {
             return { success: false, errorCode: "USER_NOT_FOUND" };
         }
 
-        // Общий срок жизни трека на сайте для публики — 30 дней
-        const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const isAdmin = user.role === 'admin';
+        const rawUnlimitedIds = process.env.UNLIMITED_USER_IDS || "";
+        const unlimitedIds = rawUnlimitedIds.split(",").map(id => id.trim()).filter(Boolean);
+        const hasUnlimited = unlimitedIds.includes(data.authorId.toString());
+
+        // Расчет срока и статуса оплаты
+        let expiresAt = new Date();
+        let isPaidActive = false;
+
+        if (isAdmin || hasUnlimited) {
+            // Для админа и безлимитных пользователей — 1 год и полный безлимит
+            expiresAt.setTime(Date.now() + 365 * 24 * 60 * 60 * 1000);
+            isPaidActive = true;
+        } else {
+            // Для обычных пользователей — 30 дней триал/бесплатно
+            expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            isPaidActive = false;
+        }
 
         const newTrack = new Track({
             title: data.title,
@@ -43,8 +59,8 @@ export async function createTrackAction(data: CreateTrackInput) {
             coverFileId: data.coverFileId || "",
             authorId: data.authorId,
             status: 'ACTIVE',
-            expiresAt: thirtyDaysFromNow, // 30 дней публичной трансляции
-            isPaidActive: false,
+            expiresAt: expiresAt, 
+            isPaidActive: isPaidActive,
             plays: 0,
             downloadsCount: 0,
         });

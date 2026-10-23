@@ -1,4 +1,3 @@
-//src\app\api\videos\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 60;
@@ -124,18 +123,20 @@ export async function POST(req: NextRequest) {
         let isTrial = false;
         let expiresAt = new Date();
 
-        if ((!currentUser.hasUsedFreeVideo && !isAdmin && !hasUnlimited) || (hasUnlimited && !currentUser.hasUsedFreeVideo)) {
-            if (!hasUnlimited) {
-                currentUser.hasUsedFreeVideo = true;
-                await currentUser.save();
-            }
-            isTrial = !hasUnlimited;
-            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000)); // 24 часа или год
-            console.log(`[VIDEO POST TRIAL] Пользователь ${userId} активировал бесплатный/безлимитный период для видео.`);
-        } else {
-            const isPaid = formData.get("isPaid") === "true" || isAdmin || hasUnlimited;
+        if (isAdmin || hasUnlimited) {
+            expiresAt.setTime(Date.now() + 365 * 24 * 60 * 60 * 1000);
+            console.log(`[VIDEO POST ADMIN/UNLIMITED] Пользователь имеет полный безлимит.`);
+        } else if (!currentUser.hasUsedFreeVideo) {
+            isTrial = true;
+            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000);
 
-            if (!isPaid && !isAdmin && !hasUnlimited) {
+            currentUser.hasUsedFreeVideo = true;
+            await currentUser.save();
+            console.log(`[VIDEO POST TRIAL] Пользователь ${userId} активировал бесплатный 24-часовой триал для видео.`);
+        } else {
+            const isPaid = formData.get("isPaid") === "true";
+
+            if (!isPaid) {
                 console.warn(`[VIDEO POST PAYMENT] Отказ: Лимит бесплатных видео исчерпан.`);
                 return NextResponse.json({
                     success: false,
@@ -148,9 +149,13 @@ export async function POST(req: NextRequest) {
                 }, { status: 402 });
             }
 
-            expiresAt.setTime(Date.now() + (hasUnlimited ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000));
+            expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
         }
 
+        const cleanUserId = userId.toString();
+        const authorObjectId = Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId;
+
+        // ЖЕСТКО дублируем автора во все поля, чтобы дашборд никогда не терял клипы
         const newVideo = await (Video as any).create({
             title,
             singer,
@@ -161,7 +166,9 @@ export async function POST(req: NextRequest) {
             videoUrl: videoUrlFromClient || `/api/videos/stream/${videoFileId}`,
             videoFileId: videoFileId,
             telegramMessageId: telegramMessageIdStr ? Number(telegramMessageIdStr) : undefined,
-            authorId: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId,
+            authorId: authorObjectId,
+            author: authorObjectId,
+            userId: authorObjectId,
             status: 'ACTIVE',
             expiresAt: expiresAt,
             isPaidActive: isAdmin || hasUnlimited || !isTrial,
