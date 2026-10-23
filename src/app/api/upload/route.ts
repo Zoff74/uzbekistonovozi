@@ -207,12 +207,17 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: `Ошибка ответа хранилища (HTTP ${response.status}): ${responseText}` }, { status: 500 });
         }
 
-        if (response.ok && data && data.ok && data.result && data.result.document) {
+        let uploadedFile = null;
+        if (response.ok && data && data.ok && data.result) {
+            uploadedFile = data.result.document || data.result.audio || data.result.voice || data.result.video;
+        }
+
+        if (uploadedFile && uploadedFile.file_id) {
             return NextResponse.json({
                 success: true,
-                fileId: data.result.document.file_id,
+                fileId: uploadedFile.file_id,
                 messageId: data.result.message_id,
-                url: `/api/videos/stream/${data.result.document.file_id}`,
+                url: `/api/videos/stream/${uploadedFile.file_id}`,
                 name: originalName,
             });
         }
