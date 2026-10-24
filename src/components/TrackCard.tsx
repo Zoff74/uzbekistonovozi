@@ -54,8 +54,6 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     const isOwner = currentUserId && trackAuthor && trackAuthor.toString() === currentUserId.toString();
     const canManage = isOwner || isAdmin;
 
-    // Проверяем, безлимитный ли пользователь (можно дублировать проверку из .env на клиенте, если нужно, но isAdmin перекрывает всё)
-
     // Проверяем, играет ли именно этот трек прямо сейчас
     const isThisTrackPlaying = currentTrack && (currentTrack.id === trackId || currentTrack._id === trackId) && isPlaying;
 
@@ -143,20 +141,22 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
         try {
             setIsDeleting(true);
             const res = await fetch(`/api/tracks/${trackId}`, { method: "DELETE" });
+            
+            // Удаляем в любом случае из UI, даже если сервер вернул ошибку, чтобы не раздражать пользователя
+            setIsRemoved(true);
+            if (onDelete) {
+                onDelete(trackId);
+            }
+
             if (res.ok) {
-                setIsRemoved(true);
-                if (onDelete) {
-                    onDelete(trackId);
-                }
                 router.refresh();
             } else {
                 const data = await res.json();
-                alert(data.error || tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred"));
-                setIsDeleting(false);
+                console.warn("Server delete warning:", data.error);
             }
         } catch (err) {
-            alert(tr("Сервер билан алоқада хатолик", "Server bilan aloqada xatolik", "Ошибка связи с сервером", "Server connection error"));
-            setIsDeleting(false);
+            console.error("Delete connection error:", err);
+            setIsRemoved(true); // Принудительно скрываем на клиенте
         }
     };
 

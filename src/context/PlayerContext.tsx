@@ -35,7 +35,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     const playTrack = (track: Track, queue: Track[] = []) => {
         // Жесткая страховка: вытаскиваем аудио из любого доступного поля объекта трека
-        const resolvedAudioUrl = track.audioUrl || track.videoUrl || (track as any).fileUrl || ((track as any).audioFileId ? `/api/videos/stream/${(track as any).audioFileId}` : "");
+        const resolvedAudioUrl = track.audioUrl || track.videoUrl || (track as any).fileUrl || ((track as any).audioFileId ? `/api/tracks/stream/${(track as any).audioFileId}` : "");
 
         if (!resolvedAudioUrl) {
             console.error("У трека нет ни audioUrl, ни videoUrl, ни fileId!", track);
