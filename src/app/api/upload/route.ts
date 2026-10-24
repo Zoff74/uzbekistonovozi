@@ -92,10 +92,26 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // 2. АУДИО (Треки) — пропускаем без конвертации видео
+        // 2. АУДИО (Треки) — конвертируем в чистый mp3 для 100% совместимости с браузерами
         if (uploadType === "audio") {
-            finalPathToUpload = inputPath;
-            finalFileName = originalName;
+            try {
+                console.log("🎵 Конвертация аудиофайла в MP3...");
+                await new Promise<void>((resolve, reject) => {
+                    ffmpeg(inputPath)
+                        .output(outputPath)
+                        .audioCodec('libmp3lame')
+                        .audioBitrate('192k')
+                        .on('end', () => resolve())
+                        .on('error', (err) => reject(err))
+                        .run();
+                });
+                finalPathToUpload = outputPath;
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + ".mp3";
+            } catch (audioConvErr: any) {
+                console.error("Ошибка конвертации аудио, используем оригинал:", audioConvErr);
+                finalPathToUpload = inputPath;
+                finalFileName = originalName;
+            }
         } else {
             // 3. ВИДЕО — сжатие при необходимости
             const fileStats = await fs.stat(inputPath);
