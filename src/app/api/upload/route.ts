@@ -181,14 +181,18 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка готового файла в Telegram
+        // Отправка готового файла в Telegram (используем sendAudio для музыки и sendDocument для видео)
         const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
         
         const blob = await new Response(Readable.toWeb(stream) as any).blob();
         const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
-        tgFormData.append('document', blob, finalFileName);
+        
+        const telegramMethod = uploadType === "audio" ? "sendAudio" : "sendDocument";
+        const fileParamName = uploadType === "audio" ? "audio" : "document";
+
+        tgFormData.append(fileParamName, blob, finalFileName);
         tgFormData.append('caption', `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
 
@@ -199,9 +203,9 @@ export async function POST(request: NextRequest) {
             tgFormData.append('thumbnail', coverBlob, 'cover.jpg');
         }
 
-        console.log(`📤 Отправка файла в Telegram хранилище (тип: ${uploadType}, чат: ${storageChatId})...`);
+        console.log(`📤 Отправка файла в Telegram хранилище (метод: ${telegramMethod}, тип: ${uploadType}, чат: ${storageChatId})...`);
 
-        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${telegramMethod}`, {
             method: 'POST',
             body: tgFormData,
         });
