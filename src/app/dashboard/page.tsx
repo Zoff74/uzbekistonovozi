@@ -1,6 +1,5 @@
-// src/app/dashboard/page.tsx
 "use client";
-
+//src\app\dashboard\page.tsx
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -24,41 +23,29 @@ export default function DashboardPage() {
         }
     }, [status, router]);
 
-    useEffect(() => {
-        if (status === "authenticated") {
-            fetch("/api/user/profile") // Или ваш эндпоинт для получения данных дашборда
-                .catch(() => {})
-                .finally(() => {});
-        }
-    }, [status]);
+    const loadData = async () => {
+        try {
+            const userId = (session?.user as any)?.id;
+            if (userId) {
+                const [tracksRes, videosRes] = await Promise.all([
+                    fetch(`/api/tracks?author=${userId}`, { cache: 'no-store' }),
+                    fetch(`/api/videos?author=${userId}`, { cache: 'no-store' })
+                ]);
+                
+                const tracksData = await tracksRes.json();
+                const videosData = await videosRes.json();
 
-    // Альтернативно загружаем данные пользователя через API или держим текущий серверный вариант, 
-    // но раз мы на клиенте для мгновенного удаления, подгружаем через fetch:
-    useEffect(() => {
-        async function loadData() {
-            try {
-                const res = await fetch("/api/user/profile"); // Или отдельный роут для треков/видео пользователя
-                // Но проще получить видео по нашему ID автора
-                const userId = (session?.user as any)?.id;
-                if (userId) {
-                    const [tracksRes, videosRes] = await Promise.all([
-                        fetch(`/api/tracks?author=${userId}`),
-                        fetch(`/api/videos?author=${userId}`)
-                    ]);
-                    
-                    const tracksData = await tracksRes.json();
-                    const videosData = await videosRes.json();
-
-                    if (tracksData.success) setTracks(tracksData.tracks || tracksData.data || []);
-                    if (videosData.success) setVideos(videosData.videos || videosData.data || []);
-                }
-            } catch (err) {
-                console.error("Dashboard load error:", err);
-            } finally {
-                setLoading(false);
+                if (tracksData.success) setTracks(tracksData.tracks || tracksData.data || []);
+                if (videosData.success) setVideos(videosData.videos || videosData.data || []);
             }
+        } catch (err) {
+            console.error("Dashboard load error:", err);
+        } finally {
+            setLoading(false);
         }
+    };
 
+    useEffect(() => {
         if (session?.user) {
             loadData();
         }

@@ -50,7 +50,18 @@ export async function GET(
         }
 
         const responseHeaders = new Headers();
-        responseHeaders.set("Content-Type", "video/mp4");
+        
+        // Автоматически определяем тип контента по пути от Telegram API
+        let contentType = "video/mp4";
+        if (filePath.endsWith(".mp3") || filePath.endsWith(".M4A") || filePath.endsWith(".m4a")) {
+            contentType = "audio/mpeg";
+        } else if (filePath.endsWith(".wav")) {
+            contentType = "audio/wav";
+        } else if (filePath.endsWith(".ogg")) {
+            contentType = "audio/ogg";
+        }
+
+        responseHeaders.set("Content-Type", contentType);
         responseHeaders.set("Accept-Ranges", "bytes");
 
         const contentLength = telegramRes.headers.get("content-length");

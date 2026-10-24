@@ -34,21 +34,31 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const [currentIndex, setCurrentIndex] = useState<number>(0);
 
     const playTrack = (track: Track, queue: Track[] = []) => {
-        if (!track.audioUrl && !track.videoUrl) {
-            console.error("У трека нет ни audioUrl, ни videoUrl!");
+        // Жесткая страховка: вытаскиваем аудио из любого доступного поля объекта трека
+        const resolvedAudioUrl = track.audioUrl || track.videoUrl || (track as any).fileUrl || ((track as any).audioFileId ? `/api/videos/stream/${(track as any).audioFileId}` : "");
+
+        if (!resolvedAudioUrl) {
+            console.error("У трека нет ни audioUrl, ни videoUrl, ни fileId!", track);
+            alert("Невозможно воспроизвести: аудиофайл не найден");
             return;
         }
 
-        const newPlaylist = queue.length > 0 ? queue : [track];
+        // Нормализуем трек, чтобы у него всегда был заполнен audioUrl для плеера
+        const playableTrack = {
+            ...track,
+            audioUrl: resolvedAudioUrl
+        };
+
+        const newPlaylist = queue.length > 0 ? queue : [playableTrack];
         setPlaylist(newPlaylist);
 
         const index = newPlaylist.findIndex((t) => (t.id || t._id) === (track.id || track._id));
         setCurrentIndex(index !== -1 ? index : 0);
 
-        if (currentTrack?.audioUrl === track.audioUrl && currentTrack?.videoUrl === track.videoUrl) {
+        if (currentTrack?.audioUrl === resolvedAudioUrl) {
             setIsPlaying(!isPlaying);
         } else {
-            setCurrentTrack(track);
+            setCurrentTrack(playableTrack);
             setIsPlaying(true);
         }
     };
