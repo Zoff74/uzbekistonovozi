@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
         inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
-        outputPath = path.join(tempDir, `output_${uniqueId}${uploadType === "audio" ? ".mp3" : ".mp4"}`);
+        outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
 
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
@@ -92,24 +92,13 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // 2. АУДИО (Треки) — конвертируем в чистый mp3 для 100% совместимости с браузерами
+        // 2. АУДИО (Треки) — пропускаем без конвертации, сохраняя оригинал
         if (uploadType === "audio") {
-            try {
-                console.log("🎵 Конвертация аудиофайла в MP3...");
-                await new Promise<void>((resolve, reject) => {
-                    ffmpeg(inputPath)
-                        .output(outputPath)
-                        .audioCodec('libmp3lame')
-                        .audioBitrate('192k')
-                        .on('end', () => resolve())
-                        .on('error', (err) => reject(err))
-                        .run();
-                });
-                finalPathToUpload = outputPath;
+            finalPathToUpload = inputPath;
+            const ext = path.extname(originalName).toLowerCase();
+            if (![".mp3", ".wav", ".m4a", ".ogg", ".aac"].includes(ext)) {
                 finalFileName = originalName.replace(/\.[^/.]+$/, "") + ".mp3";
-            } catch (audioConvErr: any) {
-                console.error("Ошибка конвертации аудио, используем оригинал:", audioConvErr);
-                finalPathToUpload = inputPath;
+            } else {
                 finalFileName = originalName;
             }
         } else {
