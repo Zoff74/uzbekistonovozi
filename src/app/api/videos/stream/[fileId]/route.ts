@@ -4,7 +4,6 @@ export const revalidate = 0;
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
-import { Video } from "@/models/Video";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -23,7 +22,7 @@ export async function GET(
             return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
         }
 
-       // 1. Проверяем в БД, является ли этот fileId аудио треком
+        // Подключаемся к базе и проверяем, существует ли такой трек в БД
         await dbConnect();
         const isTrack = await (Track as any).findOne({
             $or: [
@@ -33,7 +32,7 @@ export async function GET(
             ]
         }).lean();
 
-        // Запрашиваем путь к файлу у официального Telegram Bot API
+        // Запрашиваем реальный путь к файлу у Telegram Bot API
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
         const data = await response.json();
 
@@ -45,6 +44,7 @@ export async function GET(
         const filePath = data.result.file_path;
         const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
+        // Поддерживаем Range-запросы браузера для перемотки аудио
         const rangeHeader = request.headers.get("range");
         const fetchHeaders: HeadersInit = {};
         if (rangeHeader) {
@@ -62,10 +62,9 @@ export async function GET(
 
         const responseHeaders = new Headers();
         
-        // 2. У железно определяем Content-Type: если это трек из коллекции Track, то ВСЕГДА audio/mpeg
+        // ЕСЛИ ЭТО ТРЕК — ВСЕГДА ОТДАЕМ audio/mpeg, чтобы браузер не выдавал ошибку формата!
         let contentType = isTrack ? "audio/mpeg" : "video/mp4";
         
-        // Дополнительная страховка по расширению пути Telegram
         const lowerPath = filePath.toLowerCase();
         if (lowerPath.endsWith(".wav")) contentType = "audio/wav";
         if (lowerPath.endsWith(".ogg") || lowerPath.endsWith(".oga")) contentType = "audio/ogg";

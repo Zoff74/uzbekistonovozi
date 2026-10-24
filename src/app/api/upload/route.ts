@@ -90,21 +90,16 @@ export async function POST(request: NextRequest) {
         await fs.writeFile(inputPath, buffer);
 
         let finalPathToUpload = inputPath;
+        // ГАРАНТИРОВАННОЕ чистое латинское имя для аудио, чтобы стриминг работал идеально через sendDocument
         let finalFileName = originalName;
-
-        // 2. АУДИО (Треки) — пропускаем без конвертации, сохраняя оригинал
         if (uploadType === "audio") {
-            finalPathToUpload = inputPath;
-            const ext = path.extname(originalName).toLowerCase();
-            if (![".mp3", ".wav", ".m4a", ".ogg", ".aac"].includes(ext)) {
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + ".mp3";
-            } else {
-                finalFileName = originalName;
-            }
-        } else {
-            // 3. ВИДЕО — сжатие при необходимости
-            const fileStats = await fs.stat(inputPath);
+            const ext = path.extname(originalName).toLowerCase() || ".mp3";
+            finalFileName = `audio_${uniqueId}${ext}`;
+        }
 
+        // 3. ВИДЕО — сжатие при необходимости
+        if (uploadType !== "audio") {
+            const fileStats = await fs.stat(inputPath);
             if (fileStats.size > 18 * 1024 * 1024) {
                 try {
                     const duration = await new Promise<number>((resolve) => {
@@ -123,15 +118,12 @@ export async function POST(request: NextRequest) {
                     const audioBits = audioBitrateKbps * 1000 * duration;
                     
                     let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
-
                     if (videoBitrateKbps < 200) videoBitrateKbps = 200;
                     if (videoBitrateKbps > 500) videoBitrateKbps = 500;
 
                     const videoBitrateStr = `${videoBitrateKbps}k`;
                     const maxRateStr = `${Math.floor(videoBitrateKbps * 1.2)}k`;
                     const bufSizeStr = `${videoBitrateKbps * 2}k`;
-
-                    console.log(`📊 Длительность видео: ${duration.toFixed(1)}с. Битрейт: ${videoBitrateStr}`);
 
                     await new Promise<void>((resolve, reject) => {
                         ffmpeg(inputPath)
@@ -181,7 +173,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка готового файла в Telegram (используем sendAudio для музыки и sendDocument для видео)
+        // Отправка через sendDocument (возвращает предсказуемый объект document)
         const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
@@ -189,28 +181,23 @@ export async function POST(request: NextRequest) {
         const blob = await new Response(Readable.toWeb(stream) as any).blob();
         const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
         
-        const telegramMethod = uploadType === "audio" ? "sendAudio" : "sendDocument";
-        const fileParamName = uploadType === "audio" ? "audio" : "document";
-
-        tgFormData.append(fileParamName, blob, finalFileName);
+        tgFormData.append('document', blob, finalFileName);
         tgFormData.append('caption', `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');
 
-        // Прикрепляем обложку как thumbnail в Telegram (если она передана)
         if (coverFile) {
             const coverBuffer = await coverFile.arrayBuffer();
             const coverBlob = new Blob([coverBuffer], { type: coverFile.type || 'image/jpeg' });
             tgFormData.append('thumbnail', coverBlob, 'cover.jpg');
         }
 
-        console.log(`📤 Отправка файла в Telegram хранилище (метод: ${telegramMethod}, тип: ${uploadType}, чат: ${storageChatId})...`);
+        console.log(`📤 Отправка файла в Telegram хранилище (тип: ${uploadType}, чат: ${storageChatId})...`);
 
-        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${telegramMethod}`, {
+        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
             body: tgFormData,
         });
 
-        // Очищаем временные файлы
         await fs.unlink(inputPath).catch(() => {});
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
 
