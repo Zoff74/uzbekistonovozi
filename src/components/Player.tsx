@@ -48,7 +48,8 @@ export default function Player() {
 
     if (isPlaying) {
       media.play().catch((err) => {
-        console.error("Ошибка воспроизведения:", err);
+        console.error("🔥 Ошибка воспроизведения аудиоэлемента:", err.name, err.message);
+        alert(`Ошибка плеера: ${err.message}`); // <--- Выведет точную причину прямо на экран
         setIsPlaying(false);
       });
     } else {
