@@ -71,6 +71,9 @@
 │   │   │   ├── tracks
 │   │   │   │   ├── [id]
 │   │   │   │   │   └── route.ts
+│   │   │   │   ├── stream
+│   │   │   │   │   └── [fileId]
+│   │   │   │   │       └── route.ts
 │   │   │   │   └── route.ts
 │   │   │   ├── upload
 │   │   │   │   └── route.ts

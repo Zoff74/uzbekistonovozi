@@ -70,9 +70,13 @@ export default function Player() {
   }
 
   const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
-  const mediaSrc = (currentTrack as any)?.videoFileId 
-    ? `/api/videos/stream/${(currentTrack as any).videoFileId}` 
-    : (currentTrack?.videoUrl || currentTrack?.audioUrl);
+  
+  // РАЗДЕЛЬНЫЕ РОУТЫ СТРИМИНГА: для видео — /api/videos/stream/, для аудио — /api/tracks/stream/
+  const audioFileId = (currentTrack as any)?.audioFileId || (currentTrack?.audioUrl && !currentTrack.audioUrl.startsWith("http") ? currentTrack.audioUrl : null);
+  
+  const mediaSrc = hasVideo
+    ? ((currentTrack as any)?.videoFileId ? `/api/videos/stream/${(currentTrack as any).videoFileId}` : currentTrack?.videoUrl)
+    : (audioFileId ? `/api/tracks/stream/${audioFileId}` : currentTrack?.audioUrl);
 
   const formatTime = (time: number) => {
     if (isNaN(time) || time === 0) return "0:00";
