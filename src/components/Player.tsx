@@ -42,9 +42,8 @@ export default function Player() {
     togglePlay();
   };
 
-  // Универсальный обработчик ошибок плеера (если трек удален или сервер упал)
   const handleMediaError = () => {
-    console.warn("⚠️ Ошибка загрузки медиафайла (трек возможно удален или недоступен). Закрываем плеер...");
+    console.warn("⚠️ Ошибка загрузки медиафайла. Закрываем плеер...");
     closePlayer();
   };
 
@@ -54,7 +53,7 @@ export default function Player() {
 
     if (isPlaying) {
       media.play().catch((err) => {
-        console.error("🔥 Ошибка воспроизведения аудиоэлемента:", err.name, err.message);
+        console.error("🔥 Ошибка воспроизведения:", err.message);
         handleMediaError();
       });
     } else {
@@ -73,12 +72,12 @@ export default function Player() {
   }
 
   const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
-  
-  // Жестко привязываем воспроизведение аудио к нашему стриминг-роуту по ID трека, чтобы срабатывал FFmpeg
   const trackId = currentTrack.id || currentTrack._id;
+  
+  // Возвращаем прямую архивную логику: видео через видео-стриминг, аудио напрямую по audioUrl
   const mediaSrc = hasVideo
     ? ((currentTrack as any)?.videoFileId ? `/api/videos/stream/${(currentTrack as any).videoFileId}` : currentTrack?.videoUrl)
-    : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
+    : currentTrack.audioUrl;
 
   const formatTime = (time: number) => {
     if (isNaN(time) || time === 0) return "0:00";

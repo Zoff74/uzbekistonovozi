@@ -34,36 +34,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const [currentIndex, setCurrentIndex] = useState<number>(0);
 
     const playTrack = (track: Track, queue: Track[] = []) => {
-        const trackId = track.id || track._id;
-
-        // ЖЕСТКОЕ ПРАВИЛО: если есть ID трека, источник ВСЕГДА наш прокси-стриминг по ID,
-        // чтобы обойти сырые прямые ссылки/file_id из Telegram и прогнать .wma через FFmpeg.
-        const resolvedAudioUrl = trackId 
-            ? `/api/tracks/stream/${trackId}` 
-            : (track.audioUrl || track.videoUrl || (track as any).fileUrl || "");
-
-        if (!resolvedAudioUrl) {
-            console.error("У трека нет ни ID, ни аудиоссылки!", track);
+        if (!track.audioUrl && !track.videoUrl) {
+            console.error("У трека нет ни audioUrl, ни videoUrl!", track);
             alert("Невозможно воспроизвести: аудиофайл не найден");
             return;
         }
 
-        // Нормализуем трек, чтобы у него всегда был заполнен audioUrl для плеера
-        const playableTrack = {
-            ...track,
-            audioUrl: resolvedAudioUrl
-        };
-
-        const newPlaylist = queue.length > 0 ? queue : [playableTrack];
+        const newPlaylist = queue.length > 0 ? queue : [track];
         setPlaylist(newPlaylist);
 
-        const index = newPlaylist.findIndex((t) => (t.id || t._id) === trackId);
+        const index = newPlaylist.findIndex((t) => (t.id || t._id) === (track.id || track._id));
         setCurrentIndex(index !== -1 ? index : 0);
 
-        if (currentTrack?.audioUrl === resolvedAudioUrl) {
+        if (currentTrack?.audioUrl === track.audioUrl && currentTrack?.videoUrl === track.videoUrl) {
             setIsPlaying(!isPlaying);
         } else {
-            setCurrentTrack(playableTrack);
+            setCurrentTrack(track);
             setIsPlaying(true);
         }
     };
