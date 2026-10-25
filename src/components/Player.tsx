@@ -7,7 +7,7 @@ import { useRef, useEffect, useState } from "react";
 import { tr } from "@/utils/translate";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import Discussion from "@/components/Discussion"; // <--- Используем универсальный компонент Discussion
+import Discussion from "@/components/Discussion";
 
 export default function Player() {
   const pathname = usePathname();
@@ -28,9 +28,9 @@ export default function Player() {
   const isAuthenticated = status === "authenticated" && Boolean(session?.user);
 
   useEffect(() => {
-    if (!currentTrack?.id) return;
+    if (!currentTrack?.id && !currentTrack?._id) return;
     setIsMinimizedVideo(false);
-  }, [currentTrack?.id]);
+  }, [currentTrack]);
 
   const handleTogglePlaySecure = () => {
     if (!isAuthenticated) {
@@ -42,6 +42,12 @@ export default function Player() {
     togglePlay();
   };
 
+  // Универсальный обработчик ошибок плеера (если трек удален или сервер упал)
+  const handleMediaError = () => {
+    console.warn("⚠️ Ошибка загрузки медиафайла (трек возможно удален или недоступен). Закрываем плеер...");
+    closePlayer();
+  };
+
   useEffect(() => {
     const media = mediaRef.current;
     if (!media || !currentTrack) return;
@@ -49,13 +55,12 @@ export default function Player() {
     if (isPlaying) {
       media.play().catch((err) => {
         console.error("🔥 Ошибка воспроизведения аудиоэлемента:", err.name, err.message);
-        alert(`Ошибка плеера: ${err.message}`); // <--- Выведет точную причину прямо на экран
-        setIsPlaying(false);
+        handleMediaError();
       });
     } else {
       media.pause();
     }
-  }, [isPlaying, currentTrack, setIsPlaying]);
+  }, [isPlaying, currentTrack]);
 
   useEffect(() => {
     if (mediaRef.current) {
@@ -63,20 +68,17 @@ export default function Player() {
     }
   }, [volume, isMuted]);
 
-  // Скрываем плеер, если трек не выбран, 
-  // ИЛИ если пользователь НЕ авторизован и находится на главной странице (лендинге)
   if (!currentTrack || (!isAuthenticated && pathname === "/")) {
     return null;
   }
 
   const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
   
-  // РАЗДЕЛЬНЫЕ РОУТЫ СТРИМИНГА: для видео — /api/videos/stream/, для аудио — /api/tracks/stream/
-  const audioFileId = (currentTrack as any)?.audioFileId || (currentTrack?.audioUrl && !currentTrack.audioUrl.startsWith("http") ? currentTrack.audioUrl : null);
-  
+  // Жестко привязываем воспроизведение аудио к нашему стриминг-роуту по ID трека, чтобы срабатывал FFmpeg
+  const trackId = currentTrack.id || currentTrack._id;
   const mediaSrc = hasVideo
     ? ((currentTrack as any)?.videoFileId ? `/api/videos/stream/${(currentTrack as any).videoFileId}` : currentTrack?.videoUrl)
-    : (audioFileId ? `/api/tracks/stream/${audioFileId}` : currentTrack?.audioUrl);
+    : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
 
   const formatTime = (time: number) => {
     if (isNaN(time) || time === 0) return "0:00";
@@ -167,7 +169,6 @@ export default function Player() {
         </div>
       )}
 
-      {/* МОДАЛЬНОЕ ОКНО ЧАТА ДЛЯ АУДИО */}
       {showAudioChatModal && !hasVideo && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-lg h-[80vh] flex flex-col overflow-hidden shadow-2xl">
@@ -186,18 +187,17 @@ export default function Player() {
               </button>
             </div>
             <div className="flex-1 p-3">
-              <Discussion targetId={currentTrack.id} />
+              <Discussion targetId={trackId} />
             </div>
           </div>
         </div>
       )}
 
-      {/* ВИДЕОПЛЕЕР (ЕСЛИ ЭТО КЛИП) */}
       {hasVideo ? (
         isMinimizedVideo ? (
           <div className="fixed bottom-6 right-6 z-50 w-80 bg-neutral-900 border border-neutral-700 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)] animate-fadeIn">
             <div className="relative aspect-video bg-black flex items-center justify-center group cursor-pointer" onClick={() => setIsMinimizedVideo(false)}>
-              <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} className="w-full h-full object-cover" />
+              <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} onError={handleMediaError} className="w-full h-full object-cover" />
             </div>
             <div className="p-3 bg-neutral-900 flex items-center justify-between">
               <div className="truncate pr-2">
@@ -217,8 +217,6 @@ export default function Player() {
         ) : (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md p-2 sm:p-6 animate-fadeIn">
             <div className="relative w-full max-w-6xl h-[90vh] bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row">
-              
-              {/* Левая часть: видео */}
               <div className="flex-1 flex flex-col h-full bg-black/50 border-r border-neutral-800">
                 <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-800 bg-neutral-950">
                   <div className="flex items-center gap-3">
@@ -242,7 +240,7 @@ export default function Player() {
                 </div>
 
                 <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
-                  <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} className="w-full h-full object-contain" />
+                  <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} onError={handleMediaError} className="w-full h-full object-contain" />
                 </div>
 
                 <div className="p-4 bg-neutral-950 border-t border-neutral-800 flex flex-col gap-3">
@@ -279,21 +277,18 @@ export default function Player() {
                 </div>
               </div>
 
-              {/* Правая часть: универсальный компонент Discussion */}
               <div className="w-full lg:w-96 flex flex-col h-72 lg:h-full p-3 bg-neutral-950">
-                <Discussion targetId={currentTrack.id} />
+                <Discussion targetId={trackId} />
               </div>
-
             </div>
           </div>
         )
       ) : (
         /* АУДИОПЛЕЕР (НИЖНЯЯ ПАНЕЛЬ) */
         <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 text-white z-50 shadow-2xl p-4">
-          <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} />
+          <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} onError={handleMediaError} />
 
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 w-full">
-            
             <div className="flex items-center gap-3 min-w-[200px]">
               <div className="w-12 h-12 rounded-lg bg-neutral-800 flex-shrink-0 flex items-center justify-center overflow-hidden border border-neutral-800">
                 {currentTrack?.cover ? (
@@ -344,7 +339,6 @@ export default function Player() {
                 <X size={18} />
               </button>
             </div>
-
           </div>
         </div>
       )}
