@@ -74,10 +74,10 @@ export default function Player() {
   const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
   const trackId = currentTrack.id || currentTrack._id;
   
-  // Возвращаем прямую архивную логику: видео через видео-стриминг, аудио напрямую по audioUrl
+  // НОВОЕ: Аудио теперь идет через наш безопасный прокси по ID трека
   const mediaSrc = hasVideo
     ? ((currentTrack as any)?.videoFileId ? `/api/videos/stream/${(currentTrack as any).videoFileId}` : currentTrack?.videoUrl)
-    : currentTrack.audioUrl;
+    : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
 
   const formatTime = (time: number) => {
     if (isNaN(time) || time === 0) return "0:00";

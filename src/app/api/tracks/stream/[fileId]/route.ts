@@ -1,3 +1,4 @@
+//src\app\api\tracks\stream\[fileId]\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -31,13 +32,15 @@ export async function GET(
 
         let fileDownloadUrl = "";
 
-        if (track && track.audioUrl) {
+        if (track && track.audioUrl && !track.audioUrl.includes("t.me/c/")) {
             fileDownloadUrl = track.audioUrl;
         } else if (fileId.startsWith("http://") || fileId.startsWith("https://")) {
             fileDownloadUrl = fileId;
         } else if (BOT_TOKEN) {
+            // Берем fileId из базы (audioFileId) или переданный параметр
+            const targetFileId = track?.audioFileId || fileId;
             try {
-                const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
+                const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${targetFileId}`);
                 const tgData = await tgRes.json();
                 if (tgData?.ok?.result?.file_path) {
                     fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
