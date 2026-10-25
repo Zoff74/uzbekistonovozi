@@ -70,13 +70,14 @@ export async function DELETE(
 
         await (Track as any).findByIdAndDelete(id);
 
-        // Инвалидируем кэш всех основных страниц и каталогов, чтобы трек пропал из общего котла мгновенно
+        // Принудительно очищаем кэш каталогов и самого API эндпоинта
         revalidatePath("/");
         revalidatePath("/dashboard");
         revalidatePath("/catalogMusic");
         revalidatePath("/catalogSongs");
         revalidatePath("/catalogVokal");
         revalidatePath("/catalogInstrumentalMusic");
+        revalidatePath("/api/tracks"); // <--- Самое главное для общего котла
 
         return NextResponse.json({ 
             success: true, 
