@@ -10,11 +10,11 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 export async function GET(
     request: NextRequest,
-    { params }: { params: Promise<{ fileId: string }> }
+    { params }: { params: { fileId: string } }
 ) {
     try {
-        const { fileId } = await params;
-        console.log(`[STREAM DEBUG] Запрос трека/файла: "${fileId}"`);
+        const fileId = params?.fileId;
+        console.log(`[STREAM] Запрос трека/файла: "${fileId}"`);
 
         if (!fileId || fileId === "undefined" || fileId === "null") {
             return NextResponse.json({ error: "Невалидный fileId" }, { status: 400 });
@@ -24,7 +24,7 @@ export async function GET(
 
         let track = null;
         if (Types.ObjectId.isValid(fileId)) {
-            track = await (Track as any).findById(fileId).lean();
+            track = await (Track as any).findById(fileId);
         }
         
         if (!track) {
@@ -33,24 +33,23 @@ export async function GET(
                     { audioFileId: fileId },
                     { audioUrl: fileId }
                 ]
-            }).lean();
+            });
         }
-
-        console.log(`[STREAM DEBUG] Найден трек в БД:`, track ? { id: track._id, audioUrl: track.audioUrl, audioFileId: track.audioFileId } : "НЕ НАЙДЕН");
 
         let fileDownloadUrl = "";
         let resolvedFileId = track?.audioFileId || "";
 
+        // Если audioFileId нет, но в базе записана ссылка на приватный канал t.me/c/...
         const rawUrl = track?.audioUrl || (fileId.includes("t.me/c/") ? fileId : "");
 
-        // Если нет fileId, но есть ссылка t.me/c/...
         if (!resolvedFileId && rawUrl && rawUrl.includes("t.me/c/") && BOT_TOKEN) {
             try {
                 const match = rawUrl.match(/\/c\/(\d+)\/(\d+)/);
                 if (match) {
                     const chatId = `-100${match[1]}`;
                     const messageId = Number(match[2]);
-                    console.log(`[STREAM DEBUG] Пробуем forwardMessage для chatId: ${chatId}, messageId: ${messageId}`);
+
+                    console.log(`[STREAM] Парсим приватную ссылку Telegram -> чат: ${chatId}, сообщение: ${messageId}`);
 
                     const forwardRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/forwardMessage`, {
                         method: "POST",
@@ -63,51 +62,53 @@ export async function GET(
                     });
 
                     const forwardData = await forwardRes.json();
-                    console.log(`[STREAM DEBUG] Ответ Telegram forwardMessage:`, JSON.stringify(forwardData));
-
                     const msg = forwardData?.result;
                     const mediaObj = msg?.audio || msg?.document || msg?.voice;
 
                     if (mediaObj?.file_id) {
                         resolvedFileId = mediaObj.file_id;
-                        console.log(`[STREAM DEBUG] Успешно получен file_id из пересылки: ${resolvedFileId}`);
+                        console.log(`[STREAM] Успешно получен file_id: ${resolvedFileId}`);
+
+                        // Сохраняем найденный file_id в базу, чтобы больше не парсить ссылку при следующих проигрываниях
+                        if (track && !track.audioFileId) {
+                            track.audioFileId = resolvedFileId;
+                            await track.save();
+                        }
+                    } else {
+                        console.error("[STREAM] Не удалось извлечь media file_id из forwardMessage:", forwardData);
                     }
                 }
             } catch (err) {
-                console.error("[STREAM ERROR] Ошибка при парсинге t.me/c/ через forwardMessage:", err);
+                console.error("[STREAM] Ошибка обработки t.me/c/:", err);
             }
         }
 
-        // Получаем прямую ссылку через getFile
+        // Запрашиваем временную прямую ссылку на файл через Telegram getFile
         if (resolvedFileId && BOT_TOKEN) {
             try {
-                console.log(`[STREAM DEBUG] Запрос getFile для file_id: ${resolvedFileId}`);
                 const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${resolvedFileId}`);
                 const tgData = await tgRes.json();
-                console.log(`[STREAM DEBUG] Ответ Telegram getFile:`, JSON.stringify(tgData));
-
                 if (tgData?.ok?.result?.file_path) {
                     fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
                 }
             } catch (e) {
-                console.error("[STREAM ERROR] Ошибка Telegram getFile:", e);
+                console.error("[STREAM] Ошибка getFile:", e);
             }
         }
 
-        if (!fileDownloadUrl && track && track.audioUrl && !track.audioUrl.includes("t.me/")) {
+        // Запасной вариант для обычных внешних ссылок (не Telegram)
+        if (!fileDownloadUrl && track?.audioUrl && !track.audioUrl.includes("t.me/")) {
             fileDownloadUrl = track.audioUrl;
         }
 
-        console.log(`[STREAM DEBUG] Итоговый URL для скачивания:`, fileDownloadUrl || "НЕ СМОГЛИ ПОЛУЧИТЬ");
-
         if (!fileDownloadUrl) {
-            return NextResponse.json({ error: "Не удалось получить файл из приватного канала" }, { status: 404 });
+            console.error(`[STREAM] Не удалось получить аудиофайл для ID: ${fileId}`);
+            return NextResponse.json({ error: "Аудиофайл не найден или нет доступа к каналу" }, { status: 404 });
         }
 
         const upstreamRes = await fetch(fileDownloadUrl, { cache: "no-store" });
         if (!upstreamRes.ok || !upstreamRes.body) {
-            console.error(`[STREAM ERROR] Ошибка upstream fetch: статус ${upstreamRes.status}`);
-            return NextResponse.json({ error: "Ошибка загрузки потока из Telegram" }, { status: 502 });
+            return NextResponse.json({ error: "Ошибка загрузки файла из Telegram" }, { status: 502 });
         }
 
         const responseHeaders = new Headers();
@@ -125,7 +126,7 @@ export async function GET(
         });
 
     } catch (error: any) {
-        console.error("[STREAM CRITICAL ERROR]", error);
-        return NextResponse.json({ error: "Ошибка сервера при стриминге", details: error.message }, { status: 500 });
+        console.error("[STREAM CRITICAL]", error);
+        return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
     }
 }
