@@ -1,10 +1,10 @@
-//src\app\api\tracks\stream\[fileId]\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
+import { Types } from "mongoose";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -20,44 +20,89 @@ export async function GET(
         }
 
         await dbConnect();
+
+        let track = null;
+        if (Types.ObjectId.isValid(fileId)) {
+            track = await (Track as any).findById(fileId);
+        }
         
-        // Ищем трек в базе по audioFileId, audioUrl или _id
-        const track = await (Track as any).findOne({
-            $or: [
-                { audioFileId: fileId },
-                { audioUrl: { $regex: fileId } },
-                { _id: fileId.match(/^[0-9a-fA-F]{24}$/) ? fileId : null }
-            ]
-        }).lean();
+        if (!track) {
+            track = await (Track as any).findOne({
+                $or: [
+                    { audioFileId: fileId },
+                    { audioUrl: fileId }
+                ]
+            });
+        }
 
         let fileDownloadUrl = "";
+        let resolvedFileId = track?.audioFileId || "";
 
-        if (track && track.audioUrl && !track.audioUrl.includes("t.me/c/")) {
-            fileDownloadUrl = track.audioUrl;
-        } else if (fileId.startsWith("http://") || fileId.startsWith("https://")) {
-            fileDownloadUrl = fileId;
-        } else if (BOT_TOKEN) {
-            // Берем fileId из базы (audioFileId) или переданный параметр
-            const targetFileId = track?.audioFileId || fileId;
+        // Если audioFileId в базе нет, но есть ссылка вида t.me/c/chat/msg
+        const rawUrl = track?.audioUrl || (fileId.includes("t.me/c/") ? fileId : "");
+
+        if (!resolvedFileId && rawUrl && rawUrl.includes("t.me/c/") && BOT_TOKEN) {
             try {
-                const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${targetFileId}`);
+                const match = rawUrl.match(/\/c\/(\d+)\/(\d+)/);
+                if (match) {
+                    const chatId = `-100${match[1]}`;
+                    const messageId = Number(match[2]);
+
+                    // Запрашиваем сообщение через Telegram API для получения file_id
+                    const forwardRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/forwardMessage`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            chat_id: chatId,
+                            from_chat_id: chatId,
+                            message_id: messageId
+                        })
+                    });
+
+                    const forwardData = await forwardRes.json();
+                    const msg = forwardData?.result;
+                    const mediaObj = msg?.audio || msg?.document || msg?.voice;
+
+                    if (mediaObj?.file_id) {
+                        resolvedFileId = mediaObj.file_id;
+                        
+                        // Автоматически сохраняем найденный file_id в базу, чтобы больше не парсить ссылку заново
+                        if (track && !track.audioFileId) {
+                            track.audioFileId = resolvedFileId;
+                            await track.save();
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Telegram link resolution error:", err);
+            }
+        }
+
+        // Получаем прямую временную ссылку на файл из серверов Telegram по file_id
+        if (resolvedFileId && BOT_TOKEN) {
+            try {
+                const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${resolvedFileId}`);
                 const tgData = await tgRes.json();
                 if (tgData?.ok?.result?.file_path) {
                     fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
                 }
             } catch (e) {
-                console.error("Telegram API error:", e);
+                console.error("Telegram getFile error:", e);
             }
         }
 
-        if (!fileDownloadUrl) {
-            return NextResponse.json({ error: "Аудиофайл не найден" }, { status: 404 });
+        // Запасной вариант для обычных внешних ссылок
+        if (!fileDownloadUrl && track && track.audioUrl && !track.audioUrl.includes("t.me/")) {
+            fileDownloadUrl = track.audioUrl;
         }
 
-        // Если это прямая внешняя ссылка или URL телеграма — проксируем потоком без падений
+        if (!fileDownloadUrl) {
+            return NextResponse.json({ error: "Не удалось получить доступ к файлу из приватного канала" }, { status: 404 });
+        }
+
         const upstreamRes = await fetch(fileDownloadUrl, { cache: "no-store" });
         if (!upstreamRes.ok || !upstreamRes.body) {
-            return NextResponse.json({ error: "Ошибка получения файла из хранилища" }, { status: 502 });
+            return NextResponse.json({ error: "Ошибка загрузки потока из Telegram" }, { status: 502 });
         }
 
         const responseHeaders = new Headers();
@@ -76,6 +121,6 @@ export async function GET(
 
     } catch (error: any) {
         console.error("Audio stream error:", error);
-        return NextResponse.json({ error: "Ошибка сервера при стриминге аудио" }, { status: 500 });
+        return NextResponse.json({ error: "Ошибка сервера при стриминге" }, { status: 500 });
     }
 }
