@@ -46,7 +46,6 @@ export default function CatalogMusicPage() {
     fetchTracks();
   }, []);
 
-  // Обновляем список при возврате фокуса на вкладку (когда пользователь удалил трек в дашборде и вернулся в каталог)
   useEffect(() => {
     const handleFocus = () => {
       fetchTracks();
@@ -121,8 +120,9 @@ export default function CatalogMusicPage() {
                 </div>
                 
                 <div className="mt-4 pt-3 border-t border-white/5 space-y-3">
+                  {/* ПРИНУДИТЕЛЬНО ПЕРЕНАПРАВЛЯЕМ НА НАШ STREAM API РОУТ ПО ID ТРЕКА */}
                   <audio 
-                    src={track.audioUrl} 
+                    src={`/api/tracks/stream/${track._id}`} 
                     controls 
                     preload="none"
                     controlsList="nodownload"

@@ -4,13 +4,8 @@ export const revalidate = 0;
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
-import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
-import { PassThrough } from "stream";
-
-if (ffmpegStatic) {
-    ffmpeg.setFfmpegPath(ffmpegStatic);
-}
+import { spawn } from "child_process";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -25,8 +20,11 @@ export async function GET(
             return NextResponse.json({ error: "Не указан или невалидный fileId" }, { status: 400 });
         }
 
+        if (!BOT_TOKEN) {
+            return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
+        }
+
         await dbConnect();
-        // Ищем трек в базе по fileId или audioUrl
         const track = await (Track as any).findOne({
             $or: [
                 { audioFileId: fileId },
@@ -42,7 +40,6 @@ export async function GET(
         } else if (fileId.startsWith("http://") || fileId.startsWith("https://")) {
             fileDownloadUrl = fileId;
         } else {
-            // Если это действительно Telegram file_id, запрашиваем путь через getFile
             const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
             const data = await res.json();
             if (data && data.ok && data.result && data.result.file_path) {
@@ -51,13 +48,13 @@ export async function GET(
         }
 
         if (!fileDownloadUrl) {
-            return NextResponse.json({ error: "Аудиофайл не найден в базе или Telegram" }, { status: 404 });
+            return NextResponse.json({ error: "Аудиофайл не найден" }, { status: 404 });
         }
 
         const lowerUrl = fileDownloadUrl.toLowerCase();
         const needsTranscoding = lowerUrl.endsWith(".wma") || lowerUrl.endsWith(".flac") || lowerUrl.endsWith(".aac") || lowerUrl.endsWith(".ogg") || lowerUrl.includes(".wma");
 
-        // Если это обычный MP3 и не требуется конвертация — отдаем напрямую с поддержкой перемотки
+        // Если это чистый MP3 — стримим напрямую с поддержкой Range (перемотки)
         if (!needsTranscoding && (lowerUrl.endsWith(".mp3") || lowerUrl.endsWith(".mp4"))) {
             const rangeHeader = request.headers.get("range");
             const fetchHeaders: HeadersInit = {};
@@ -81,28 +78,34 @@ export async function GET(
             });
         }
 
-        // --- КОНВЕРТАЦИЯ WMA / НЕСТАНДАРТНЫХ ФОРМАТОВ В MP3 НА ЛЕТУ ---
-        const passThroughStream = new PassThrough();
+        // --- ПРЯМОЙ ЗАПУСК FFMPEG ЧЕРЕЗ SPAWN ДЛЯ RENDER ---
+        if (!ffmpegStatic) {
+            return NextResponse.json({ error: "FFmpeg binary not found" }, { status: 500 });
+        }
 
-        ffmpeg(fileDownloadUrl)
-            .noVideo()
-            .audioCodec("libmp3lame")
-            .audioBitrate("128k")
-            .format("mp3")
-            .on("error", (err) => {
-                console.error("FFmpeg error:", err.message);
-                try { passThroughStream.destroy(err); } catch {}
-            })
-            .writeToStream(passThroughStream);
+        const ffmpegProcess = spawn(ffmpegStatic, [
+            "-i", fileDownloadUrl,
+            "-vn",
+            "-acodec", "libmp3lame",
+            "-ab", "128k",
+            "-f", "mp3",
+            "pipe:1"
+        ]);
 
         const webStream = new ReadableStream({
             start(controller) {
-                passThroughStream.on("data", (chunk) => controller.enqueue(chunk));
-                passThroughStream.on("end", () => controller.close());
-                passThroughStream.on("error", (err) => controller.error(err));
+                ffmpegProcess.stdout.on("data", (chunk) => {
+                    controller.enqueue(chunk);
+                });
+                ffmpegProcess.stdout.on("end", () => {
+                    controller.close();
+                });
+                ffmpegProcess.on("error", (err) => {
+                    controller.error(err);
+                });
             },
             cancel() {
-                passThroughStream.destroy();
+                ffmpegProcess.kill("SIGKILL");
             }
         });
 
@@ -116,7 +119,7 @@ export async function GET(
         });
 
     } catch (error: any) {
-        console.error("Stream critical error:", error?.message || error);
+        console.error("Stream error:", error?.message || error);
         return NextResponse.json({ error: "Ошибка сервера при стриминге" }, { status: 500 });
     }
 }

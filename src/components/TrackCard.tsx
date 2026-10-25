@@ -107,19 +107,21 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     const handlePlayClick = () => {
-        // Если трек заморожен (status === 'FROZEN'), блокируем прослушивание или уведомляем, но по твоей логике смотреть/слушать можно, скачивание и оплата закрыты.
-        // Главное — проверяем наличие реального аудиофайла:
+        // Проверяем наличие аудио в базе перед запуском
         const audioSrc = track.audioUrl || track.fileUrl || "";
         if (!audioSrc) {
             alert(tr("Аудио файл топилмади", "Audio fayl topilmadi", "Аудио файл не найден", "Audio file not found"));
             return;
         }
 
+        // ПРИНУДИТЕЛЬНО пускаем через наш стриминг-роут с конвертацией `.wma`
+        const streamUrl = `/api/tracks/stream/${trackId}`;
+
         playTrack({
             id: trackId,
             title: track.title,
             singer: track.singer,
-            audioUrl: audioSrc,
+            audioUrl: streamUrl,
             cover: track.cover,
         });
     };
@@ -144,7 +146,6 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
             setIsDeleting(true);
             const res = await fetch(`/api/tracks/${trackId}`, { method: "DELETE" });
             
-            // Скрываем карточку на клиенте мгновенно
             setIsRemoved(true);
             if (onDelete) {
                 onDelete(trackId);
@@ -299,7 +300,7 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                             </span>
                         </button>
                     </div>
-                                    
+                                        
                     <div className="relative rounded-xl inline-block group">
                         <button
                             onClick={handleDelete}
