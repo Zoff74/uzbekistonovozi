@@ -4,6 +4,14 @@ export const revalidate = 0;
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
+import { PassThrough } from "stream";
+
+// Указываем fluent-ffmpeg путь к статическому бинарнику из node_modules
+if (ffmpegStatic) {
+    ffmpeg.setFfmpegPath(ffmpegStatic);
+}
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -22,72 +30,87 @@ export async function GET(
             return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
         }
 
-        // Проверяем, существует ли такой аудиофайл в базе треков
         await dbConnect();
-        const isTrack = await (Track as any).findOne({
+        const track = await (Track as any).findOne({
             $or: [
                 { audioFileId: fileId },
                 { audioUrl: { $regex: fileId } }
             ]
         }).lean();
 
-        // Запрашиваем путь к файлу у Telegram Bot API
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
         const data = await response.json();
 
         if (!data || !data.ok || !data.result || !data.result.file_path) {
-            console.error("Telegram getFile error for audio:", data);
             return NextResponse.json({ error: "Аудиофайл удален из хранилища Telegram" }, { status: 404 });
         }
 
         const filePath = data.result.file_path;
         const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
-        // Поддерживаем Range-запросы для перемотки трека в плеере
-        const rangeHeader = request.headers.get("range");
-        const fetchHeaders: HeadersInit = {};
-        if (rangeHeader) {
-            fetchHeaders["Range"] = rangeHeader;
+        const lowerPath = filePath.toLowerCase();
+        const needsTranscoding = lowerPath.endsWith(".wma") || lowerPath.endsWith(".flac") || lowerPath.endsWith(".aac") || lowerPath.endsWith(".ogg");
+
+        // Если это чистый MP3 — отдаем напрямую с Range-запросами
+        if (!needsTranscoding && lowerPath.endsWith(".mp3")) {
+            const rangeHeader = request.headers.get("range");
+            const fetchHeaders: HeadersInit = {};
+            if (rangeHeader) fetchHeaders["Range"] = rangeHeader;
+
+            const telegramRes = await fetch(fileDownloadUrl, { headers: fetchHeaders, cache: "no-store" });
+            
+            const responseHeaders = new Headers();
+            responseHeaders.set("Content-Type", "audio/mpeg");
+            responseHeaders.set("Accept-Ranges", "bytes");
+            
+            const contentLength = telegramRes.headers.get("content-length");
+            if (contentLength) responseHeaders.set("Content-Length", contentLength);
+
+            const contentRange = telegramRes.headers.get("content-range");
+            if (contentRange) responseHeaders.set("Content-Range", contentRange);
+
+            return new NextResponse(telegramRes.body, {
+                status: rangeHeader && telegramRes.status === 200 ? 206 : telegramRes.status,
+                headers: responseHeaders,
+            });
         }
 
-        const telegramRes = await fetch(fileDownloadUrl, {
-            headers: fetchHeaders,
-            cache: "no-store",
+        // --- ТРАНСКОДИРОВАНИЕ WMA -> MP3 НА ЛЕТУ ЧЕРЕЗ СТАТИЧЕСКИЙ FFMPEG ---
+        const passThroughStream = new PassThrough();
+
+        ffmpeg(fileDownloadUrl)
+            .noVideo()
+            .audioCodec("libmp3lame")
+            .audioBitrate("128k")
+            .format("mp3")
+            .on("error", (err) => {
+                console.error("FFmpeg transcoding error on Render:", err);
+                try { passThroughStream.destroy(err); } catch {}
+            })
+            .writeToStream(passThroughStream);
+
+        const webStream = new ReadableStream({
+            start(controller) {
+                passThroughStream.on("data", (chunk) => controller.enqueue(chunk));
+                passThroughStream.on("end", () => controller.close());
+                passThroughStream.on("error", (err) => controller.error(err));
+            },
+            cancel() {
+                passThroughStream.destroy();
+            }
         });
 
-        if (!telegramRes.ok && telegramRes.status !== 206) {
-            return NextResponse.json({ error: "Не удалось получить аудиопоток" }, { status: telegramRes.status });
-        }
-
         const responseHeaders = new Headers();
-        
-        // СТРОГО УСТАНАВЛИВАЕМ АУДИОФОРМАТ
-        let contentType = "audio/mpeg";
-        const lowerPath = filePath.toLowerCase();
-        if (lowerPath.endsWith(".wav")) contentType = "audio/wav";
-        if (lowerPath.endsWith(".ogg") || lowerPath.endsWith(".oga")) contentType = "audio/ogg";
-        if (lowerPath.endsWith(".m4a")) contentType = "audio/mp4";
+        responseHeaders.set("Content-Type", "audio/mpeg");
+        responseHeaders.set("Cache-Control", "no-cache");
 
-        responseHeaders.set("Content-Type", contentType);
-        responseHeaders.set("Accept-Ranges", "bytes");
-
-        const contentLength = telegramRes.headers.get("content-length");
-        if (contentLength) responseHeaders.set("Content-Length", contentLength);
-
-        const contentRange = telegramRes.headers.get("content-range");
-        if (contentRange) {
-            responseHeaders.set("Content-Range", contentRange);
-        }
-
-        const status = rangeHeader && telegramRes.status === 200 ? 206 : telegramRes.status;
-
-        return new NextResponse(telegramRes.body, {
-            status: status,
+        return new NextResponse(webStream, {
+            status: 200,
             headers: responseHeaders,
         });
 
     } catch (error: any) {
-        console.error("Ошибка стриминга аудио:", error?.message || error);
-        return NextResponse.json({ error: "Ошибка сервера при стриминге аудио" }, { status: 500 });
+        console.error("Ошибка стриминга и транскодирования на Render:", error?.message || error);
+        return NextResponse.json({ error: "Ошибка сервера при транскодировании аудио" }, { status: 500 });
     }
 }

@@ -2,6 +2,7 @@
 // src/app/catalogMusic/page.tsx
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Headphones, Loader2, Music, Play } from "lucide-react";
 import { getOptimizedImageUrl } from "@/lib/imagekit";
 import { tr } from "@/utils/translate";
@@ -19,23 +20,39 @@ interface ITrackItem {
 }
 
 export default function CatalogMusicPage() {
+  const router = useRouter();
   const [tracks, setTracks] = useState<ITrackItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchTracks = async () => {
+    try {
+      const res = await fetch("/api/tracks", { cache: "no-store" });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.tracks)) {
+        setTracks(data.tracks);
+      } else if (Array.isArray(data)) {
+        setTracks(data);
+      } else {
+        setTracks([]);
+      }
+    } catch (err) {
+      console.error(tr("Мусиқаларни юклашда хатолик:", "Musiqalarni yuklashda xatolik:", "Ошибка загрузки музыки:", "Error loading music:"), err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch("/api/tracks", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.tracks)) {
-          setTracks(data.tracks);
-        } else if (Array.isArray(data)) {
-          setTracks(data);
-        } else {
-          setTracks([]);
-        }
-      })
-      .catch((err) => console.error(tr("Мусиқаларни юклашда хатолик:", "Musiqalarni yuklashda xatolik:", "Ошибка загрузки музыки:", "Error loading music:"), err))
-      .finally(() => setLoading(false));
+    fetchTracks();
+  }, []);
+
+  // Обновляем список при возврате фокуса на вкладку (когда пользователь удалил трек в дашборде и вернулся в каталог)
+  useEffect(() => {
+    const handleFocus = () => {
+      fetchTracks();
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
   return (
