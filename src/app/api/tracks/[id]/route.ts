@@ -5,6 +5,7 @@ import { Track } from "@/models/Track";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import { tr } from "@/utils/translate";
+import { revalidatePath } from "next/cache";
 
 // 0. Получение трека
 export async function GET(
@@ -58,7 +59,6 @@ export async function DELETE(
         const userId = (session.user as any).id;
         const isAdmin = (session.user as any).isAdmin === true || (session.user as any).role === 'admin';
         
-        // Надежная проверка всех возможных вариантов поля автора в документе Трека
         const trackAuthor = track.authorId || track.author || track.userId;
         const isAuthor = trackAuthor && userId && trackAuthor.toString() === userId.toString();
 
@@ -69,6 +69,14 @@ export async function DELETE(
         }
 
         await (Track as any).findByIdAndDelete(id);
+
+        // Инвалидируем кэш всех основных страниц и каталогов, чтобы трек пропал из общего котла мгновенно
+        revalidatePath("/");
+        revalidatePath("/dashboard");
+        revalidatePath("/catalogMusic");
+        revalidatePath("/catalogSongs");
+        revalidatePath("/catalogVokal");
+        revalidatePath("/catalogInstrumentalMusic");
 
         return NextResponse.json({ 
             success: true, 
@@ -110,7 +118,6 @@ export async function PUT(
         const userId = (session.user as any).id;
         const isAdmin = (session.user as any).isAdmin === true || (session.user as any).role === 'admin';
         
-        // Надежная проверка автора
         const trackAuthor = track.authorId || track.author || track.userId;
         const isAuthor = trackAuthor && userId && trackAuthor.toString() === userId.toString();
 
@@ -146,6 +153,11 @@ export async function PUT(
         }
 
         await track.save();
+
+        // Сбрасываем кэш при обновлении тоже
+        revalidatePath("/");
+        revalidatePath("/dashboard");
+        revalidatePath("/catalogMusic");
 
         return NextResponse.json({ 
             success: true, 
