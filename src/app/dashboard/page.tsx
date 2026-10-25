@@ -51,6 +51,10 @@ export default function DashboardPage() {
         }
     }, [session]);
 
+    const handleTrackDeleted = (deletedId: string) => {
+        setTracks((prev) => prev.filter((t) => (t._id || t.id) !== deletedId));
+    };
+
     const handleVideoDeleted = (deletedId: string) => {
         setVideos((prev) => prev.filter((v) => (v._id || v.id) !== deletedId));
     };
@@ -195,7 +199,7 @@ export default function DashboardPage() {
                     ) : (
                         <div className="grid grid-cols-1 gap-4">
                             {tracks.map((track: any) => (
-                                <TrackCard key={track._id} track={track} />
+                                <TrackCard key={track._id} track={track} onDelete={handleTrackDeleted} />
                             ))}
                         </div>
                     )}

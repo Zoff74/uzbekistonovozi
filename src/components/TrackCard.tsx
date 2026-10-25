@@ -107,6 +107,8 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     const handlePlayClick = () => {
+        // Если трек заморожен (status === 'FROZEN'), блокируем прослушивание или уведомляем, но по твоей логике смотреть/слушать можно, скачивание и оплата закрыты.
+        // Главное — проверяем наличие реального аудиофайла:
         const audioSrc = track.audioUrl || track.fileUrl || "";
         if (!audioSrc) {
             alert(tr("Аудио файл топилмади", "Audio fayl topilmadi", "Аудио файл не найден", "Audio file not found"));
@@ -142,7 +144,7 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
             setIsDeleting(true);
             const res = await fetch(`/api/tracks/${trackId}`, { method: "DELETE" });
             
-            // Удаляем в любом случае из UI, даже если сервер вернул ошибку, чтобы не раздражать пользователя
+            // Скрываем карточку на клиенте мгновенно
             setIsRemoved(true);
             if (onDelete) {
                 onDelete(trackId);
@@ -156,14 +158,13 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
             }
         } catch (err) {
             console.error("Delete connection error:", err);
-            setIsRemoved(true); // Принудительно скрываем на клиенте
+            setIsRemoved(true);
         }
     };
 
     return (
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700">
             <div className="flex items-start sm:items-center gap-5">
-                {/* Клик по обложке или кнопке запускает трек */}
                 <div 
                     onClick={handlePlayClick}
                     className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border border-neutral-800 shrink-0 cursor-pointer group overflow-hidden"
@@ -204,14 +205,13 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                 </div>
             </div>
 
-            {/* ПРИВАТНЫЙ БЛОК: Сроки хранения и тарифы видны СТРОГО владельцу или админу */}
             {canManage && (
                 <div className="flex flex-col gap-3 bg-neutral-950/70 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 text-sm sm:text-base">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <span className={`inline-block px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold ${
-                            track.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            track.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                         }`}>
-                            {track.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired")}
+                            {track.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Музлатилган (Тинглаш мумкин)", "Muzlatilgan", "Заморожен (Доступно прослушивание)", "Frozen (Listen only)")}
                         </span>
                         
                         <span className="text-neutral-200 font-semibold">
@@ -227,7 +227,6 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                         </span>
                     </div>
 
-                    {/* БЛОК ПРЕДУПРЕЖДЕНИЯ О ТАРИФАХ: Скрыт для Администратора */}
                     {!isAdmin && !track.isPaidActive && !isWithinFirst24Hours && (
                         <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3 text-sm sm:text-base">
                             <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-400">
@@ -264,45 +263,43 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                 </div>
             )}
 
-            {/* Кнопки управления отображаются СТРОГО для владельца или админа */}
             {canManage && (
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
                     <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">
-    <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
-    
-    <button
-        type="button"
-        onClick={(e) => {
-            // Для администратора снимаем лимит в 24 часа на редактирование файла
-            if (!isAdmin && !isWithinFirst24Hours) {
-                e.preventDefault();
-                alert(tr(
-                    "Қўшиқ файлига ўзгартириш киритиш муддати (24 соат) тугаган!",
-                    "Qo'shiq fayliga o'zgartirish kiritish muddati (24 soat) tugagan!",
-                    "Разрешенный срок для внесения изменений в аудиофайл (24 часа) истек!",
-                    "The time limit (24 hours) for changing the audio file has expired!"
-                ));
-                return;
-            }
-            router.push(`/dashboard/tracks/${trackId}/edit`);
-        }}
-        className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer"
-        style={{ 
-            borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
-            borderImageSlice: 1 
-        }}
-    >
-        <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/40 to-transparent -translate-x-full group-hover:animate-shimmer" />
-        </div>
+                        <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
+                        
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                if (!isAdmin && !isWithinFirst24Hours) {
+                                    e.preventDefault();
+                                    alert(tr(
+                                        "Қўшиқ файлига ўзгартириш киритиш муддати (24 соат) тугаган!",
+                                        "Qo'shiq fayliga o'zgartirish kiritish muddati (24 soat) tugagan!",
+                                        "Разрешенный срок для внесения изменений в аудиофайл (24 часа) истек!",
+                                        "The time limit (24 hours) for changing the audio file has expired!"
+                                    ));
+                                    return;
+                                }
+                                router.push(`/dashboard/tracks/${trackId}/edit`);
+                            }}
+                            className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer"
+                            style={{ 
+                                borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
+                                borderImageSlice: 1 
+                            }}
+                        >
+                            <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
+                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/40 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                            </div>
 
-        <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
-        <span className="relative z-10">
-            {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
-        </span>
-    </button>
-</div>
-                    
+                            <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
+                            <span className="relative z-10">
+                                {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
+                            </span>
+                        </button>
+                    </div>
+                                    
                     <div className="relative rounded-xl inline-block group">
                         <button
                             onClick={handleDelete}
