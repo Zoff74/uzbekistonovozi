@@ -8,7 +8,6 @@ import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import { PassThrough } from "stream";
 
-// Указываем fluent-ffmpeg путь к статическому бинарнику из node_modules
 if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic);
 }
@@ -26,33 +25,40 @@ export async function GET(
             return NextResponse.json({ error: "Не указан или невалидный fileId" }, { status: 400 });
         }
 
-        if (!BOT_TOKEN) {
-            return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
-        }
-
         await dbConnect();
+        // Ищем трек в базе по fileId или audioUrl
         const track = await (Track as any).findOne({
             $or: [
                 { audioFileId: fileId },
-                { audioUrl: { $regex: fileId } }
+                { audioUrl: { $regex: fileId } },
+                { _id: fileId.match(/^[0-9a-fA-F]{24}$/) ? fileId : null }
             ]
         }).lean();
 
-        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
-        const data = await response.json();
+        let fileDownloadUrl = "";
 
-        if (!data || !data.ok || !data.result || !data.result.file_path) {
-            return NextResponse.json({ error: "Аудиофайл удален из хранилища Telegram" }, { status: 404 });
+        if (track && track.audioUrl) {
+            fileDownloadUrl = track.audioUrl;
+        } else if (fileId.startsWith("http://") || fileId.startsWith("https://")) {
+            fileDownloadUrl = fileId;
+        } else {
+            // Если это действительно Telegram file_id, запрашиваем путь через getFile
+            const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
+            const data = await res.json();
+            if (data && data.ok && data.result && data.result.file_path) {
+                fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${data.result.file_path}`;
+            }
         }
 
-        const filePath = data.result.file_path;
-        const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+        if (!fileDownloadUrl) {
+            return NextResponse.json({ error: "Аудиофайл не найден в базе или Telegram" }, { status: 404 });
+        }
 
-        const lowerPath = filePath.toLowerCase();
-        const needsTranscoding = lowerPath.endsWith(".wma") || lowerPath.endsWith(".flac") || lowerPath.endsWith(".aac") || lowerPath.endsWith(".ogg");
+        const lowerUrl = fileDownloadUrl.toLowerCase();
+        const needsTranscoding = lowerUrl.endsWith(".wma") || lowerUrl.endsWith(".flac") || lowerUrl.endsWith(".aac") || lowerUrl.endsWith(".ogg") || lowerUrl.includes(".wma");
 
-        // Если это чистый MP3 — отдаем напрямую с Range-запросами
-        if (!needsTranscoding && lowerPath.endsWith(".mp3")) {
+        // Если это обычный MP3 и не требуется конвертация — отдаем напрямую с поддержкой перемотки
+        if (!needsTranscoding && (lowerUrl.endsWith(".mp3") || lowerUrl.endsWith(".mp4"))) {
             const rangeHeader = request.headers.get("range");
             const fetchHeaders: HeadersInit = {};
             if (rangeHeader) fetchHeaders["Range"] = rangeHeader;
@@ -75,7 +81,7 @@ export async function GET(
             });
         }
 
-        // --- ТРАНСКОДИРОВАНИЕ WMA -> MP3 НА ЛЕТУ ЧЕРЕЗ СТАТИЧЕСКИЙ FFMPEG ---
+        // --- КОНВЕРТАЦИЯ WMA / НЕСТАНДАРТНЫХ ФОРМАТОВ В MP3 НА ЛЕТУ ---
         const passThroughStream = new PassThrough();
 
         ffmpeg(fileDownloadUrl)
@@ -84,7 +90,7 @@ export async function GET(
             .audioBitrate("128k")
             .format("mp3")
             .on("error", (err) => {
-                console.error("FFmpeg transcoding error on Render:", err);
+                console.error("FFmpeg error:", err.message);
                 try { passThroughStream.destroy(err); } catch {}
             })
             .writeToStream(passThroughStream);
@@ -110,7 +116,7 @@ export async function GET(
         });
 
     } catch (error: any) {
-        console.error("Ошибка стриминга и транскодирования на Render:", error?.message || error);
-        return NextResponse.json({ error: "Ошибка сервера при транскодировании аудио" }, { status: 500 });
+        console.error("Stream critical error:", error?.message || error);
+        return NextResponse.json({ error: "Ошибка сервера при стриминге" }, { status: 500 });
     }
 }
