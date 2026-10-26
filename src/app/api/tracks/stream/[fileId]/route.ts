@@ -24,7 +24,7 @@ export async function GET(
 
         await dbConnect();
 
-        // 1. Ищем трек в базе по _id, audioFileId или audioUrl
+        // 1. Ищем трек в базе по _id или по audioFileId
         let track = null;
         if (Types.ObjectId.isValid(fileId)) {
             track = await (Track as any).findById(fileId).lean();
@@ -43,35 +43,46 @@ export async function GET(
             return NextResponse.json({ error: "Трек не найден в базе данных" }, { status: 404 });
         }
 
-        // 2. Извлекаем реальный Telegram file_id из audioUrl (например: /api/videos/stream/BQACAgIA...)
+        // 2. Железобетонно определяем настоящий Telegram file_id
         let targetFileId = "";
-        const rawUrl = track.audioUrl || "";
-
-        if (rawUrl.includes("/api/videos/stream/")) {
-            targetFileId = rawUrl.split("/api/videos/stream/")[1];
-        } else if (rawUrl.includes("/api/tracks/stream/")) {
-            targetFileId = rawUrl.split("/api/tracks/stream/")[1];
-        } else if (track.audioFileId) {
+        
+        // Сначала проверяем прямое поле audioFileId в схеме трека
+        if (track.audioFileId && track.audioFileId.length > 10 && !track.audioFileId.startsWith("/")) {
             targetFileId = track.audioFileId;
-        } else if (fileId.length > 20 && !fileId.includes("/")) {
+        } else {
+            // Если в audioFileId пусто, вытаскиваем из audioUrl
+            const rawUrl = track.audioUrl || "";
+            if (rawUrl.includes("/api/videos/stream/")) {
+                targetFileId = rawUrl.split("/api/videos/stream/")[1];
+            } else if (rawUrl.includes("/api/tracks/stream/")) {
+                targetFileId = rawUrl.split("/api/tracks/stream/")[1];
+            } else if (!rawUrl.startsWith("http") && !rawUrl.startsWith("/")) {
+                // Если сама ссылка и есть Telegram file_id
+                targetFileId = rawUrl;
+            }
+        }
+
+        // Страховка: если переданный в URL параметр (fileId) сам является длинным Telegram file_id
+        if (!targetFileId && fileId.length > 20 && !fileId.includes("/")) {
             targetFileId = fileId;
         }
 
-        if (!targetFileId) {
-            return NextResponse.json({ error: "Не удалось определить file_id трека" }, { status: 404 });
+        if (!targetFileId || targetFileId.length < 10) {
+            return NextResponse.json({ error: "Не удалось определить Telegram file_id трека" }, { status: 404 });
         }
 
-        // 3. Запрашиваем путь файла у Telegram
+        // 3. Запрашиваем реальный путь файла у Telegram API
         const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${targetFileId}`);
         const tgData = await tgRes.json();
 
         if (!tgData?.ok || !tgData?.result?.file_path) {
-            return NextResponse.json({ error: "Аудиофайл удален из хранилища Telegram" }, { status: 404 });
+            console.error("Telegram getFile error:", tgData);
+            return NextResponse.json({ error: "Аудиофайл не найден или удален из Telegram" }, { status: 404 });
         }
 
         const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
 
-        // 4. Проксируем запрос с поддержкой Range (как в видео-роуте)
+        // 4. Проксируем аудиопоток с поддержкой Range-запросов (для перемотки и стабильного воспроизведения)
         const rangeHeader = request.headers.get("range");
         const fetchHeaders: HeadersInit = {};
         if (rangeHeader) {
@@ -84,7 +95,7 @@ export async function GET(
         });
 
         if (!telegramRes.ok && telegramRes.status !== 206) {
-            return NextResponse.json({ error: "Не удалось получить аудиопоток" }, { status: telegramRes.status });
+            return NextResponse.json({ error: "Не удалось получить аудиопоток из Telegram" }, { status: telegramRes.status });
         }
 
         const responseHeaders = new Headers();
