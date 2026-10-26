@@ -105,51 +105,10 @@ export async function GET(
         }
 
         const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
-        console.log(`${logPrefix} Прямая ссылка на файл в Telegram получена. Размер файла на серверах TG неизвестен на этом этапе.`);
+        console.log(`${logPrefix} Прямая ссылка на Telegram получена. Делаем редирект 302 на:`, fileDownloadUrl);
 
-        // 4. Проксируем аудиопоток с заголовками Range
-        const rangeHeader = request.headers.get("range");
-        console.log(`${logPrefix} Входящий Range заголовок от клиента (браузера):`, rangeHeader || "отсутствует (запрос всего файла)");
-
-        const fetchHeaders: HeadersInit = {};
-        if (rangeHeader) {
-            fetchHeaders["Range"] = rangeHeader;
-        }
-
-        console.log(`${logPrefix} Отправка запроса к Telegram с заголовками:`, fetchHeaders);
-        const telegramRes = await fetch(fileDownloadUrl, {
-            headers: fetchHeaders,
-            cache: "no-store",
-        });
-
-        console.log(`${logPrefix} Ответ Telegram сервера: status=${telegramRes.status}, statusText=${telegramRes.statusText}`);
-        console.log(`${logPrefix} Telegram Content-Length:`, telegramRes.headers.get("content-length"));
-        console.log(`${logPrefix} Telegram Content-Range:`, telegramRes.headers.get("content-range"));
-
-        if (!telegramRes.ok && telegramRes.status !== 206) {
-            console.error(`${logPrefix} ОШИБКА: Telegram вернул неуспешный статус при скачивании потока:`, telegramRes.status);
-            return NextResponse.json({ error: "Не удалось получить аудиопоток из Telegram" }, { status: telegramRes.status });
-        }
-
-        const responseHeaders = new Headers();
-        responseHeaders.set("Content-Type", "audio/mpeg");
-        responseHeaders.set("Accept-Ranges", "bytes");
-
-        const contentLength = telegramRes.headers.get("content-length");
-        if (contentLength) responseHeaders.set("Content-Length", contentLength);
-
-        const contentRange = telegramRes.headers.get("content-range");
-        if (contentRange) {
-            responseHeaders.set("Content-Range", contentRange);
-        }
-
-        const status = rangeHeader && telegramRes.status === 200 ? 206 : telegramRes.status;
-        console.log(`${logPrefix} Возвращаем клиенту статус:`, status);
-
-        return new NextResponse(telegramRes.body, {
-            status: status,
-            headers: responseHeaders,
-        });
+        // 4. РЕДИРЕКТ НАПРЯМУЮ (Обходит лимиты Render и отдает все 7.5 МБ без обрывов)
+        return NextResponse.redirect(fileDownloadUrl, { status: 302 });
 
     } catch (error: any) {
         console.error(`${logPrefix} КРИТИЧЕСКАЯ ОШИБКА СТРИМИНГА:`, error?.message || error, error?.stack);
