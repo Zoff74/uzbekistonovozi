@@ -3,24 +3,16 @@ import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import crypto from "crypto";
+import { dbConnect } from "@/lib/mongoose";
+import User from "@/models/User";
 
-/**
- * УНИВЕРСАЛЬНАЯ ФУНКЦИЯ СЛАГИФИКАЦИИ ДЛЯ ЛЮБЫХ ЯЗЫКОВ МИРА
- * Удаляет диакритику, убирает пробелы, заменяет недопустимые символы.
- * Корректно обработает кириллицу, латиницу, китайский, арабский и т.д.
- */
 function universalSlugify(str: string): string {
     return str
-        // Нормализация Unicode (разделяет буквы и их акценты/знаки)
         .normalize("NFD")
-        // Удаляем комбинируемые диакритические знаки
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
-        // Заменяем пробелы и спецсимволы на нижнее подчеркивание
         .replace(/[^a-z0-9]/g, "_")
-        // Убираем дублирующиеся подчеркивания
         .replace(/_+/g, "_")
-        // Убираем подчеркивания в начале и конце
         .replace(/^_+|_+$/g, "");
 }
 
@@ -148,43 +140,49 @@ export async function deleteFileByFileId(fileId: string): Promise<{ success: boo
     }
 }
 
-export async function updateAvatarAction(fileData: string, fileName: string, oldFileId?: string): Promise<UploadResult> {
+/**
+ * Атомарное обновление аватара:
+ * 1. Берет ID текущего юзера из сессии.
+ * 2. Достает старый `imageFileId` из базы (модель User).
+ * 3. Физически удаляет старый файл из ImageKit.
+ * 4. Загружает новый файл.
+ * 5. Сохраняет новые `image` и `imageFileId` в базу по неизменяемому ID.
+ */
+export async function updateAvatarAction(fileData: string, fileName: string): Promise<UploadResult> {
     try {
         const userId = await getSessionUserId();
         if (!userId) {
             return { success: false, error: "Требуется авторизация." };
         }
 
-        if (oldFileId) {
+        await dbConnect();
+
+        // Достаем текущего юзера из базы, чтобы узнать его старый imageFileId
+        const currentUser = await User.findById(userId).select("imageFileId");
+
+        if (currentUser && currentUser.imageFileId) {
             try {
-                await imagekit.files.delete(oldFileId);
+                await imagekit.files.delete(currentUser.imageFileId);
             } catch (delErr) {
-                console.warn("Старый аватар не найден или уже удален:", delErr);
+                console.warn("Старый аватар в ImageKit не найден или уже удален:", delErr);
             }
         }
 
         const cleanSubFolder = "avatars";
         const finalFolder = MAIN_FOLDER ? `/${MAIN_FOLDER}/${cleanSubFolder}` : `/${cleanSubFolder}`;
 
-        // 1. Очищаем имя от GET-параметров (если они случайно попали, например ?t=...)
         const cleanFileName = fileName.split('?')[0];
-
-        // 2. Железобетонно достаем расширение (берем то, что после последней точки)
         const lastDotIndex = cleanFileName.lastIndexOf('.');
         let extension = lastDotIndex !== -1 ? cleanFileName.substring(lastDotIndex + 1).toLowerCase() : "jpg";
         
-        // Страховка: если расширение повреждено или слишком длинное (как с мусором), принудительно ставим webp или jpg
         if (extension.length > 5 || !['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(extension)) {
             extension = "webp";
         }
 
         const baseName = lastDotIndex !== -1 ? cleanFileName.substring(0, lastDotIndex) : cleanFileName;
-        
-        // 3. Безопасно слагифицируем название для любых языков мира
         const safeBaseName = universalSlugify(baseName);
         const finalBaseName = safeBaseName.length > 0 ? safeBaseName : "avatar";
         
-        // 4. Формируем чистое финальное имя файла
         const finalFileName = `avatar_${userId}_${Date.now()}_${finalBaseName}.${extension}`;
 
         let base64Data = fileData.replace(/^data:image\/\S+;base64,/, "");
@@ -199,6 +197,12 @@ export async function updateAvatarAction(fileData: string, fileName: string, old
         if (!response.fileId || !response.url) {
             return { success: false, error: "ImageKit не вернул данные файла." };
         }
+
+        // Автоматически обновляем поля image и imageFileId в модели User
+        await User.findByIdAndUpdate(userId, {
+            image: response.url,
+            imageFileId: response.fileId
+        });
 
         return { 
             success: true, 

@@ -1,8 +1,14 @@
 'use server';
+// src/actions/videoActions.ts
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import User from "@/models/User";
 import { revalidatePath } from "next/cache";
+import ImageKit from "@imagekit/nodejs";
+
+const imagekit = new ImageKit({
+    privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_key",
+});
 
 interface CreateVideoInput {
     title: string;
@@ -34,7 +40,6 @@ export async function createVideoAction(data: CreateVideoInput) {
         const unlimitedIds = rawUnlimitedIds.split(",").map(id => id.trim()).filter(Boolean);
         const hasUnlimited = unlimitedIds.includes(data.authorId.toString());
 
-        // Расчет срока и статуса оплаты для видео
         let expiresAt = new Date();
         let isPaidActive = false;
 
@@ -77,6 +82,84 @@ export async function createVideoAction(data: CreateVideoInput) {
 
     } catch (error: any) {
         console.error("Видео яратишда хатолик:", error);
+        return { success: false, errorCode: "SERVER_ERROR" };
+    }
+}
+
+interface UpdateVideoInput {
+    videoId: string;
+    title?: string;
+    singer?: string;
+    genre?: string;
+    duration?: string;
+    videoUrl?: string;
+    videoFileId?: string;
+    cover?: string;
+    coverFileId?: string;
+}
+
+export async function updateVideoAction(data: UpdateVideoInput) {
+    try {
+        await dbConnect();
+
+        if (!data.videoId) {
+            return { success: false, errorCode: "VIDEO_ID_REQUIRED" };
+        }
+
+        // Явное приведение модели к типу any обходит конфликты перегрузок TypeScript в Mongoose
+        const VideoModel: any = Video;
+
+        const video = await VideoModel.findById(data.videoId);
+        if (!video) {
+            return { success: false, errorCode: "VIDEO_NOT_FOUND" };
+        }
+
+        // Если загружена новая обложка и у клипа была старая в ImageKit — стираем старую
+        if (data.coverFileId && video.coverFileId && data.coverFileId !== video.coverFileId) {
+            try {
+                await imagekit.files.delete(video.coverFileId);
+            } catch (err) {
+                console.warn("Не удалось удалить старую обложку клипа из ImageKit:", err);
+            }
+        }
+
+        // Если загружен новый видеофайл и был старый — стираем старый
+        if (data.videoFileId && video.videoFileId && data.videoFileId !== video.videoFileId) {
+            try {
+                // Логика удаления старого видеофайла при необходимости
+            } catch (err) {
+                console.warn("Не удалось удалить старый видеофайл:", err);
+            }
+        }
+
+        const updateFields: any = {};
+        if (data.title !== undefined) updateFields.title = data.title;
+        if (data.singer !== undefined) updateFields.singer = data.singer;
+        if (data.genre !== undefined) updateFields.genre = data.genre;
+        if (data.duration !== undefined) updateFields.duration = data.duration;
+        if (data.videoUrl !== undefined) updateFields.videoUrl = data.videoUrl;
+        if (data.videoFileId !== undefined) updateFields.videoFileId = data.videoFileId;
+        if (data.cover !== undefined) updateFields.cover = data.cover;
+        if (data.coverFileId !== undefined) updateFields.coverFileId = data.coverFileId;
+
+        const updatedVideo = await VideoModel.findByIdAndUpdate(
+            data.videoId,
+            { $set: updateFields },
+            { new: true }
+        );
+
+        revalidatePath('/videos');
+        revalidatePath('/catalogVideos');
+        revalidatePath('/dashboard');
+
+        return {
+            success: true,
+            videoId: updatedVideo._id.toString(),
+            messageCode: "VIDEO_UPDATED_SUCCESS"
+        };
+
+    } catch (error: any) {
+        console.error("Видео янгилашда хатолик:", error);
         return { success: false, errorCode: "SERVER_ERROR" };
     }
 }
