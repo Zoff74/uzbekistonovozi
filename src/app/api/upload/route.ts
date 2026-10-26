@@ -21,6 +21,7 @@ const imagekit = new ImageKit({
 export async function POST(request: NextRequest) {
     let inputPath = "";
     let outputPath = "";
+    let audioOutputPath = "";
 
     try {
         const session = await getServerSession(authOptions);
@@ -84,17 +85,39 @@ export async function POST(request: NextRequest) {
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
         inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
         outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
+        audioOutputPath = path.join(tempDir, `audio_${uniqueId}.mp3`);
 
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
         await fs.writeFile(inputPath, buffer);
 
         let finalPathToUpload = inputPath;
-        // ГАРАНТИРОВАННОЕ чистое латинское имя для аудио, чтобы стриминг работал идеально через sendDocument
         let finalFileName = originalName;
+
+        // 2. АУДИО — КОНВЕРТАЦИЯ В MP3 (Решает проблему .wma, .wav, .flac и обрывов навсегда!)
         if (uploadType === "audio") {
-            const ext = path.extname(originalName).toLowerCase() || ".mp3";
-            finalFileName = `audio_${uniqueId}${ext}`;
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    ffmpeg(inputPath)
+                        .output(audioOutputPath)
+                        .toFormat("mp3")
+                        .audioCodec("libmp3lame")
+                        .audioBitrate("192k")
+                        .on('end', () => resolve())
+                        .on('error', (err) => reject(err))
+                        .run();
+                });
+
+                finalPathToUpload = audioOutputPath;
+                // Меняем расширение на .mp3 в имени файла для Telegram
+                const baseName = originalName.replace(/\.[^/.]+$/, "");
+                finalFileName = `${baseName}_converted.mp3`;
+            } catch (convErr: any) {
+                console.error("FFmpeg audio conversion error:", convErr);
+                // Если конвертация не удалась, пробуем отправить оригинал, но с риском несовместимости
+                finalPathToUpload = inputPath;
+                finalFileName = originalName;
+            }
         }
 
         // 3. ВИДЕО — сжатие при необходимости
@@ -152,6 +175,7 @@ export async function POST(request: NextRequest) {
                     console.error("FFmpeg video error:", ffmpegErr);
                     await fs.unlink(inputPath).catch(() => {});
                     await fs.unlink(outputPath).catch(() => {});
+                    await fs.unlink(audioOutputPath).catch(() => {});
                     return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
                 }
             }
@@ -161,6 +185,7 @@ export async function POST(request: NextRequest) {
         if (finalStats.size > 50 * 1024 * 1024) {
             await fs.unlink(inputPath).catch(() => {});
             if (outputPath) await fs.unlink(outputPath).catch(() => {});
+            if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
             return NextResponse.json({ error: "Файл превышает допустимый размер (50 МБ)." }, { status: 400 });
         }
 
@@ -170,10 +195,11 @@ export async function POST(request: NextRequest) {
         if (!BOT_TOKEN || !storageChatId) {
             await fs.unlink(inputPath).catch(() => {});
             if (outputPath) await fs.unlink(outputPath).catch(() => {});
+            if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка через sendDocument (возвращает предсказуемый объект document)
+        // Отправка через sendDocument
         const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
@@ -200,6 +226,7 @@ export async function POST(request: NextRequest) {
 
         await fs.unlink(inputPath).catch(() => {});
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
+        if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
 
         const responseText = await response.text();
         console.log("📥 Ответ от Telegram API:", responseText);
@@ -217,7 +244,6 @@ export async function POST(request: NextRequest) {
         }
 
         if (uploadedFile && uploadedFile.file_id) {
-            // Динамически выбираем правильный префикс для треков и видео
             const streamPrefix = uploadType === "audio" ? "/api/tracks/stream" : "/api/videos/stream";
 
             return NextResponse.json({
@@ -235,6 +261,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         if (inputPath) await fs.unlink(inputPath).catch(() => {});
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
+        if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
         console.error("🔥 [UPLOAD CRITICAL ERROR]:", error);
         return NextResponse.json(
             { error: error.message || "Ошибка при обработке файла" },
