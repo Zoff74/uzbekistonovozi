@@ -39,13 +39,17 @@ export async function createTrackAction(data: CreateTrackInput) {
         let isPaidActive = false;
 
         if (isAdmin || hasUnlimited) {
-            // Для админа и безлимитных пользователей — 1 год и полный безлимит
             expiresAt.setTime(Date.now() + 365 * 24 * 60 * 60 * 1000);
             isPaidActive = true;
         } else {
-            // Для обычных пользователей — 30 дней триал/бесплатно
             expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
             isPaidActive = false;
+        }
+
+        // ЗАЩИТА: Если вдруг клиент прислал путь с /api/videos/stream/, принудительно исправляем его на /api/tracks/stream/
+        let fixedAudioUrl = data.audioUrl;
+        if (fixedAudioUrl.includes("/api/videos/stream/")) {
+            fixedAudioUrl = fixedAudioUrl.replace("/api/videos/stream/", "/api/tracks/stream/");
         }
 
         const newTrack = new Track({
@@ -53,7 +57,7 @@ export async function createTrackAction(data: CreateTrackInput) {
             singer: data.singer || "Номаълум ижрочи", 
             genre: data.genre || "Pop",
             contentType: data.contentType || "song", 
-            audioUrl: data.audioUrl,
+            audioUrl: fixedAudioUrl,
             audioFileId: data.audioFileId || "",
             cover: data.cover || "/default-cover.webp",
             coverFileId: data.coverFileId || "",

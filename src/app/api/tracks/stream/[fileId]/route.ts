@@ -14,15 +14,17 @@ export async function GET(
 ) {
     try {
         const fileId = params?.fileId;
-        console.log(`[STREAM DEBUG] Начало запроса, fileId: "${fileId}"`);
-
         if (!fileId || fileId === "undefined" || fileId === "null") {
             return NextResponse.json({ error: "Невалидный fileId" }, { status: 400 });
         }
 
-        await dbConnect();
-        console.log(`[STREAM DEBUG] БД подключена успешно`);
+        if (!BOT_TOKEN) {
+            return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
+        }
 
+        await dbConnect();
+
+        // 1. Ищем трек в базе по _id, audioFileId или audioUrl
         let track = null;
         if (Types.ObjectId.isValid(fileId)) {
             track = await (Track as any).findById(fileId).lean();
@@ -37,70 +39,75 @@ export async function GET(
             }).lean();
         }
 
-        console.log(`[STREAM DEBUG] Результат поиска трека в БД:`, track ? track._id : "НЕ НАЙДЕН");
+        if (!track) {
+            return NextResponse.json({ error: "Трек не найден в базе данных" }, { status: 404 });
+        }
 
-        let fileDownloadUrl = "";
+        // 2. Извлекаем реальный Telegram file_id из audioUrl (например: /api/videos/stream/BQACAgIA...)
         let targetFileId = "";
+        const rawUrl = track.audioUrl || "";
 
-        const rawUrl = track?.audioUrl || "";
-        
         if (rawUrl.includes("/api/videos/stream/")) {
             targetFileId = rawUrl.split("/api/videos/stream/")[1];
-        } else if (track?.audioFileId) {
+        } else if (rawUrl.includes("/api/tracks/stream/")) {
+            targetFileId = rawUrl.split("/api/tracks/stream/")[1];
+        } else if (track.audioFileId) {
             targetFileId = track.audioFileId;
-        } else if (fileId.startsWith("B") || fileId.startsWith("C") || fileId.startsWith("A")) {
+        } else if (fileId.length > 20 && !fileId.includes("/")) {
             targetFileId = fileId;
         }
 
-        console.log(`[STREAM DEBUG] Извлеченный targetFileId: "${targetFileId}", rawUrl: "${rawUrl}"`);
-
-        if (targetFileId && BOT_TOKEN) {
-            try {
-                const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${targetFileId}`);
-                const tgData = await tgRes.json();
-                console.log(`[STREAM DEBUG] Ответ Telegram getFile:`, JSON.stringify(tgData));
-                
-                if (tgData?.ok?.result?.file_path) {
-                    fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
-                }
-            } catch (e) {
-                console.error("[STREAM DEBUG] Ошибка при запросе к Telegram getFile:", e);
-            }
+        if (!targetFileId) {
+            return NextResponse.json({ error: "Не удалось определить file_id трека" }, { status: 404 });
         }
 
-        if (!fileDownloadUrl && rawUrl && rawUrl.startsWith("http")) {
-            fileDownloadUrl = rawUrl;
+        // 3. Запрашиваем путь файла у Telegram
+        const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${targetFileId}`);
+        const tgData = await tgRes.json();
+
+        if (!tgData?.ok || !tgData?.result?.file_path) {
+            return NextResponse.json({ error: "Аудиофайл удален из хранилища Telegram" }, { status: 404 });
         }
 
-        if (!fileDownloadUrl) {
-            console.error(`[STREAM DEBUG] Не удалось сформировать fileDownloadUrl для ID: ${fileId}`);
-            return NextResponse.json({ error: "Аудиофайл не найден" }, { status: 404 });
+        const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
+
+        // 4. Проксируем запрос с поддержкой Range (как в видео-роуте)
+        const rangeHeader = request.headers.get("range");
+        const fetchHeaders: HeadersInit = {};
+        if (rangeHeader) {
+            fetchHeaders["Range"] = rangeHeader;
         }
 
-        console.log(`[STREAM DEBUG] Скачивание файла с upstream: ${fileDownloadUrl}`);
-        const upstreamRes = await fetch(fileDownloadUrl, { cache: "no-store" });
-        
-        if (!upstreamRes.ok || !upstreamRes.body) {
-            console.error(`[STREAM DEBUG] Upstream ошибка: статус ${upstreamRes.status}`);
-            return NextResponse.json({ error: "Ошибка загрузки из хранилища Telegram" }, { status: 502 });
+        const telegramRes = await fetch(fileDownloadUrl, {
+            headers: fetchHeaders,
+            cache: "no-store",
+        });
+
+        if (!telegramRes.ok && telegramRes.status !== 206) {
+            return NextResponse.json({ error: "Не удалось получить аудиопоток" }, { status: telegramRes.status });
         }
 
         const responseHeaders = new Headers();
         responseHeaders.set("Content-Type", "audio/mpeg");
         responseHeaders.set("Accept-Ranges", "bytes");
 
-        const contentLength = upstreamRes.headers.get("content-length");
-        if (contentLength) {
-            responseHeaders.set("Content-Length", contentLength);
+        const contentLength = telegramRes.headers.get("content-length");
+        if (contentLength) responseHeaders.set("Content-Length", contentLength);
+
+        const contentRange = telegramRes.headers.get("content-range");
+        if (contentRange) {
+            responseHeaders.set("Content-Range", contentRange);
         }
 
-        return new NextResponse(upstreamRes.body, {
-            status: upstreamRes.status,
+        const status = rangeHeader && telegramRes.status === 200 ? 206 : telegramRes.status;
+
+        return new NextResponse(telegramRes.body, {
+            status: status,
             headers: responseHeaders,
         });
 
     } catch (error: any) {
-        console.error("[STREAM CRITICAL ERROR] Полный стек ошибки:", error?.stack || error);
-        return NextResponse.json({ error: "Внутренняя ошибка сервера", details: error?.message }, { status: 500 });
+        console.error("Ошибка стриминга аудио:", error?.message || error);
+        return NextResponse.json({ error: "Ошибка сервера при стриминге аудио" }, { status: 500 });
     }
 }

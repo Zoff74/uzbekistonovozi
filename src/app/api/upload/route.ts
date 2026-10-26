@@ -217,11 +217,14 @@ export async function POST(request: NextRequest) {
         }
 
         if (uploadedFile && uploadedFile.file_id) {
+            // Динамически выбираем правильный префикс для треков и видео
+            const streamPrefix = uploadType === "audio" ? "/api/tracks/stream" : "/api/videos/stream";
+
             return NextResponse.json({
                 success: true,
                 fileId: uploadedFile.file_id,
                 messageId: data.result.message_id,
-                url: `/api/videos/stream/${uploadedFile.file_id}`,
+                url: `${streamPrefix}/${uploadedFile.file_id}`,
                 name: originalName,
             });
         }
