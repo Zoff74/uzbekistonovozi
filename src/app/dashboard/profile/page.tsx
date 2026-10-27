@@ -19,8 +19,8 @@ export default function ProfileSettingsPage() {
     const [image, setImage] = useState("/img/avatar.webp");
     const [imageFileId, setImageFileId] = useState("");
     
-    const [occupation, setOccupation] = useState(""); // Профессия/роль
-    const [instrument, setInstrument] = useState(""); // Музыкальный инструмент
+    const [occupation, setOccupation] = useState(""); 
+    const [instrument, setInstrument] = useState(""); 
     const [bio, setBio] = useState("");
     const [phone, setPhone] = useState("");
     const [telegram, setTelegram] = useState("");
@@ -49,7 +49,7 @@ export default function ProfileSettingsPage() {
                     setOccupation(data.user.occupation || "");
                     setInstrument(data.user.instrument || "");
                     setBio(data.user.bio || "");
-                    setPhone(data.user.phone || "");
+                    setPhone(data.user.phoneNumber || "");
                     setTelegram(data.user.telegram || "");
                 }
             } catch (err) {
@@ -73,6 +73,7 @@ export default function ProfileSettingsPage() {
 
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("type", "avatar"); // ✅ Явно говорим бэкенду, что это аватарка для ImageKit!
 
         try {
             const res = await fetch("/api/upload", {
@@ -112,13 +113,13 @@ export default function ProfileSettingsPage() {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    name,
-                    avatarUrl: image,
-                    avatarFileId: imageFileId,
+                    username: name,       // ✅ Передаем username как ждет бэкенд
+                    image: image,         // ✅ Передаем image
+                    imageFileId,
                     occupation,
                     instrument,
                     bio,
-                    phone,
+                    phoneNumber: phone,   // ✅ Передаем phoneNumber
                     telegram,
                 }),
             });
@@ -145,7 +146,7 @@ export default function ProfileSettingsPage() {
                     window.location.href = window.location.pathname + "?updated=" + Date.now();
                 }, 800);
             } else {
-                setMessage({ text: data.message || "Xatolik yuz berdi", type: "error" });
+                setMessage({ text: data.message || data.error || "Xatolik yuz berdi", type: "error" });
             }
         } catch (err) {
             console.error("Save error:", err);
@@ -172,7 +173,6 @@ export default function ProfileSettingsPage() {
 
     const inputClass = "w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition";
 
-    // Проверяем, является ли пользователь инструментальным музыкантом
     const lowerOcc = occupation.toLowerCase();
     const isInstrumentalist = lowerOcc.includes("мусиқачи") || 
                               lowerOcc.includes("музыкант") || 
@@ -186,7 +186,6 @@ export default function ProfileSettingsPage() {
                 <div>
                     <Link
                         href="/dashboard"
-                        aria-disabled={false}
                         className="group relative inline-flex items-center gap-2 px-4 py-2 rounded-xl text-neutral-400 hover:text-white text-sm bg-neutral-900 transition"
                     >
                         <span className="relative z-10 flex items-center gap-2">
@@ -286,7 +285,6 @@ export default function ProfileSettingsPage() {
                                 onChange={(e) => setName(e.target.value)}
                                 className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
                                 placeholder="Username"
-                                required
                             />
                         </div>
                     </div>
@@ -306,7 +304,7 @@ export default function ProfileSettingsPage() {
                         />
                     </div>
 
-                    {/* Поле Инструмент — появляется ТОЛЬКО если пользователь инструментальный музыкант */}
+                    {/* Поле Инструмент */}
                     {isInstrumentalist && (
                         <div className="space-y-2 animate-fadeIn">
                             <label className="text-xs text-neutral-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
