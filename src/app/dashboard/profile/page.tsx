@@ -15,21 +15,6 @@ export default function ProfileSettingsPage() {
     const [uploadingImage, setUploadingImage] = useState(false);
     const [successModal, setSuccessModal] = useState(false);
 
-    // Безопасная проверка параметров через window.location (без ошибки Suspense)
-    useEffect(() => {
-        if (typeof window !== "undefined") {
-            const params = new URLSearchParams(window.location.search);
-            if (params.get("success") === "true") {
-                setSuccessModal(true);
-                const timer = setTimeout(() => {
-                    setSuccessModal(false);
-                    router.replace("/dashboard/profile");
-                }, 1500);
-                return () => clearTimeout(timer);
-            }
-        }
-    }, [router]);
-
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [image, setImage] = useState("/img/avatar.webp");
@@ -154,8 +139,15 @@ export default function ProfileSettingsPage() {
 
                 router.refresh();
                 
-                // Перенаправляем с флагом успеха
-                window.location.href = "/dashboard/profile?success=true&updated=" + Date.now();
+                // Показываем модалку успеха на клиенте без перезагрузки страницы
+                setSuccessModal(true);
+                
+                // Держим модалку 1.5 секунды, затем скрываем
+                setTimeout(() => {
+                    setSuccessModal(false);
+                    setSaving(false);
+                }, 1500);
+
             } else {
                 setMessage({ text: data.message || data.error || "Xatolik yuz berdi", type: "error" });
                 setSaving(false);
