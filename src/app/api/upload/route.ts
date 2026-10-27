@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
-//src\app\api\upload\route.ts
+
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
@@ -32,14 +32,14 @@ export async function POST(request: NextRequest) {
         const formData = await request.formData();
         const file = formData.get("file") as File | null;
         const coverFile = formData.get("cover") as File | null;
-        const uploadType = (formData.get("type") as string) || request.headers.get("x-upload-type") || "video";
+        let uploadType = (formData.get("type") as string) || request.headers.get("x-upload-type") || "";
 
         if (!file) {
             return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
         }
 
         const headerName = request.headers.get("x-file-name");
-        let originalName = file.name || (uploadType === "audio" ? "audio.mp3" : "video.mp4");
+        let originalName = file.name || "file";
         if (headerName) {
             try {
                 originalName = decodeURIComponent(headerName);
@@ -48,11 +48,22 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 1. ИЗОБРАЖЕНИЕ / ОБЛОЖКА
-        if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar") {
+        // АВТООПРЕДЕЛЕНИЕ ТИПА ЕСЛИ НЕ ПЕРЕДАН ЯВНО
+        if (!uploadType) {
+            if (file.type.startsWith("image/") || originalName.match(/\.(jpg|jpeg|png|webp|avif)$/i)) {
+                uploadType = "avatar";
+            } else if (file.type.startsWith("audio/") || originalName.match(/\.(mp3|wav|wma|flac|aac|m4a)$/i)) {
+                uploadType = "audio";
+            } else {
+                uploadType = "video";
+            }
+        }
+
+        // 1. ИЗОБРАЖЕНИЕ / АВАТАР / ОБЛОЖКА — ИДЕТ ИСКЛЮЧИТЕЛЬНО В IMAGEKIT
+        if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar" || uploadType === "img") {
             const oldFileId = formData.get("oldFileId") as string | null;
             const buffer = Buffer.from(await file.arrayBuffer());
-            const uniqueFileName = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+            const uniqueFileName = `${Date.now()}_${originalName.replace(/\s+/g, '_')}`;
             const mainFolder = process.env.NEXT_PUBLIC_IMAGEKIT_FOLDER || "";
             const defaultFolder = mainFolder ? `/${mainFolder}/covers` : "/uzbekistonovozi/covers";
             const folder = (formData.get("folder") as string) || defaultFolder;
@@ -79,7 +90,7 @@ export async function POST(request: NextRequest) {
             });
         } 
 
-        // Подготовка временных путей
+        // Подготовка временных путей для аудио/видео
         const tempDir = os.tmpdir();
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -94,7 +105,7 @@ export async function POST(request: NextRequest) {
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // 2. АУДИО — КОНВЕРТАЦИЯ В MP3 (Решает проблему .wma, .wav, .flac и обрывов навсегда!)
+        // 2. АУДИО — КОНВЕРТАЦИЯ В MP3
         if (uploadType === "audio") {
             try {
                 await new Promise<void>((resolve, reject) => {
@@ -109,19 +120,17 @@ export async function POST(request: NextRequest) {
                 });
 
                 finalPathToUpload = audioOutputPath;
-                // Меняем расширение на .mp3 в имени файла для Telegram
                 const baseName = originalName.replace(/\.[^/.]+$/, "");
                 finalFileName = `${baseName}_converted.mp3`;
             } catch (convErr: any) {
                 console.error("FFmpeg audio conversion error:", convErr);
-                // Если конвертация не удалась, пробуем отправить оригинал, но с риском несовместимости
                 finalPathToUpload = inputPath;
                 finalFileName = originalName;
             }
         }
 
         // 3. ВИДЕО — сжатие при необходимости
-        if (uploadType !== "audio") {
+        if (uploadType === "video") {
             const fileStats = await fs.stat(inputPath);
             if (fileStats.size > 18 * 1024 * 1024) {
                 try {
@@ -199,7 +208,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка через sendDocument
+        // Отправка через sendDocument (только для аудио и видео)
         const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
@@ -217,8 +226,6 @@ export async function POST(request: NextRequest) {
             tgFormData.append('thumbnail', coverBlob, 'cover.jpg');
         }
 
-        console.log(`📤 Отправка файла в Telegram хранилище (тип: ${uploadType}, чат: ${storageChatId})...`);
-
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
             body: tgFormData,
@@ -229,8 +236,6 @@ export async function POST(request: NextRequest) {
         if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
 
         const responseText = await response.text();
-        console.log("📥 Ответ от Telegram API:", responseText);
-
         let data;
         try {
             data = responseText ? JSON.parse(responseText) : {};

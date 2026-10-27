@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
 
-//src\app\api\user\profile\route.ts
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
@@ -14,7 +13,6 @@ const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
 });
 
-// GET: Получение параметров авторизации ImageKit (ваш текущий функционал)
 export async function GET() {
   try {
     const expire = Math.floor(Date.now() / 1000) + 30 * 60;
@@ -31,7 +29,6 @@ export async function GET() {
   }
 }
 
-// PUT / PATCH: Обновление личных данных пользователя (устраняет ошибку 405)
 async function handleProfileUpdate(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -42,7 +39,6 @@ async function handleProfileUpdate(request: NextRequest) {
     const userId = (session.user as any).id;
     await dbConnect();
 
-    // Данные могут приходить как JSON, так и FormData
     let body: any = {};
     const contentType = request.headers.get("content-type") || "";
     
@@ -51,20 +47,30 @@ async function handleProfileUpdate(request: NextRequest) {
     } else {
       const formData = await request.formData();
       body = {
-        username: formData.get("username"),
-        phoneNumber: formData.get("phoneNumber"),
+        username: formData.get("username") || formData.get("name"),
+        phoneNumber: formData.get("phoneNumber") || formData.get("phone"),
         occupation: formData.get("occupation"),
-        image: formData.get("image"),
-        imageFileId: formData.get("imageFileId"),
+        instrument: formData.get("instrument"),
+        bio: formData.get("bio"),
+        telegram: formData.get("telegram"),
+        image: formData.get("image") || formData.get("avatarUrl"),
+        imageFileId: formData.get("imageFileId") || formData.get("avatarFileId"),
       };
     }
 
     const updateFields: any = {};
-    if (body.username !== undefined) updateFields.username = body.username;
-    if (body.phoneNumber !== undefined) updateFields.phoneNumber = body.phoneNumber;
-    if (body.occupation !== undefined) updateFields.occupation = body.occupation;
-    if (body.image !== undefined) updateFields.image = body.image;
-    if (body.imageFileId !== undefined) updateFields.imageFileId = body.imageFileId;
+    if (body.username !== undefined && body.username !== null && body.username !== "") updateFields.username = body.username;
+    if (body.name !== undefined && body.name !== null && body.name !== "") updateFields.username = body.name;
+    if (body.phoneNumber !== undefined && body.phoneNumber !== null) updateFields.phoneNumber = body.phoneNumber;
+    if (body.phone !== undefined && body.phone !== null) updateFields.phone = body.phone;
+    if (body.occupation !== undefined && body.occupation !== null) updateFields.occupation = body.occupation;
+    if (body.instrument !== undefined && body.instrument !== null) updateFields.instrument = body.instrument;
+    if (body.bio !== undefined && body.bio !== null) updateFields.bio = body.bio;
+    if (body.telegram !== undefined && body.telegram !== null) updateFields.telegram = body.telegram;
+    if (body.image !== undefined && body.image !== null) updateFields.image = body.image;
+    if (body.avatarUrl !== undefined && body.avatarUrl !== null) updateFields.image = body.avatarUrl;
+    if (body.imageFileId !== undefined && body.imageFileId !== null) updateFields.imageFileId = body.imageFileId;
+    if (body.avatarFileId !== undefined && body.avatarFileId !== null) updateFields.imageFileId = body.avatarFileId;
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
