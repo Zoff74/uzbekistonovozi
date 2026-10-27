@@ -17,6 +17,8 @@ interface CreateTrackInput {
     contentType?: 'music' | 'song'; 
     audioUrl: string;
     audioFileId?: string;
+    telegramMessageId?: number; // 👈 Добавлено
+    telegramChatId?: string;    // 👈 Добавлено
     cover: string;
     coverFileId?: string;
     authorId: string;
@@ -62,6 +64,8 @@ export async function createTrackAction(data: CreateTrackInput) {
             contentType: data.contentType || "song", 
             audioUrl: fixedAudioUrl,
             audioFileId: data.audioFileId || "",
+            telegramMessageId: data.telegramMessageId || undefined, // 👈 Сохраняем ID сообщения
+            telegramChatId: data.telegramChatId || process.env.TELEGRAM_CHANNEL_ID || "", // 👈 Сохраняем чат
             cover: data.cover || "/default-cover.webp",
             coverFileId: data.coverFileId || "",
             authorId: data.authorId,
@@ -99,6 +103,8 @@ interface UpdateTrackInput {
     contentType?: 'music' | 'song';
     audioUrl?: string;
     audioFileId?: string;
+    telegramMessageId?: number; // 👈 Добавлено на случай обновления
+    telegramChatId?: string;    // 👈 Добавлено на случай обновления
     cover?: string;
     coverFileId?: string;
 }
@@ -149,6 +155,8 @@ export async function updateTrackAction(data: UpdateTrackInput) {
         if (data.contentType !== undefined) updateFields.contentType = data.contentType;
         if (fixedAudioUrl !== undefined) updateFields.audioUrl = fixedAudioUrl;
         if (data.audioFileId !== undefined) updateFields.audioFileId = data.audioFileId;
+        if (data.telegramMessageId !== undefined) updateFields.telegramMessageId = data.telegramMessageId; // 👈 Добавлено
+        if (data.telegramChatId !== undefined) updateFields.telegramChatId = data.telegramChatId;       // 👈 Добавлено
         if (data.cover !== undefined) updateFields.cover = data.cover;
         if (data.coverFileId !== undefined) updateFields.coverFileId = data.coverFileId;
 

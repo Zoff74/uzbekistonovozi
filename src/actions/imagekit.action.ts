@@ -75,7 +75,7 @@ export async function uploadImageBase64(fileData: string, fileName: string, fold
         }
 
         const cleanSubFolder = folderPath.startsWith('/') ? folderPath.substring(1) : folderPath;
-        const finalFolder = `${MAIN_FOLDER}/${cleanSubFolder}`;
+        const finalFolder = MAIN_FOLDER ? `${MAIN_FOLDER}/${cleanSubFolder}` : cleanSubFolder;
 
         const lastDotIndex = fileName.lastIndexOf('.');
         const extension = lastDotIndex !== -1 ? fileName.substring(lastDotIndex + 1) : 'jpg';
@@ -145,7 +145,7 @@ export async function deleteFileByFileId(fileId: string): Promise<{ success: boo
  * 1. Берет ID текущего юзера из сессии.
  * 2. Достает старый `imageFileId` из базы (модель User).
  * 3. Физически удаляет старый файл из ImageKit.
- * 4. Загружает новый файл.
+ * 4. Загружает новый файл в папку avatars.
  * 5. Сохраняет новые `image` и `imageFileId` в базу по неизменяемому ID.
  */
 export async function updateAvatarAction(fileData: string, fileName: string): Promise<UploadResult> {
@@ -157,7 +157,6 @@ export async function updateAvatarAction(fileData: string, fileName: string): Pr
 
         await dbConnect();
 
-        // Достаем текущего юзера из базы, чтобы узнать его старый imageFileId
         const currentUser = await User.findById(userId).select("imageFileId");
 
         if (currentUser && currentUser.imageFileId) {
@@ -168,8 +167,9 @@ export async function updateAvatarAction(fileData: string, fileName: string): Pr
             }
         }
 
+        // 👈 ЖЕСТКО УКАЗЫВАЕМ ПАПКУ АВАТАРОВ
         const cleanSubFolder = "avatars";
-        const finalFolder = MAIN_FOLDER ? `/${MAIN_FOLDER}/${cleanSubFolder}` : `/${cleanSubFolder}`;
+        const finalFolder = MAIN_FOLDER ? `${MAIN_FOLDER}/${cleanSubFolder}` : cleanSubFolder;
 
         const cleanFileName = fileName.split('?')[0];
         const lastDotIndex = cleanFileName.lastIndexOf('.');
@@ -191,14 +191,13 @@ export async function updateAvatarAction(fileData: string, fileName: string): Pr
         const response: any = await imagekit.files.upload({ 
             file: base64DataToSend,
             fileName: finalFileName,
-            folder: finalFolder,
+            folder: finalFolder, // 👈 Улетает в папку avatars
         });
 
         if (!response.fileId || !response.url) {
             return { success: false, error: "ImageKit не вернул данные файла." };
         }
 
-        // Автоматически обновляем поля image и imageFileId в модели User
         await User.findByIdAndUpdate(userId, {
             image: response.url,
             imageFileId: response.fileId

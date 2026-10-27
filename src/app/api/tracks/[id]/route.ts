@@ -68,6 +68,49 @@ export async function DELETE(
             }, { status: 403 });
         }
 
+        // ---------------------------------------------------------
+        // 1. УДАЛЕНИЕ ОБЛОЖКИ ИЗ IMAGEKIT
+        // ---------------------------------------------------------
+        const imageFileId = track.imageFileId || track.coverFileId;
+        const imageKitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
+
+        if (imageKitPrivateKey && imageFileId) {
+            try {
+                const credentials = Buffer.from(imageKitPrivateKey + ":").toString("base64");
+                await fetch(`https://api.imagekit.io/v1/files/${imageFileId}`, {
+                    method: "DELETE",
+                    headers: {
+                        Authorization: `Basic ${credentials}`,
+                    },
+                });
+            } catch (imgErr) {
+                console.error("Ошибка удаления обложки из ImageKit:", imgErr);
+            }
+        }
+
+        // ---------------------------------------------------------
+        // 2. УДАЛЕНИЕ СООБЩЕНИЯ С АУДИО ИЗ TELEGRAM
+        // ---------------------------------------------------------
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        const messageId = track.telegramMessageId || track.messageId;
+        const chatId = track.telegramChatId || track.chatId || process.env.TELEGRAM_CHANNEL_ID;
+
+        if (botToken && messageId && chatId) {
+            try {
+                await fetch(`https://api.telegram.org/bot${botToken}/deleteMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        message_id: messageId,
+                    }),
+                });
+            } catch (tgErr) {
+                console.error("Ошибка удаления сообщения из Telegram:", tgErr);
+            }
+        }
+
+        // 3. Удаление из MongoDB
         await (Track as any).findByIdAndDelete(id);
 
         // Принудительно очищаем кэш каталогов и самого API эндпоинта
@@ -77,7 +120,7 @@ export async function DELETE(
         revalidatePath("/catalogSongs");
         revalidatePath("/catalogVokal");
         revalidatePath("/catalogInstrumentalMusic");
-        revalidatePath("/api/tracks"); // <--- Самое главное для общего котла
+        revalidatePath("/api/tracks");
 
         return NextResponse.json({ 
             success: true, 
@@ -155,7 +198,6 @@ export async function PUT(
 
         await track.save();
 
-        // Сбрасываем кэш при обновлении тоже
         revalidatePath("/");
         revalidatePath("/dashboard");
         revalidatePath("/catalogMusic");

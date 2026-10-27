@@ -94,6 +94,11 @@ export async function POST(req: NextRequest) {
         const audioUrlFromClient = formData.get("audioUrl") as string || formData.get("audio") as string;
         let audioFileId = (formData.get("audioFileId") as string) || "";
 
+        // 👈 Получаем Telegram ID сообщения и чата, если они передаются из формы/бота
+        const telegramMessageIdRaw = formData.get("telegramMessageId");
+        const telegramMessageId = telegramMessageIdRaw ? Number(telegramMessageIdRaw) : undefined;
+        const telegramChatId = (formData.get("telegramChatId") as string) || process.env.TELEGRAM_CHANNEL_ID || "";
+
         if (!title || !singer || !audioUrlFromClient) {
             return NextResponse.json({ 
                 success: false, 
@@ -106,7 +111,6 @@ export async function POST(req: NextRequest) {
             }, { status: 400 });
         }
 
-        // Если audioFileId не пришел отдельно, но зашит в audioUrl или сам является fileId
         if (!audioFileId) {
             if (audioUrlFromClient.includes("/api/tracks/stream/")) {
                 audioFileId = audioUrlFromClient.split("/api/tracks/stream/")[1];
@@ -132,7 +136,7 @@ export async function POST(req: NextRequest) {
             expiresAt.setTime(Date.now() + 365 * 24 * 60 * 60 * 1000);
         } else if (!currentUser.hasUsedFreeTrack) {
             isTrial = true;
-            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000); // 24 часа
+            expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000);
             currentUser.hasUsedFreeTrack = true;
             await currentUser.save();
         } else {
@@ -154,7 +158,7 @@ export async function POST(req: NextRequest) {
         const cleanUserId = userId.toString();
         const authorObjectId = Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId;
 
-        // Создаем трек с точной фиксацией fileId для медиа и обложки
+        // Создаем трек с фиксацией fileId для медиа, обложки и телеграма
         const newTrack = await (Track as any).create({
             title,
             singer,
@@ -165,6 +169,8 @@ export async function POST(req: NextRequest) {
             coverFileId: coverFileId,
             audioUrl: audioUrlFromClient,
             audioFileId: audioFileId,
+            telegramMessageId: telegramMessageId, // 👈 Сохраняем ID сообщения Telegram
+            telegramChatId: telegramChatId,       // 👈 Сохраняем чат Telegram
             authorId: authorObjectId,
             author: authorObjectId,
             userId: authorObjectId,
@@ -175,19 +181,11 @@ export async function POST(req: NextRequest) {
             downloadsCount: 0,
         });
 
-        console.log(`[TRACK POST DB] Трек успешно сохранен. ID: ${newTrack._id}, audioFileId: ${audioFileId}`);
+        console.log(`[TRACK POST DB] Трек успешно сохранен. ID: ${newTrack._id}, audioFileId: ${audioFileId}, tgMsgId: ${telegramMessageId}`);
 
         return NextResponse.json({ success: true, track: newTrack, isTrial }, { status: 201 });
     } catch (error: any) {
         console.error("[TRACK POST ERROR] Ошибка:", error);
-        return NextResponse.json({ 
-            success: false, 
-            message: error.message || tr(
-                "Сервер хатолиги",
-                "Server xatoligi",
-                "Ошибка сервера",
-                "Server error"
-            ) 
-        }, { status: 500 });
+        return { success: false, error: error.message || "Server Error" };
     }
 }

@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { uploadImage } from "@/actions/image.action";
 import { tr } from "@/utils/translate";
 import { Music, Image as ImageIcon, Loader2 } from "lucide-react";
 
@@ -25,10 +24,10 @@ export default function EditTrackPage() {
     genre: "Pop",
     description: "",
     cover: "",
+    coverFileId: "",
     audioUrl: "",
+    audioFileId: "",
   });
-
-  const [audioFileId, setAudioFileId] = useState<string | null>(null);
 
   const [trackMeta, setTrackMeta] = useState({
     createdAt: null as string | null,
@@ -60,10 +59,10 @@ export default function EditTrackPage() {
             genre: currentTrack.genre || "Pop",
             description: currentTrack.description || "",
             cover: currentTrack.cover || "",
+            coverFileId: currentTrack.coverFileId || "",
             audioUrl: currentTrack.audioUrl || "",
+            audioFileId: currentTrack.audioFileId || currentTrack.fileId || "",
           });
-
-          setAudioFileId(currentTrack.audioFileId || currentTrack.fileId || null);
 
           setTrackMeta({
             createdAt: currentTrack.createdAt,
@@ -105,23 +104,22 @@ export default function EditTrackPage() {
   }, [id]);
 
   const handleDeleteAudioFile = async () => {
-    if (!audioFileId) {
-      alert(tr("У бу трекда ImageKit файл идентификатори (fileId) йўқ.", "Bu trekda ImageKit fayl identifikatori (fileId) yo'q.", "У этого трека нет идентификатора файла (fileId) в ImageKit.", "This track has no fileId in ImageKit."));
+    if (!formData.audioFileId) {
+      alert(tr("У бу трекда файл идентификатори (fileId) йўқ.", "Bu trekda fayl identifikatori (fileId) yo'q.", "У этого трека нет идентификатора файла (fileId).", "This track has no fileId."));
       return;
     }
 
     if (!confirm(tr("Ҳақиқатан ҳам бу аудиофақилни ўчирмоқчимисиз?", "Haqiqatan ham bu audiofaylni o'chirmoqchimisiz?", "Вы действительно хотите удалить этот аудиофайл?", "Do you really want to delete this audio file?"))) return;
 
     try {
-      const res = await fetch(`/api/upload?fileId=${audioFileId}`, {
+      const res = await fetch(`/api/upload?fileId=${formData.audioFileId}`, {
         method: "DELETE",
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
         alert(tr("Аудиофайл муваффақиятли ўчирилди!", "Audiofayl muvaffaqiyatli o'chirildi!", "Аудиофайл успешно удален!", "Audio file successfully deleted!"));
-        setFormData((prev) => ({ ...prev, audioUrl: "" }));
-        setAudioFileId(null);
+        setFormData((prev) => ({ ...prev, audioUrl: "", audioFileId: "" }));
       } else {
         alert(data.error || tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred"));
       }
@@ -162,6 +160,7 @@ export default function EditTrackPage() {
     }
   };
 
+  // Исправленная функция загрузки через универсальный /api/upload с правильными типами ('cover' или 'audio')
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, fieldName: 'cover' | 'audioUrl') => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -170,39 +169,42 @@ export default function EditTrackPage() {
     if (fieldName === 'audioUrl') setUploadingAudio(true);
     setError(null);
 
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    
-    reader.onload = async () => {
-      try {
-        const base64String = reader.result as string;
-        const res = await uploadImage(base64String, file.name, 'post');
+    try {
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      uploadFormData.append("type", fieldName === 'cover' ? 'cover' : 'audio');
 
-        if (!res.success || !res.url) {
-          throw new Error(res.error || tr("Файлни юклаб бўлмади", "Faylni yuklab bo'lmadi", "Не удалось загрузить файл", "Failed to upload file"));
-        }
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: uploadFormData,
+      });
 
-        // If replacing audio, also update the audioFileId if returned by uploadImage or handle via API. 
-        // For now, update the form field and clear/update state as appropriate.
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || tr("Файлни юклаб бўлмади", "Faylni yuklab bo'lmadi", "Не удалось загрузить файл", "Failed to upload file"));
+      }
+
+      if (fieldName === 'cover') {
         setFormData((prev) => ({
           ...prev,
-          [fieldName]: res.url!,
+          cover: data.url,
+          coverFileId: data.fileId || "",
         }));
-      } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : tr("Файлни юклашда хатолик", "Faylni yuklashda xatolik", "Ошибка загрузки файла", "Error uploading file");
-        setError(errorMessage);
-      } finally {
-        if (fieldName === 'cover') setUploadingCover(false);
-        if (fieldName === 'audioUrl') setUploadingAudio(false);
-        e.target.value = "";
+      } else {
+        setFormData((prev) => ({
+          ...prev,
+          audioUrl: data.url,
+          audioFileId: data.fileId || "",
+        }));
       }
-    };
-
-    reader.onerror = () => {
-      setError(tr("Файлни ўқишда хатолик", "Faylni o'qishda xatolik", "Ошибка чтения файла", "Error reading file"));
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : tr("Файлни юклашда хатолик", "Faylni yuklashda xatolik", "Ошибка загрузки файла", "Error uploading file");
+      setError(errorMessage);
+    } finally {
       if (fieldName === 'cover') setUploadingCover(false);
       if (fieldName === 'audioUrl') setUploadingAudio(false);
-    };
+      e.target.value = "";
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -413,7 +415,7 @@ export default function EditTrackPage() {
                   {uploadingAudio ? tr("Аудиофайл юкланмоқда...", "Audiofayl yuklanmoqda...", "Аудиофайл загружается...", "Uploading audio file...") : tr("Аудиофайл (Янги трекка алмаштириш)", "Audiofayl (Yangi trekka almashtirish)", "Аудиофайл (Заменить новым треком)", "Audio file (Replace with new track)")}
                 </label>
 
-                {formData.audioUrl && audioFileId && (
+                {formData.audioUrl && formData.audioFileId && (
                   <div className="relative rounded-xl inline-block group">
                     <button
                       type="button"

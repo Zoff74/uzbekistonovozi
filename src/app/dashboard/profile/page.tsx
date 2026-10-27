@@ -142,7 +142,7 @@ export default function ProfileSettingsPage() {
                 // Показываем модалку успеха
                 setSuccessModal(true);
                 
-                // Держим 1.5 секунды, закрываем и обновляем данные
+                // Держим 6 секунды, закрываем и обновляем данные
                 setTimeout(() => {
                     setSuccessModal(false);
                     setSaving(false);
@@ -197,7 +197,7 @@ export default function ProfileSettingsPage() {
                             {tr("Муваффақиятли янгиланди!", "Muvaffaqiyatli yangilandi!", "Успешно обновлено!", "Successfully updated!")}
                         </h2>
                         <p className="text-neutral-400 text-sm">
-                            {tr("Сабр қилинг. Янгиланмоқда...", "Sabr qiling. Yangilanmoqda...", "Подождите. Обновляется...", "Please wait. Updating...")}
+                            {tr("Сабр қилинг. Орқага қайтамиз...", "Sabr qiling. Orqaga qaitamiz...", "Подождите. Вернемся назад...", "Please wait. Updating...")}
                         </p>
                         <div className="pt-2">
                             <div className="w-full bg-neutral-800 h-1.5 rounded-full overflow-hidden">

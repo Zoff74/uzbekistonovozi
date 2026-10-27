@@ -68,7 +68,7 @@ export default function NewTrackPage() {
             setUploadProgress(20);
             const audioUploadData = new FormData();
             audioUploadData.append("file", audioFile);
-            audioUploadData.append("type", "audio"); // или document/track
+            audioUploadData.append("type", "audio");
 
             const uploadRes = await fetch("/api/upload", {
                 method: "POST",
@@ -79,12 +79,16 @@ export default function NewTrackPage() {
             if (!uploadRes.ok || !uploadResult.success) {
                 throw new Error(uploadResult.error || "Не удалось загрузить аудиофайл на сервер");
             }
-            const audioUrl = uploadResult.url; // Получаем строковый URL
+            const audioUrl = uploadResult.url; 
+            const audioFileId = uploadResult.fileId || "";
+            const telegramMessageId = uploadResult.telegramMessageId;
+            const telegramChatId = uploadResult.telegramChatId;
 
             setUploadProgress(60);
 
             // ШАГ 2: Если есть обложка, загружаем её в ImageKit через /api/upload
             let coverUrl = "/default-cover.webp";
+            let coverFileId = "";
             if (coverFile) {
                 const coverUploadData = new FormData();
                 coverUploadData.append("file", coverFile);
@@ -97,18 +101,28 @@ export default function NewTrackPage() {
                 const coverResult = await coverRes.json();
                 if (coverRes.ok && coverResult.success) {
                     coverUrl = coverResult.url;
+                    coverFileId = coverResult.fileId || "";
                 }
             }
 
             setUploadProgress(80);
 
-            // ШАГ 3: Отправляем метаданные и готовые строковые ссылки на /api/tracks
+            // ШАГ 3: Отправляем метаданные и все ID на /api/tracks
             const trackFormData = new FormData();
             trackFormData.append("title", formData.title);
             trackFormData.append("singer", formData.singer);
             trackFormData.append("genre", formData.genre || "Pop");
-            trackFormData.append("audioUrl", audioUrl); // Передаем строку!
-            trackFormData.append("cover", coverUrl);     // Передаем строку!
+            trackFormData.append("audioUrl", audioUrl);
+            trackFormData.append("audioFileId", audioFileId);
+            trackFormData.append("cover", coverUrl);
+            trackFormData.append("coverFileId", coverFileId);
+
+            if (telegramMessageId) {
+                trackFormData.append("telegramMessageId", String(telegramMessageId));
+            }
+            if (telegramChatId) {
+                trackFormData.append("telegramChatId", telegramChatId);
+            }
 
             const trackRes = await fetch("/api/tracks", {
                 method: "POST",
