@@ -1,7 +1,7 @@
 "use client";
 // src/app/dashboard/profile/page.tsx
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Save, CheckCircle2, User as UserIcon, Upload, Music, FileText, Phone, Send, Briefcase } from "lucide-react";
 import { tr } from "@/utils/translate";
@@ -9,11 +9,25 @@ import { useSession } from "next-auth/react";
 
 export default function ProfileSettingsPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { data: session, update } = useSession();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [uploadingImage, setUploadingImage] = useState(false);
     const [successModal, setSuccessModal] = useState(false);
+
+    // Автоматически показываем модалку, если в URL есть флаг успеха после редиректа
+    useEffect(() => {
+        if (searchParams.get("success") === "true") {
+            setSuccessModal(true);
+            const timer = setTimeout(() => {
+                setSuccessModal(false);
+                // Чистим URL от параметров, чтобы модалка не вылазила при обновлении страницы
+                router.replace("/dashboard/profile");
+            }, 1500);
+            return () => clearTimeout(timer);
+        }
+    }, [searchParams, router]);
 
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
@@ -74,7 +88,7 @@ export default function ProfileSettingsPage() {
 
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("type", "avatar"); // Идет в ImageKit
+        formData.append("type", "avatar");
 
         try {
             const res = await fetch("/api/upload", {
@@ -137,13 +151,10 @@ export default function ProfileSettingsPage() {
                     },
                 });
 
-                // Показываем модалку успеха
-                setSuccessModal(true);
                 router.refresh();
                 
-                setTimeout(() => {
-                    window.location.href = "/dashboard/profile?updated=" + Date.now();
-                }, 1200);
+                // Делаем редирект с параметром success=true, чтобы модалка гарантированно отрисовалась после загрузки страницы
+                window.location.href = "/dashboard/profile?success=true&updated=" + Date.now();
             } else {
                 setMessage({ text: data.message || data.error || "Xatolik yuz berdi", type: "error" });
                 setSaving(false);
