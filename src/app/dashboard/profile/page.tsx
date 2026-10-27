@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Save, User as UserIcon, Upload, Music, FileText, Phone, Send, Briefcase } from "lucide-react";
+import { ArrowLeft, Loader2, Save, CheckCircle2, User as UserIcon, Upload, Music, FileText, Phone, Send, Briefcase } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
 
@@ -86,6 +86,10 @@ export default function ProfileSettingsPage() {
                 const newUrl = data.url || data.filePath;
                 setImage(newUrl);
                 if (data.fileId) setImageFileId(data.fileId);
+                setMessage({ 
+                    text: tr("✅ Аватар муваффақиятли юкланди! Сақлашни унутманг.", "✅ Avatar muvaffaqiyatli yuklandi! Saqlashni unutmang.", "✅ Аватар успешно загружен! Не забудьте сохранить.", "✅ Avatar uploaded successfully! Don't forget to save."), 
+                    type: "success" 
+                });
             } else {
                 setMessage({ 
                     text: tr("Расмни юклашда хатолик юз берди", "Rasmni yuklashda xatolik yuz berdi", "Ошибка при загрузке изображения", "Error uploading image"), 
@@ -136,15 +140,17 @@ export default function ProfileSettingsPage() {
                     },
                 });
 
+                // ✅ Четкое и заметное сообщение об успехе с галочкой
                 setMessage({ 
-                    text: tr("Профил муваффақиятли янгиланди!", "Profil muvaffaqiyatli yangilandi!", "Профиль успешно обновлен!", "Profile updated successfully!"), 
+                    text: tr("✅ Профил муваффақиятли янгиланди ва сақланди!", "✅ Profil muvaffaqiyatli yangilandi va saqlandi!", "✅ Профиль успешно обновлен и сохранен!", "✅ Profile updated and saved successfully!"), 
                     type: "success" 
                 });
                 router.refresh();
                 
+                // Увеличили паузу до 1.2 сек, чтобы ты успел увидеть уведомление
                 setTimeout(() => {
                     window.location.href = window.location.pathname + "?updated=" + Date.now();
-                }, 800);
+                }, 1200);
             } else {
                 setMessage({ text: data.message || data.error || "Xatolik yuz berdi", type: "error" });
             }
@@ -214,9 +220,11 @@ export default function ProfileSettingsPage() {
                     </p>
                 </div>
 
+                {/* ✅ Яркое уведомление со статусом */}
                 {message.text && (
-                    <div className={`p-4 rounded-xl text-sm ${message.type === "success" ? "bg-emerald-950/50 border border-emerald-800 text-emerald-300" : "bg-red-950/50 border border-red-800 text-red-300"}`}>
-                        {message.text}
+                    <div className={`p-4 rounded-xl text-sm flex items-center gap-3 ${message.type === "success" ? "bg-emerald-950 border border-emerald-600 text-emerald-200 shadow-[0_0_20px_rgba(57,255,20,0.2)]" : "bg-red-950/50 border border-red-800 text-red-300"}`}>
+                        {message.type === "success" && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />}
+                        <span>{message.text}</span>
                     </div>
                 )}
 
@@ -389,7 +397,7 @@ export default function ProfileSettingsPage() {
                         >
                             <span className="relative z-10 flex items-center gap-2">
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin text-emerald-400" /> : <Save size={16} className="text-emerald-400" />}
-                                <span>{tr("Ўзгаришларни сақлаш", "O'zgarishlarni saqlash", "Сохранить изменения", "Save changes")}</span>
+                                <span>{saving ? tr("Сақланмоқда...", "Saqlanmoqda...", "Сохраняется...", "Saving...") : tr("Ўзгаришларни сақлаш", "O'zgarishlarni saqlash", "Сохранить изменения", "Save changes")}</span>
                             </span>
                             <div 
                                 className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
