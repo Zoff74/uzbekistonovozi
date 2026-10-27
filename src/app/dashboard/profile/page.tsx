@@ -147,7 +147,7 @@ export default function ProfileSettingsPage() {
                     setSuccessModal(false);
                     setSaving(false);
                     router.refresh();
-                }, 1500);
+                }, 6000);
 
             } else {
                 setMessage({ text: data.message || data.error || "Xatolik yuz berdi", type: "error" });
