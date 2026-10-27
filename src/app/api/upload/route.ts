@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
-
+//src\app\api\upload\route.ts
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
