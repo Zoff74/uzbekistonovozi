@@ -65,6 +65,7 @@ export default function ProfileSettingsPage() {
         }
     }, [userId]);
 
+    // Загрузка аватара: без модалок, юзер просто видит фото в круге
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -104,6 +105,7 @@ export default function ProfileSettingsPage() {
         }
     };
 
+    // Сохранение всей формы: вот здесь выскакивает модалка успеха
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaving(true);
@@ -137,15 +139,14 @@ export default function ProfileSettingsPage() {
                     },
                 });
 
-                router.refresh();
-                
-                // Показываем модалку успеха на клиенте без перезагрузки страницы
+                // Показываем модалку успеха
                 setSuccessModal(true);
                 
-                // Держим модалку 1.5 секунды, затем скрываем
+                // Держим 1.5 секунды, закрываем и обновляем данные
                 setTimeout(() => {
                     setSuccessModal(false);
                     setSaving(false);
+                    router.refresh();
                 }, 1500);
 
             } else {
