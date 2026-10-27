@@ -1,7 +1,7 @@
 "use client";
 // src/app/dashboard/profile/page.tsx
 import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Save, CheckCircle2, User as UserIcon, Upload, Music, FileText, Phone, Send, Briefcase } from "lucide-react";
 import { tr } from "@/utils/translate";
@@ -9,25 +9,26 @@ import { useSession } from "next-auth/react";
 
 export default function ProfileSettingsPage() {
     const router = useRouter();
-    const searchParams = useSearchParams();
     const { data: session, update } = useSession();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [uploadingImage, setUploadingImage] = useState(false);
     const [successModal, setSuccessModal] = useState(false);
 
-    // Автоматически показываем модалку, если в URL есть флаг успеха после редиректа
+    // Безопасная проверка параметров через window.location (без ошибки Suspense)
     useEffect(() => {
-        if (searchParams.get("success") === "true") {
-            setSuccessModal(true);
-            const timer = setTimeout(() => {
-                setSuccessModal(false);
-                // Чистим URL от параметров, чтобы модалка не вылазила при обновлении страницы
-                router.replace("/dashboard/profile");
-            }, 1500);
-            return () => clearTimeout(timer);
+        if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get("success") === "true") {
+                setSuccessModal(true);
+                const timer = setTimeout(() => {
+                    setSuccessModal(false);
+                    router.replace("/dashboard/profile");
+                }, 1500);
+                return () => clearTimeout(timer);
+            }
         }
-    }, [searchParams, router]);
+    }, [router]);
 
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
@@ -153,7 +154,7 @@ export default function ProfileSettingsPage() {
 
                 router.refresh();
                 
-                // Делаем редирект с параметром success=true, чтобы модалка гарантированно отрисовалась после загрузки страницы
+                // Перенаправляем с флагом успеха
                 window.location.href = "/dashboard/profile?success=true&updated=" + Date.now();
             } else {
                 setMessage({ text: data.message || data.error || "Xatolik yuz berdi", type: "error" });
