@@ -21,6 +21,7 @@ interface VideoCardProps {
         expiresAt: string;
         createdAt: string;
         isPaidActive?: boolean;
+        isExpired?: boolean; // 👈 Флаг просрочки от бэкенда
         authorId?: string;
         author?: string;
         userId?: string;
@@ -178,7 +179,15 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     };
 
     return (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700">
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700 relative">
+            
+            {/* Метка о просрочке (если не оплачено) */}
+            {video.isExpired && !canManage && (
+                <div className="absolute top-3 right-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] px-2.5 py-1 rounded-lg font-medium">
+                    {tr("Тўлов кутилмоқда (Автор маълумоти яширилган)", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}
+                </div>
+            )}
+
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
                 {/* МЕДИАТЕКА / ПЛЕЕР ИЛИ ОБЛОЖКА */}
@@ -241,27 +250,32 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 </div>
 
                 <div className="min-w-0 flex-1">
+                    {/* НАЗВАНИЕ ВИДЕО ВСЕГДА ЧЕТКОЕ И КЛИКАБЕЛЬНОЕ */}
                     <h3 
                         onClick={handlePlayVideo}
                         className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition"
                     >
                         {video.title}
                     </h3>
-                    <p className="text-base text-neutral-200 mt-1 break-words font-medium">
-                        {video.singer} • <span className="text-amber-400">{video.genre}</span>
-                    </p>
-                    
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
-                        <span>
-                            {tr("Кўрилган", "Ko'rilgan", "Просмотров", "Views")}:{" "}
-                            <strong className="text-white font-semibold">{displayedViews}</strong>
-                            <span className="text-neutral-500 text-xs ml-1.5">({realViews})</span>
-                        </span>
-                        <span className="hidden sm:inline">•</span>
-                        <span>
-                            {tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}:{" "}
-                            <strong className="text-white font-semibold">{video.downloadsCount || 0}</strong>
-                        </span>
+
+                    {/* АВТОР, ЖАНР И СТАТИСТИКА БЛЮРИТСЯ ПРИ ИСТЕЧЕНИИ СРОКА */}
+                    <div className={video.isExpired && !canManage ? "filter blur-[6px] select-none pointer-events-none opacity-60 mt-1" : "mt-1"}>
+                        <p className="text-base text-neutral-200 break-words font-medium">
+                            {video.singer} • <span className="text-amber-400">{video.genre}</span>
+                        </p>
+                        
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
+                            <span>
+                                {tr("Кўрилган", "Ko'rilgan", "Просмотров", "Views")}:{" "}
+                                <strong className="text-white font-semibold">{displayedViews}</strong>
+                                <span className="text-neutral-500 text-xs ml-1.5">({realViews})</span>
+                            </span>
+                            <span className="hidden sm:inline">•</span>
+                            <span>
+                                {tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}:{" "}
+                                <strong className="text-white font-semibold">{video.downloadsCount || 0}</strong>
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -270,9 +284,9 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 <div className="flex flex-col gap-3 bg-neutral-950/70 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 text-sm sm:text-base">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <span className={`inline-block px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold ${
-                            video.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            video.status === 'ACTIVE' && !video.isExpired ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                         }`}>
-                            {video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired")}
+                            {video.isExpired ? tr("Муддати тугаган (Кўриш мумкин)", "Muddati tugagan", "Срок истек (Доступен просмотр)", "Expired (View only)") : (video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired"))}
                         </span>
                         
                         <span className="text-neutral-200 font-semibold">
@@ -283,7 +297,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                             ) : diffDays > 0 ? (
                                 `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}.`
                             ) : (
-                                tr("Муддат тугади", "Muddat tugadi", "Срок истек", "Term expired")
+                                <span className="text-amber-400">{tr("Тўлов кутилмоқда (Авто-блюр ёқилган)", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}</span>
                             )}
                         </span>
                     </div>
@@ -293,36 +307,36 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
             {canManage && (
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
                     <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">
-    <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
-    
-    <button
-        type="button"
-        onClick={(e) => {
-            if (!isAdmin && !isWithinFirst24Hours) {
-                e.preventDefault();
-                alert(tr(
-                    "Видеофайлга ўзгартириш киритиш муддати (24 соат) тугаган!",
-                    "Videofaylga o'zgartirish kiritish muddati (24 soat) tugagan!",
-                    "Разрешенный срок для внесения изменений в видеофайл (24 часа) истек!",
-                    "The time limit (24 hours) for changing the video file has expired!"
-                ));
-                return;
-            }
-            router.push(`/dashboard/videos/${videoId}/edit`);
-        }}
-        className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer"
-        style={{ 
-            borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
-            borderImageSlice: 1 
-        }}
-    >
-        <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
-        <span className="relative z-10">
-            {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
-        </span>
-    </button>
-</div>
-                    
+                        <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
+                        
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                if (!isAdmin && !isWithinFirst24Hours) {
+                                    e.preventDefault();
+                                    alert(tr(
+                                        "Видеофайлга ўзгартириш киритиш муддати (24 соат) тугаган!",
+                                        "Videofaylga o'zgartirish kiritish muddati (24 soat) tugagan!",
+                                        "Разрешенный срок для внесения изменений в видеофайл (24 часа) истек!",
+                                        "The time limit (24 hours) for changing the video file has expired!"
+                                    ));
+                                    return;
+                                }
+                                router.push(`/dashboard/videos/${videoId}/edit`);
+                            }}
+                            className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer"
+                            style={{ 
+                                borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
+                                borderImageSlice: 1 
+                            }}
+                        >
+                            <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
+                            <span className="relative z-10">
+                                {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
+                            </span>
+                        </button>
+                    </div>
+                                        
                     <div className="relative rounded-xl inline-block group">
                         <button
                             onClick={handleDelete}

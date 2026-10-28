@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 60;
-
+// src/app/api/videos/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
@@ -39,15 +39,25 @@ export async function GET(req: NextRequest) {
                 authorOrConditions.push({ userId: new Types.ObjectId(authorId) });
             }
             filter.$or = authorOrConditions;
-            console.log(`[VIDEO GET] Фильтрация видео по автору: ${authorId}`);
-        } else {
-            console.log("[VIDEO GET] Параметр автора не передан. Загрузка общего каталога видео.");
         }
 
-        const videos = await (Video as any).find(filter).sort({ createdAt: -1 }).lean();
-        console.log(`[VIDEO GET] Успешно получено видео: ${videos.length} шт.`);
+        const videos = await (Video as any).find(filter).populate('authorId', 'name email image').sort({ createdAt: -1 }).lean();
 
-        return NextResponse.json({ success: true, videos }, {
+        const now = new Date();
+        // Динамическая проверка срока действия для каждого видео
+        const processedVideos = videos.map((video: any) => {
+            const expiresAt = video.expiresAt ? new Date(video.expiresAt) : null;
+            const isExpired = expiresAt && expiresAt < now;
+
+            return {
+                ...video,
+                status: isExpired ? 'EXPIRED' : (video.status || 'ACTIVE'),
+                isPaidActive: isExpired ? false : (video.isPaidActive ?? true),
+                isExpired: Boolean(isExpired), // 👈 Флаг для фронтенда: нужно ли блюрить автора и закрывать скачивание
+            };
+        });
+
+        return NextResponse.json({ success: true, videos: processedVideos }, {
             headers: {
                 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
                 'Pragma': 'no-cache',
@@ -77,8 +87,6 @@ export async function POST(req: NextRequest) {
         }
 
         const isAdmin = currentUser.role === 'admin';
-
-        // Проверка безлимита из .env
         const rawUnlimitedIds = process.env.UNLIMITED_USER_IDS || "";
         const unlimitedIds = rawUnlimitedIds.split(",").map(id => id.trim()).filter(Boolean);
         const hasUnlimited = unlimitedIds.includes(userId.toString());
@@ -100,18 +108,21 @@ export async function POST(req: NextRequest) {
         }
 
         let coverUrl = "/default-cover.webp";
+        let coverFileId = "";
+
         if (coverInput instanceof File && coverInput.size > 0) {
-            console.log("[VIDEO POST COVER] Загрузка обложки в ImageKit...");
+            console.log("[VIDEO POST COVER] Загрузка обложки клипа в ImageKit (covers/clips)...");
             const coverBuffer = Buffer.from(await coverInput.arrayBuffer());
             const uniqueCoverName = `${Date.now()}_${coverInput.name.replace(/\s+/g, '_')}`;
 
             const uploadResponse: any = await imagekit.files.upload({
                 file: coverBuffer.toString("base64"),
                 fileName: uniqueCoverName,
-                folder: "/uzbekistonovozi/covers",
+                folder: "/uzbekistonovozi/covers/clips",
             });
             coverUrl = uploadResponse.url;
-            console.log("[VIDEO POST COVER] Успешно загружено:", coverUrl);
+            coverFileId = uploadResponse.fileId || "";
+            console.log("[VIDEO POST COVER] Успешно загружено в covers/clips:", coverUrl);
         } else if (typeof coverInput === 'string' && coverInput.trim() !== '') {
             coverUrl = coverInput;
         }
@@ -119,25 +130,19 @@ export async function POST(req: NextRequest) {
         const selectedGenre = genre || "Pop";
         const matchedCategory = await Category.findOne({ name: selectedGenre }).lean();
 
-        // --- ЛОГИКА ТРИАЛА И ОПЛАТЫ ДЛЯ ВИДЕО ---
         let isTrial = false;
         let expiresAt = new Date();
 
         if (isAdmin || hasUnlimited) {
             expiresAt.setTime(Date.now() + 365 * 24 * 60 * 60 * 1000);
-            console.log(`[VIDEO POST ADMIN/UNLIMITED] Пользователь имеет полный безлимит.`);
         } else if (!currentUser.hasUsedFreeVideo) {
             isTrial = true;
             expiresAt.setTime(Date.now() + 24 * 60 * 60 * 1000);
-
             currentUser.hasUsedFreeVideo = true;
             await currentUser.save();
-            console.log(`[VIDEO POST TRIAL] Пользователь ${userId} активировал бесплатный 24-часовой триал для видео.`);
         } else {
             const isPaid = formData.get("isPaid") === "true";
-
             if (!isPaid) {
-                console.warn(`[VIDEO POST PAYMENT] Отказ: Лимит бесплатных видео исчерпан.`);
                 return NextResponse.json({
                     success: false,
                     message: tr(
@@ -148,14 +153,12 @@ export async function POST(req: NextRequest) {
                     )
                 }, { status: 402 });
             }
-
             expiresAt.setTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
         }
 
         const cleanUserId = userId.toString();
         const authorObjectId = Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId;
 
-        // ЖЕСТКО дублируем автора во все поля, чтобы дашборд никогда не терял клипы
         const newVideo = await (Video as any).create({
             title,
             singer,
@@ -163,6 +166,7 @@ export async function POST(req: NextRequest) {
             categoryId: matchedCategory ? (matchedCategory as any)._id : undefined,
             duration,
             cover: coverUrl,
+            coverFileId: coverFileId,
             videoUrl: videoUrlFromClient || `/api/videos/stream/${videoFileId}`,
             videoFileId: videoFileId,
             telegramMessageId: telegramMessageIdStr ? Number(telegramMessageIdStr) : undefined,

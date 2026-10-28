@@ -1,30 +1,28 @@
 // scripts/cleanup-unpaid.js
-// ЗАПУСК вручную: npm run cleanup
+// ЗАПУСК: npm run cleanup (или по cron)
 const mongoose = require('mongoose');
 require('dotenv').config({ path: '.env.local' });
 
 async function runCleanup() {
     try {
-        const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/uzbekistonovozi';
+        const MONGODB_URI = process.env.MONGODB_URI;
+        if (!MONGODB_URI) {
+            throw new Error("MONGODB_URI не найден в .env.local");
+        }
         
         await mongoose.connect(MONGODB_URI);
         console.log('[Cleanup]: Успешное подключение к MongoDB');
 
-        // Вычисляем дату ровно 30 дней назад
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const now = new Date();
 
-        // Условие для треков: не оплачены И созданы 30+ дней назад
-        const trackQuery = {
-            isPaid: { $ne: true },
-            createdAt: { $lte: thirtyDaysAgo }
-        };
-
-        // Условие для видео: не активированы оплатой (isPaid и isPaidActive не true) И созданы 30+ дней назад
-        const videoQuery = {
-            isPaid: { $ne: true },
-            isPaidActive: { $ne: true },
-            createdAt: { $lte: thirtyDaysAgo }
+        // Условия поиска контента, у которого истек срок (expiresAt наступил или прошел) и он не оплачен
+        const query = {
+            expiresAt: { $lte: now },
+            $or: [
+                { isPaid: { $ne: true } },
+                { isPaidActive: { $ne: true } },
+                { status: { $ne: 'EXPIRED' } }
+            ]
         };
 
         let Track, Video;
@@ -40,16 +38,17 @@ async function runCleanup() {
             Video = mongoose.model('Video', new mongoose.Schema({}, { strict: false }));
         }
 
-        // Выполняем очистку по раздельным и безопасным условиям
-        const deletedTracks = await Track.deleteMany(trackQuery);
-        const deletedVideos = await Video.deleteMany(videoQuery);
+        // ВНИМАНИЕ: Никакого удаления! Только перевод в статус EXPIRED, 
+        // чтобы контент оставался на сайте, но авторы перестали получать деньги.
+        const updatedTracks = await Track.updateMany(query, { $set: { status: 'EXPIRED', isPaidActive: false } });
+        const updatedVideos = await Video.updateMany(query, { $set: { status: 'EXPIRED', isPaidActive: false } });
 
-        console.log(`[Cleanup Success]: Удалено старых неоплаченных треков: ${deletedTracks.deletedCount}, видео: ${deletedVideos.deletedCount}`);
+        console.log(`[Cleanup Success]: Переведено в статус EXPIRED (без удаления): треков: ${updatedTracks.modifiedCount}, видео: ${updatedVideos.modifiedCount}`);
         
         await mongoose.disconnect();
         process.exit(0);
     } catch (error) {
-        console.error('[Cleanup Error]: Ошибка при автоочистке базы:', error);
+        console.error('[Cleanup Error]: Ошибка при обновлении статусов просроченного контента:', error);
         process.exit(1);
     }
 }

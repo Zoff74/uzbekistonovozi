@@ -1,5 +1,6 @@
 "use client";
-// src/components/UploadForm.tsx
+
+// БЛОК - "UploadForm" src/components/UploadForm.tsx
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -11,6 +12,7 @@ export default function UploadForm() {
   const [title, setTitle] = useState<string>("");
   const [singer, setSinger] = useState<string>("");
   const [genre, setGenre] = useState<string>("Pop");
+  const [downloadPrice, setDownloadPrice] = useState<number>(1000); // 👈 Минимальная стандартная цена за скачивание (1000 сум)
   const [status, setStatus] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   
@@ -30,7 +32,7 @@ export default function UploadForm() {
 
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
-      uploadFormData.append("type", "audio"); // Указываем тип audio для треков
+      uploadFormData.append("type", "audio");
 
       const uploadRes = await fetch("/api/upload", {
         method: "POST",
@@ -56,7 +58,8 @@ export default function UploadForm() {
       trackFormData.append("title", title);
       trackFormData.append("singer", singer);
       trackFormData.append("genre", genre);
-      trackFormData.append("audioUrl", url || fileId); // Передаем ссылку на аудио
+      trackFormData.append("downloadPrice", String(downloadPrice)); // 👈 Передаем цену за скачивание для Revenue Share (50/50)
+      trackFormData.append("audioUrl", url || fileId);
       
       if (isPaidOverride) {
         trackFormData.append("isPaid", "true");
@@ -70,13 +73,11 @@ export default function UploadForm() {
         trackFormData.append("cover", coverFile);
       }
 
-      // 👉 Отправляем на правильный эндпоинт треков
       const trackRes = await fetch("/api/tracks", {
         method: "POST",
         body: trackFormData,
       });
 
-      // Перехватываем статус 402 (требуется оплата)
       if (trackRes.status === 402) {
         setNeedsPayment(true);
         setStatus("Бесплатный триал исчерпан. Пожалуйста, оплатите размещение.");
@@ -107,9 +108,9 @@ export default function UploadForm() {
       setReceiptFile(null);
       setTitle("");
       setSinger("");
+      setDownloadPrice(1000);
       setNeedsPayment(false);
 
-      // 👉 ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ДАШБОРД И СТРАНИЦЫ
       router.refresh();
 
     } catch (err: any) {
@@ -163,20 +164,37 @@ export default function UploadForm() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Жанр</label>
-            <select
-              disabled={isProcessing}
-              value={genre}
-              onChange={(e) => setGenre(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-            >
-              <option value="Pop">Pop</option>
-              <option value="Estrada">Estrada</option>
-              <option value="Traditional">Traditional</option>
-              <option value="Instrumental">Instrumental</option>
-              <option value="Dance">Dance</option>
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Жанр</label>
+              <select
+                disabled={isProcessing}
+                value={genre}
+                onChange={(e) => setGenre(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+              >
+                <option value="Pop">Pop</option>
+                <option value="Estrada">Estrada</option>
+                <option value="Traditional">Traditional</option>
+                <option value="Instrumental">Instrumental</option>
+                <option value="Dance">Dance</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Цена скачивания (сум)</label>
+              <input
+                type="number"
+                min="1000"
+                step="500"
+                required
+                disabled={isProcessing}
+                value={downloadPrice}
+                onChange={(e) => setDownloadPrice(Number(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-semibold text-violet-700"
+              />
+              <span className="text-[11px] text-gray-500 mt-0.5 block">Мин: 1000 сум (50% ваши)</span>
+            </div>
           </div>
 
           <div>

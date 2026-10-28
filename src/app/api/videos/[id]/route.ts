@@ -5,12 +5,15 @@ import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
-import { getGridFSBuckets } from "@/lib/gridfs";
-import { Types } from "mongoose";
 import { tr } from "@/utils/translate";
 import { deleteVideoFromTelegramStorage } from "@/actions/telegram.action";
+import ImageKit from "@imagekit/nodejs";
 
 export const dynamic = 'force-dynamic';
+
+const imagekit = new ImageKit({
+    privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
+});
 
 // 0. Получение видео по ID (для формы редактирования)
 export async function GET(
@@ -101,35 +104,14 @@ export async function DELETE(
             }, { status: 403 });
         }
 
-        // Очистка файлов из GridFS
-        try {
-            const { bucket } = await getGridFSBuckets();
-            const extractGridFsId = (url: string) => {
-                if (!url || typeof url !== 'string' || !url.startsWith('/api/media/')) return null;
-                const parts = url.split('/');
-                const idStr = parts[parts.length - 1];
-                return Types.ObjectId.isValid(idStr) ? new Types.ObjectId(idStr) : null;
-            };
-
-            const coverFileId = extractGridFsId(video.cover);
-            if (coverFileId) {
-                try {
-                    await bucket.delete(coverFileId);
-                } catch (coverErr: any) {
-                    console.warn(`[DELETE GRIDFS WARNING] Не удалось удалить обложку:`, coverErr.message);
-                }
+        // Очистка обложки из ImageKit по coverFileId
+        if (video.coverFileId) {
+            try {
+                await imagekit.files.delete(video.coverFileId);
+                console.log(`[IMAGEKIT CLEANUP] Обложка клипа ${video.coverFileId} удалена из ImageKit.`);
+            } catch (coverErr: any) {
+                console.warn(`[IMAGEKIT DELETE WARNING] Не удалось удалить обложку:`, coverErr.message);
             }
-
-            const videoFileId = extractGridFsId(video.videoUrl);
-            if (videoFileId) {
-                try {
-                    await bucket.delete(videoFileId);
-                } catch (videoErr: any) {
-                    console.warn(`[DELETE GRIDFS WARNING] Не удалось удалить видео:`, videoErr.message);
-                }
-            }
-        } catch (fsError) {
-            console.error("Delete Video GridFS Error:", fsError);
         }
 
         // Очистка файла из общего котла Telegram
@@ -227,14 +209,14 @@ export async function PUT(
             }, { status: 403 });
         }
 
-        const oldCoverUrl = video.cover;
-        const oldVideoUrl = video.videoUrl;
+        const oldCoverFileId = video.coverFileId;
 
         if (body.title !== undefined) video.title = body.title;
         if (body.singer !== undefined) video.singer = body.singer;
         if (body.genre !== undefined) video.genre = body.genre;
         if (body.description !== undefined) video.description = body.description;
         if (body.cover !== undefined) video.cover = body.cover;
+        if (body.coverFileId !== undefined) video.coverFileId = body.coverFileId;
         if (body.status !== undefined) video.status = body.status;
 
         if (body.videoUrl !== undefined && body.videoUrl !== video.videoUrl) {
@@ -264,32 +246,14 @@ export async function PUT(
 
         await video.save();
 
-        try {
-            const { bucket } = await getGridFSBuckets();
-            const extractGridFsId = (url: string) => {
-                if (!url || typeof url !== 'string' || !url.startsWith('/api/media/')) return null;
-                const parts = url.split('/');
-                const idStr = parts[parts.length - 1];
-                return Types.ObjectId.isValid(idStr) ? new Types.ObjectId(idStr) : null;
-            };
-
-            if (body.cover !== undefined && body.cover !== oldCoverUrl && oldCoverUrl) {
-                const oldCoverId = extractGridFsId(oldCoverUrl);
-                if (oldCoverId) {
-                    await bucket.delete(oldCoverId).catch(() => {});
-                    console.log(`[CLEANUP] Старая обложка ${oldCoverId} удалена из GridFS`);
-                }
+        // Если обложка изменилась, удаляем старую из ImageKit
+        if (body.coverFileId && body.coverFileId !== oldCoverFileId && oldCoverFileId) {
+            try {
+                await imagekit.files.delete(oldCoverFileId);
+                console.log(`[CLEANUP] Старая обложка клипа ${oldCoverFileId} удалена из ImageKit`);
+            } catch (err: any) {
+                console.warn("[CLEANUP WARNING] Не удалось удалить старую обложку:", err.message);
             }
-
-            if (body.videoUrl !== undefined && body.videoUrl !== oldVideoUrl && oldVideoUrl) {
-                const oldVideoId = extractGridFsId(oldVideoUrl);
-                if (oldVideoId) {
-                    await bucket.delete(oldVideoId).catch(() => {});
-                    console.log(`[CLEANUP] Старый видеофайл ${oldVideoId} удален из GridFS`);
-                }
-            }
-        } catch (cleanupErr) {
-            console.error("[CLEANUP ERROR] Ошибка при очистке старых файлов:", cleanupErr);
         }
 
         revalidatePath('/dashboard');

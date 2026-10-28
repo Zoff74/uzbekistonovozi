@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 120;
-
+// src/app/api/tracks/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
@@ -37,8 +37,29 @@ export async function GET(req: NextRequest) {
             filter = { $or: conditions };
         }
         
-        const tracks = await (Track as any).find(filter).sort({ createdAt: -1 }).lean();
-        return NextResponse.json({ success: true, tracks });
+        const tracks = await (Track as any).find(filter).populate('authorId', 'name email image').sort({ createdAt: -1 }).lean();
+
+        const now = new Date();
+        // Динамическая проверка срока действия для каждого трека
+        const processedTracks = tracks.map((track: any) => {
+            const expiresAt = track.expiresAt ? new Date(track.expiresAt) : null;
+            const isExpired = expiresAt && expiresAt < now;
+
+            return {
+                ...track,
+                status: isExpired ? 'EXPIRED' : (track.status || 'ACTIVE'),
+                isPaidActive: isExpired ? false : (track.isPaidActive ?? true),
+                isExpired: Boolean(isExpired), // 👈 Флаг для фронтенда: оставляем четким только название, остальное блюрим
+            };
+        });
+
+        return NextResponse.json({ success: true, tracks: processedTracks }, {
+            headers: {
+                'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+            }
+        });
     } catch (error) {
         console.error("[TRACK GET ERROR] Ошибка при получении треков:", error);
         return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
@@ -94,7 +115,6 @@ export async function POST(req: NextRequest) {
         const audioUrlFromClient = formData.get("audioUrl") as string || formData.get("audio") as string;
         let audioFileId = (formData.get("audioFileId") as string) || "";
 
-        // 👈 Получаем Telegram ID сообщения и чата, если они передаются из формы/бота
         const telegramMessageIdRaw = formData.get("telegramMessageId");
         const telegramMessageId = telegramMessageIdRaw ? Number(telegramMessageIdRaw) : undefined;
         const telegramChatId = (formData.get("telegramChatId") as string) || process.env.TELEGRAM_CHANNEL_ID || "";
@@ -158,7 +178,6 @@ export async function POST(req: NextRequest) {
         const cleanUserId = userId.toString();
         const authorObjectId = Types.ObjectId.isValid(cleanUserId) ? new Types.ObjectId(cleanUserId) : cleanUserId;
 
-        // Создаем трек с фиксацией fileId для медиа, обложки и телеграма
         const newTrack = await (Track as any).create({
             title,
             singer,
@@ -169,8 +188,8 @@ export async function POST(req: NextRequest) {
             coverFileId: coverFileId,
             audioUrl: audioUrlFromClient,
             audioFileId: audioFileId,
-            telegramMessageId: telegramMessageId, // 👈 Сохраняем ID сообщения Telegram
-            telegramChatId: telegramChatId,       // 👈 Сохраняем чат Telegram
+            telegramMessageId: telegramMessageId,
+            telegramChatId: telegramChatId,
             authorId: authorObjectId,
             author: authorObjectId,
             userId: authorObjectId,
@@ -186,6 +205,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, track: newTrack, isTrial }, { status: 201 });
     } catch (error: any) {
         console.error("[TRACK POST ERROR] Ошибка:", error);
-        return { success: false, error: error.message || "Server Error" };
+        return NextResponse.json({ success: false, message: error?.message || "Server error" }, { status: 500 });
     }
 }
