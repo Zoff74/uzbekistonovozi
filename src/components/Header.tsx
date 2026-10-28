@@ -81,18 +81,21 @@ export default function Header() {
             
             <div className="min-w-0 flex flex-col justify-center">
               <Link href="/" className="font-black tracking-wide bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent flex flex-col text-sm sm:text-base leading-snug py-0.5">
-                <span style={{ fontFamily: "'Bad Script', cursive, sans-serif" }} className="whitespace-nowrap overflow-visible">
-                  {tr(
-                    <>« <span style={{ fontSize: 32, fontFamily: "system-ui, sans-serif", fontWeight: 400, fontStyle: "normal" }}>Ў</span>ЗБЕКИСТОН ОВОЗИ »</> as any,
-                    "«O'ZBEKISTON OVOZI»",
-                    "«УЗБЕКИСТОН ОВОЗИ»",
-                    "«UZBEKISTON OVOZI»"
-                  )}
-                </span>
-                <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
-                  {tr("Машҳурликка Биринчи Қадам", "Mashhurlikka Birinchi Qadam", "Первый шаг к известности", "First Step to Fame")}
-                </span>
-              </Link>
+  <span style={{ fontFamily: "'Bad Script', cursive, sans-serif" }} className="whitespace-nowrap overflow-visible">
+    {tr(
+      <>« <span style={{ fontSize: 32, fontFamily: "system-ui, sans-serif", fontWeight: 400, fontStyle: "normal" }}>Ў</span>ЗБЕКИСТОН ОВОЗИ »</> as any,
+      "«O'ZBEKISTON OVOZI»",
+      "«УЗБЕКИСТОН ОВОЗИ»",
+      "«UZBEKISTON OVOZI»"
+    )}
+  </span>
+  <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
+    {tr("Машҳурликка Биринчи Қадам", "Mashhurlikka Birinchi Qadam", "Первый шаг к известности", "First Step to Fame")}
+  </span>
+  <span className="text-[10px] sm:text-[11px] font-semibold text-red-500 uppercase tracking-wider mt-0.5">
+    {tr("Синов жараёни кетмоқда", "Sinov jarayoni ketmoqda", "Идет Тестовый прогон", "Test run")}
+  </span>
+</Link>
 
               <span className="text-[11px] sm:text-[10px] tracking-widest text-emerald-400 font-bold uppercase block mt-0.5">
                 New Sound System
