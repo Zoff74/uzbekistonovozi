@@ -3,15 +3,14 @@ export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
 
-// src\app\api\upload\route.ts
+// src/app/api/upload/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
+import { getToken } from "next-auth/jwt";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
-import https from "https";
+import { createReadStream } from "fs";
 import ffmpeg from "fluent-ffmpeg";
 import { compressVideoBuffer } from "@/utils/videoCompressor";
 
@@ -25,14 +24,15 @@ export async function POST(request: NextRequest) {
     let audioOutputPath = "";
 
     try {
-        const session = await getServerSession(authOptions);
-        if (!session || !session.user || !(session.user as any).id) {
+        const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+        if (!token || !token.sub) {
             return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
         }
 
+        const userName = token.name || token.sub;
+
         const formData = await request.formData();
         const file = formData.get("file") as File | null;
-        const coverFile = formData.get("cover") as File | null;
         let uploadType = (formData.get("type") as string) || request.headers.get("x-upload-type") || "";
 
         if (!file) {
@@ -99,9 +99,9 @@ export async function POST(request: NextRequest) {
         outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
         audioOutputPath = path.join(tempDir, `audio_${uniqueId}.mp3`);
 
-        const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-        await fs.writeFile(inputPath, buffer);
+        // Сохраняем входящий поток файла на диск частями (без забивания оперативки)
+        const fileBuffer = Buffer.from(await file.arrayBuffer());
+        await fs.writeFile(inputPath, fileBuffer);
 
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 3. ВИДЕО — сжатие через общую утилиту (до ~19.5 МБ с качественным звуком)
+        // 3. ВИДЕО — сжатие через утилиту
         if (uploadType === "video") {
             try {
                 const videoBuffer = await fs.readFile(inputPath);
@@ -171,68 +171,47 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка в Telegram через нативный HTTPS-запрос БЕЗ КАКИХ-ЛИБО ТАЙМАУТОВ (ждёт сколько нужно)
-        const fileBufferToUpload = await fs.readFile(finalPathToUpload);
+        // ОТПРАВКА В TELEGRAM ЧЕРЕЗ ПОТОКОВЫЙ FETCH БЕЗ ОГРОМНЫХ БУФЕРОВ
         const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
-        const captionText = `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`;
+        const captionText = `${prefixLabel}: ${userName}`;
 
-        const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
-        const headerBuffers: Buffer[] = [];
+        const telegramFormData = new FormData();
+        telegramFormData.append("chat_id", storageChatId);
+        telegramFormData.append("parse_mode", "HTML");
+        telegramFormData.append("caption", captionText);
 
-        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${storageChatId}\r\n`));
-        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="parse_mode"\r\n\r\nHTML\r\n`));
-        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${captionText}\r\n`));
-
-        const mimeType = uploadType === "audio" ? "audio/mpeg" : "video/mp4";
-        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="document"; filename="${encodeURIComponent(finalFileName)}"\r\nContent-Type: ${mimeType}\r\n\r\n`));
-
-        const footerBuffer = Buffer.from(`\r\n--${boundary}--\r\n`);
-        const bodyBuffer = Buffer.concat([
-            Buffer.concat(headerBuffers),
-            fileBufferToUpload,
-            footerBuffer
-        ]);
-
-        const telegramResult: { ok: boolean; status: number; data: any } = await new Promise((resolve, reject) => {
-            const req = https.request({
-                hostname: 'api.telegram.org',
-                port: 443,
-                path: `/bot${BOT_TOKEN}/sendDocument`,
-                method: 'POST',
-                headers: {
-                    'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                    'Content-Length': bodyBuffer.length,
-                },
-                // БЕЗ ТАЙМАУТА — СОЕДИНЕНИЕ БУДЕТ ЖДАТЬ СКОЛЬКО УГОДНО ВРЕМЕНИ
-            }, (res) => {
-                let responseData = '';
-                res.on('data', (chunk) => { responseData += chunk; });
-                res.on('end', () => {
-                    try {
-                        const json = responseData ? JSON.parse(responseData) : {};
-                        resolve({ ok: res.statusCode === 200, status: res.statusCode || 500, data: json });
-                    } catch {
-                        resolve({ ok: false, status: res.statusCode || 500, data: { description: responseData } });
-                    }
-                });
-            });
-
-            req.on('error', (err) => reject(err));
-
-            req.write(bodyBuffer);
-            req.end();
+        // Читаем файл стримом с диска без буферизации в памяти
+        const fileStream = createReadStream(finalPathToUpload);
+        const webStream = new ReadableStream({
+            start(controller) {
+                fileStream.on('data', (chunk) => controller.enqueue(chunk));
+                fileStream.on('end', () => controller.close());
+                fileStream.on('error', (err) => controller.error(err));
+            }
         });
 
+        const fileBlob = await new Response(webStream).blob();
+        telegramFormData.append("document", fileBlob, finalFileName);
+
+        console.log(`[UPLOAD] Отправка файла в Telegram потоком...`);
+        const telegramRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+            method: 'POST',
+            body: telegramFormData,
+        });
+
+        const telegramResult = await telegramRes.json();
+
+        // Очищаем временные файлы
         await fs.unlink(inputPath).catch(() => {});
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
         if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
 
-        if (!telegramResult.ok || !telegramResult.data.ok) {
-            const errorMsg = telegramResult.data?.description || `Ошибка хранилища: HTTP ${telegramResult.status}`;
+        if (!telegramRes.ok || !telegramResult.ok) {
+            const errorMsg = telegramResult?.description || `Ошибка хранилища: HTTP ${telegramRes.status}`;
             return NextResponse.json({ error: errorMsg }, { status: 500 });
         }
 
-        const uploadedFile = telegramResult.data.result.document || telegramResult.data.result.audio || telegramResult.data.result.voice || telegramResult.data.result.video;
+        const uploadedFile = telegramResult.result.document || telegramResult.result.audio || telegramResult.result.voice || telegramResult.result.video;
 
         if (uploadedFile && uploadedFile.file_id) {
             const streamPrefix = uploadType === "audio" ? "/api/tracks/stream" : "/api/videos/stream";
@@ -240,7 +219,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: true,
                 fileId: uploadedFile.file_id,
-                messageId: telegramResult.data.result.message_id,
+                messageId: telegramResult.result.message_id,
                 url: `${streamPrefix}/${uploadedFile.file_id}`,
                 name: originalName,
             });

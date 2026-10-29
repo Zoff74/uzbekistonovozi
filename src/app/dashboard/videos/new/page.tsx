@@ -134,7 +134,7 @@ export default function NewVideoPage() {
                         const percentComplete = Math.round((event.loaded / event.total) * 80);
                         setUploadProgress(percentComplete);
                         if (percentComplete >= 80) {
-                            setStatusMessage(tr("Сервер видеони кичрайтирмоқда ва Telegramга юбормоқда. Бу 10-15 дақиқа вақт олиши мумкин... Сабр қилиб кутинг...", "Server videoni kichraitirmoqda va Telegramga yubormoqda. Bu 10-15 daqiqa vaqt olishi mumkin... Sabr qilib kuting...", "Сервер обрабатывает и сжимает видео. Это может занять 10-15 минут... Пожалуйста, ждите...", "Server is processing and compressing video. Please wait..."));
+                            setStatusMessage(tr("Сервер видеони кичрайтирмоқда. Бу жараён 10-15 дақиқа вақт олиши мумкин... Сабр қилиб кутинг...", "Server videoni kichraitirmoqda. Bu jarayon 10-15 daqiqa vaqt olishi mumkin... Sabr qilib kuting...", "Сервер обрабатывает и сжимает видео. Это может занять 10-15 минут... Пожалуйста, ждите...", "Server is processing and compressing video. Please wait..."));
                         }
                     }
                 };
@@ -409,7 +409,7 @@ export default function NewVideoPage() {
                                     {isLargeVideo ? (
                                         <>
                                             <p className="text-amber-400 font-medium">
-                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтирилади. Бу жараён интернет тезлигига боғлиқ ва 1 дақиқадан 10 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytiriladi. Bu jarayon internet tezligiga bogliq va 1 daqiqadan 10 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это может занять от 1 до 10 минут в зависимости от Вашего скорости интернета...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 10 minutes...")}
+                                                {tr("Видео ҳажми жуда катта. Ҳозир у автоматик равишда кичрайтирилади. Бу жараён интернет тезлигига боғлиқ ва 1 дақиқадан 15 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi juda katta. Hozir u avtomatik ravishda kichraytiriladi. Bu jarayon internet tezligiga bogliq va 1 daqiqadan 15 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это может занять от 1 до 15 минут в зависимости от Вашего скорости интернета...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 15 minutes...")}
                                             </p>
                                             <p className="text-amber-400 text-[12px]">
                                                 {tr("Илтимос сабр қилиб, тугашини кутинг...", "Iltimos sabr qilib tugashini kuting...", "Пожалуйста, подождите...", "Please wait...")}
