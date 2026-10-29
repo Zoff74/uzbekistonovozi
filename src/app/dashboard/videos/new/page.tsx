@@ -124,14 +124,17 @@ export default function NewVideoPage() {
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "/api/upload");
-                // Убираем xhr.timeout вообще, чтобы браузер не рубил соединение во время сжатия на сервере
+                
+                // УСТАНАВЛИВАЕМ БЕСКОНЕЧНЫЙ ТАЙМАУТ БРАУЗЕРА (0 = без ограничений)
+                // Чтобы браузер не сбрасывал соединение по тайм-ауту во время долгого сжатия видео на сервере (10-20 минут)
+                xhr.timeout = 0;
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
                         const percentComplete = Math.round((event.loaded / event.total) * 80);
                         setUploadProgress(percentComplete);
                         if (percentComplete >= 80) {
-                            setStatusMessage(tr("Сервер видеони кичрайтирмоқда. 80% сўнг, тезлик сезиларли камаяди... Сабр қилиб кутинг...", "Server videoni kichraitirmoqda. 80% dan so'ng, tezlik sezilarli kamayadi... Sabr qilib kuting...", "Сервер обрабатывает видео. После 80% скорость заметно уменьшиться... Дождитесь окончания...", "Server is processing video..."));
+                            setStatusMessage(tr("Сервер видеони кичрайтирмоқда ва Telegramга юбормоқда. Бу 10-15 дақиқа вақт олиши мумкин... Сабр қилиб кутинг...", "Server videoni kichraitirmoqda va Telegramga yubormoqda. Bu 10-15 daqiqa vaqt olishi mumkin... Sabr qilib kuting...", "Сервер обрабатывает и сжимает видео. Это может занять 10-15 минут... Пожалуйста, ждите...", "Server is processing and compressing video. Please wait..."));
                         }
                     }
                 };
@@ -165,9 +168,12 @@ export default function NewVideoPage() {
                 };
 
                 xhr.onerror = () => {
-                    reject(new Error("Сетевой сбой (ERR_NETWORK_CHANGED / Обрыв соединения с сервером Render)"));
+                    reject(new Error("Сетевой сбой (Обрыв соединения с сервером)"));
                 };
-                // xhr.ontimeout УДАЛЕН, больше никаких ложных "Превышено время ожидания" не будет!
+
+                xhr.ontimeout = () => {
+                    reject(new Error("Превышено время ожидания ответа от сервера"));
+                };
 
                 const data = new FormData();
                 data.append("file", videoFile);

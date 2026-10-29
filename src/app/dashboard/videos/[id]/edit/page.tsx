@@ -1,5 +1,5 @@
 "use client";
-
+// src/app/dashboard/videos/edit/[id]/page.tsx
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
@@ -37,6 +37,7 @@ export default function EditVideoPage() {
   const [timeLeftText, setTimeLeftText] = useState("");
   const isLocked = saving || uploadingCover || uploadingVideo || freezing || deleting;
   const defaultGenres = ["Клип", "Концерт", "Uzbek Estrada", "Pop", "Dance"];
+
   useEffect(() => {
     if (!id) return;
     fetch(`/api/videos/${id}`)
@@ -101,6 +102,7 @@ export default function EditVideoPage() {
       })
       .finally(() => setFetching(false));
   }, [id]);
+
   const handleDeleteVideo = async () => {
     if (isLocked) return;
     if (!confirm(tr("Ҳақиқатан ҳам бу видеони ўчирмоқчимисиз?", "Haqiqatan ham bu videoni o'chirmoqchimisiz?", "Вы действительно хотите удалить это видео?", "Do you really want to delete this video?"))) return;
@@ -124,6 +126,7 @@ export default function EditVideoPage() {
       setDeleting(false);
     }
   };
+
   const handleDeleteVideoFile = async () => {
     if (isLocked) return;
     if (!videoFileId) {
@@ -148,6 +151,7 @@ export default function EditVideoPage() {
       alert(errorMessage);
     }
   };
+
   const handleToggleFreeze = async () => {
     if (isLocked) return;
     const newStatus = videoMeta.status === 'FROZEN' ? 'ACTIVE' : 'FROZEN';
@@ -176,6 +180,7 @@ export default function EditVideoPage() {
       setFreezing(false);
     }
   };
+
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isLocked) return;
     const file = e.target.files?.[0];
@@ -202,6 +207,7 @@ export default function EditVideoPage() {
       }
     };
   };
+
   const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isLocked) return;
     const file = e.target.files?.[0];
@@ -214,6 +220,10 @@ export default function EditVideoPage() {
     dataForm.append("type", "video");
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload", true);
+    
+    // БЕСКОНЕЧНЫЙ ТАЙМАУТ — ЧТОБЫ БРАУЗЕР ЖДАЛ СКОЛЬКО УГОДНО ВО ВРЕМЯ СЖАТИЯ
+    xhr.timeout = 0;
+
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percentComplete = Math.round((event.loaded / event.total) * 100);
@@ -251,6 +261,7 @@ export default function EditVideoPage() {
     };
     xhr.send(dataForm);
   };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLocked) return;
@@ -283,6 +294,7 @@ export default function EditVideoPage() {
       setSaving(false);
     }
   };
+
   if (fetching) {
     return <div className="min-h-screen bg-neutral-950 text-white p-12 text-center text-sm">{tr("Юкланмоқда...", "Yuklanmoqda...", "Загрузка...", "Loading...")}</div>;
   }
@@ -290,7 +302,7 @@ export default function EditVideoPage() {
   const GradientBorder = () => (
     <div
       className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
-    style={{
+      style={{
         padding: '2px',
         background: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)',
         WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
@@ -299,11 +311,11 @@ export default function EditVideoPage() {
       }}
     />
   );
+
   return (
     <div className="min-h-screen bg-neutral-950 text-white p-6 md:p-12 font-sans">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
-          {/* Кнопка: Назад */}
           <div className={`relative rounded-xl inline-block group ${isLocked ? "opacity-50 pointer-events-none cursor-not-allowed" : ""}`}>
             <Link
               href="/dashboard"
@@ -314,7 +326,6 @@ export default function EditVideoPage() {
             </Link>
             <GradientBorder />
           </div>
-          {/* Кнопка: Удаление видео */}
           <div className={`relative rounded-xl inline-block group ${isLocked ? "opacity-50 pointer-events-none" : ""}`}>
             <button
               type="button"
@@ -373,7 +384,6 @@ export default function EditVideoPage() {
                 />
               </div>
             </div>
-            {/* Выбор жанра с возможностью ручного ввода */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-medium text-neutral-300">{tr("Жанр", "Janr", "Жанр", "Genre")}</label>
@@ -435,7 +445,6 @@ export default function EditVideoPage() {
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white text-sm focus:outline-none focus:border-amber-500 transition resize-none disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
-            {/* Загрузка обложки видео */}
             <div>
               <label className="block text-sm font-medium text-neutral-300 mb-2">
                 {uploadingCover ? tr("Муқова юкланмоқда...", "Muqova yuklanmoqda...", "Обложка загружается...", "Uploading cover...") : tr("Муқова расми (Заставка)", "Muqova rasmi (Zastavka)", "Изображение обложки (Заставка)", "Cover Image")}
@@ -466,7 +475,6 @@ export default function EditVideoPage() {
               </div>
             </div>
 
-            {/* Видеофайл с полной блокировкой во время сохранения */}
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
               <div className="flex items-center justify-between">
                 <label className="block text-sm font-medium text-neutral-300">
@@ -554,15 +562,14 @@ export default function EditVideoPage() {
                 </span>
               </div>
             </div>
-            {/* Нижняя панель с кнопками */}
+            
             <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 border-t border-neutral-800">
               <div className={`relative rounded-xl inline-block group ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
                 <button
                   type="button"
                   disabled={isLocked}
                   onClick={handleToggleFreeze}
-                  className={`relative z-10 w-full px-4 py-2.5 rounded-xl text-xs font-semibold transition bg-neutral-950 flex items-center gap-1.5 justify-center cursor-pointer ${videoMeta.status === 'FROZEN' ? 'text-blue-400' : 'text-amber-400'
-                    }`}
+                  className={`relative z-10 w-full px-4 py-2.5 rounded-xl text-xs font-semibold transition bg-neutral-950 flex items-center gap-1.5 justify-center cursor-pointer ${videoMeta.status === 'FROZEN' ? 'text-blue-400' : 'text-amber-400'}`}
                 >
                   <span>
                     {videoMeta.status === 'FROZEN' ?
@@ -589,7 +596,7 @@ export default function EditVideoPage() {
                   <button
                     type="submit"
                     disabled={isLocked}
-                    className="relative z-10 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-neutral-950 font-bold transition text-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="relative z-10 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-semibold transition text-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                     <span>{tr("Сақлаш", "Saqlash", "Сохранить", "Save")}</span>
