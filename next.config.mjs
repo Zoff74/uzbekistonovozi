@@ -71,6 +71,11 @@ const nextConfig = {
         ];
     },
     webpack: (config, { isServer }) => {
+        // Игнорируем внутреннее динамическое предупреждение fluent-ffmpeg при билде
+        config.ignoreWarnings = [
+            { module: /node_modules\/fluent-ffmpeg/ },
+        ];
+
         config.resolve.alias = {
             ...config.resolve.alias,
             '@': path.resolve(__dirname, 'src'),

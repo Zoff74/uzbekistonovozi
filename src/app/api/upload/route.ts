@@ -11,6 +11,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
+import https from "https";
 import ffmpeg from "fluent-ffmpeg";
 import { compressVideoBuffer } from "@/utils/videoCompressor";
 
@@ -170,46 +171,68 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка в Telegram через чтение файла в Buffer и Blob (стабильно, без потоковых сбоев и 502 ошибки)
+        // Отправка в Telegram через нативный HTTPS-запрос БЕЗ КАКИХ-ЛИБО ТАЙМАУТОВ (ждёт сколько нужно)
         const fileBufferToUpload = await fs.readFile(finalPathToUpload);
-        const blob = new Blob([fileBufferToUpload], { 
-            type: uploadType === "audio" ? 'audio/mpeg' : 'video/mp4' 
-        });
-
         const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
-        const tgFormData = new globalThis.FormData();
-        tgFormData.append('chat_id', storageChatId);
-        tgFormData.append('document', blob, finalFileName);
-        tgFormData.append('caption', `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`);
-        tgFormData.append('parse_mode', 'HTML');
+        const captionText = `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`;
 
-        if (coverFile) {
-            const coverBuffer = await coverFile.arrayBuffer();
-            const coverBlob = new Blob([coverBuffer], { type: coverFile.type || 'image/jpeg' });
-            tgFormData.append('thumbnail', coverBlob, 'cover.jpg');
-        }
+        const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+        const headerBuffers: Buffer[] = [];
 
-        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
-            method: 'POST',
-            body: tgFormData,
+        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${storageChatId}\r\n`));
+        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="parse_mode"\r\n\r\nHTML\r\n`));
+        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${captionText}\r\n`));
+
+        const mimeType = uploadType === "audio" ? "audio/mpeg" : "video/mp4";
+        headerBuffers.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="document"; filename="${encodeURIComponent(finalFileName)}"\r\nContent-Type: ${mimeType}\r\n\r\n`));
+
+        const footerBuffer = Buffer.from(`\r\n--${boundary}--\r\n`);
+        const bodyBuffer = Buffer.concat([
+            Buffer.concat(headerBuffers),
+            fileBufferToUpload,
+            footerBuffer
+        ]);
+
+        const telegramResult: { ok: boolean; status: number; data: any } = await new Promise((resolve, reject) => {
+            const req = https.request({
+                hostname: 'api.telegram.org',
+                port: 443,
+                path: `/bot${BOT_TOKEN}/sendDocument`,
+                method: 'POST',
+                headers: {
+                    'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                    'Content-Length': bodyBuffer.length,
+                },
+                // БЕЗ ТАЙМАУТА — СОЕДИНЕНИЕ БУДЕТ ЖДАТЬ СКОЛЬКО УГОДНО ВРЕМЕНИ
+            }, (res) => {
+                let responseData = '';
+                res.on('data', (chunk) => { responseData += chunk; });
+                res.on('end', () => {
+                    try {
+                        const json = responseData ? JSON.parse(responseData) : {};
+                        resolve({ ok: res.statusCode === 200, status: res.statusCode || 500, data: json });
+                    } catch {
+                        resolve({ ok: false, status: res.statusCode || 500, data: { description: responseData } });
+                    }
+                });
+            });
+
+            req.on('error', (err) => reject(err));
+
+            req.write(bodyBuffer);
+            req.end();
         });
 
         await fs.unlink(inputPath).catch(() => {});
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
         if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
 
-        const responseText = await response.text();
-        let data;
-        try {
-            data = responseText ? JSON.parse(responseText) : {};
-        } catch {
-            return NextResponse.json({ error: `Ошибка ответа хранилища (HTTP ${response.status}): ${responseText}` }, { status: 500 });
+        if (!telegramResult.ok || !telegramResult.data.ok) {
+            const errorMsg = telegramResult.data?.description || `Ошибка хранилища: HTTP ${telegramResult.status}`;
+            return NextResponse.json({ error: errorMsg }, { status: 500 });
         }
 
-        let uploadedFile = null;
-        if (response.ok && data && data.ok && data.result) {
-            uploadedFile = data.result.document || data.result.audio || data.result.voice || data.result.video;
-        }
+        const uploadedFile = telegramResult.data.result.document || telegramResult.data.result.audio || telegramResult.data.result.voice || telegramResult.data.result.video;
 
         if (uploadedFile && uploadedFile.file_id) {
             const streamPrefix = uploadType === "audio" ? "/api/tracks/stream" : "/api/videos/stream";
@@ -217,14 +240,13 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: true,
                 fileId: uploadedFile.file_id,
-                messageId: data.result.message_id,
+                messageId: telegramResult.data.result.message_id,
                 url: `${streamPrefix}/${uploadedFile.file_id}`,
                 name: originalName,
             });
         }
 
-        const errorMsg = data.description || `Ошибка хранилища: HTTP ${response.status}`;
-        return NextResponse.json({ error: errorMsg }, { status: 500 });
+        return NextResponse.json({ error: "Не удалось получить file_id от сервера" }, { status: 500 });
 
     } catch (error: any) {
         if (inputPath) await fs.unlink(inputPath).catch(() => {});
