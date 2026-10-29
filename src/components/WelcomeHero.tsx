@@ -87,7 +87,7 @@ export default function WelcomeHero() {
             <div className="inline-flex flex-col items-center px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold tracking-wider uppercase backdrop-blur-md">
               <div className="flex items-center gap-1.5">
                 <Sparkles className="w-3 h-3 animate-spin flex-shrink-0" />
-                <span className="text-center">{tr("Ўзбекистонда Ягона Мусиқий экотизим", "O'zbekistonda Yagona Musiqiy ekotizim ", "Единственный Музыкальный Маркетплейс Узбекистана", "Single Musical Marketplace in Uzbekistan")}</span>
+                <span className="text-center">{tr("Ўзбекистонда Ягона ва Антиқа Мусиқий экотизим", "O'zbekistonda Yagona va Antiqa Musiqiy ekotizim ", "Единственный и Уникальный Музыкальный Маркетплейс Узбекистана", "Single Musical Marketplace in Uzbekistan")}</span>
               </div>
               <span className="opacity-90 text-[10px] text-slate-300 text-center block w-full">
                 {tr("Янги авлод мусиқий бизнес Маркетплейси", "Yangi avlod musiqiy biznes Marketpleysi", "Музыкальная бизнес экосистема нового поколения", "New generation musical ecosystem")}

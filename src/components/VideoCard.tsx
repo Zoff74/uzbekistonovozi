@@ -21,10 +21,10 @@ interface VideoCardProps {
         expiresAt: string;
         createdAt: string;
         isPaidActive?: boolean;
-        isExpired?: boolean; // 👈 Флаг просрочки от бэкенда
-        authorId?: string;
-        author?: string;
-        userId?: string;
+        isExpired?: boolean;
+        authorId?: string | { _id: string; toString(): string };
+        author?: string | { _id: string; toString(): string };
+        userId?: string | { _id: string; toString(): string };
         videoUrl?: string;
         fileUrl?: string;
         fileId?: string;
@@ -42,9 +42,9 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const { data: session } = useSession();
 
     const [isDeleting, setIsDeleting] = useState(false);
+    const [showTariffs, setShowTariffs] = useState(false);
     const [isRemoved, setIsRemoved] = useState(false);
     
-    // Состояния для реального встроенного плеера
     const [isPlayingVideo, setIsPlayingVideo] = useState(false);
     const [isLoadingVideo, setIsLoadingVideo] = useState(false);
     const [videoError, setVideoError] = useState(false);
@@ -52,7 +52,11 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
     const videoId = video._id.toString();
 
-    // 1. Надежное извлечение fileId из любого доступного поля
+    // Цены из .env для видео
+    const videoInitial = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_INITIAL || 15000);
+    const videoDaily = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_DAILY || 1500);
+    const videoMonthly = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_MONTHLY || 45000);
+
     const rawFileId = video.videoFileId || video.fileId;
     let computedFileId = rawFileId;
 
@@ -63,21 +67,25 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
         }
     }
 
-    // 2. Итоговый защищенный URL для стриминга через локальный эндпоинт
     const videoSrc = computedFileId 
         ? `/api/videos/stream/${computedFileId}` 
         : (video.videoUrl || video.fileUrl || "");
 
-    // Проверка прав: владелец или админ
     const currentUserId = (session?.user as any)?.id;
     const currentUserRole = (session?.user as any)?.role;
     const isAdmin = currentUserRole === 'admin' || (session?.user as any)?.isAdmin === true;
     
-    const videoAuthor = video.authorId || video.author || video.userId;
-    const isOwner = currentUserId && videoAuthor && videoAuthor.toString() === currentUserId.toString();
+    const getNormalizedId = (field: any) => {
+        if (!field) return "";
+        if (typeof field === 'string') return field;
+        if (typeof field === 'object') return field._id?.toString() || field.toString() || "";
+        return String(field);
+    };
+
+    const authorField = getNormalizedId(video.authorId) || getNormalizedId(video.author) || getNormalizedId(video.userId);
+    const isOwner = currentUserId && authorField && authorField === currentUserId.toString();
     const canManage = isOwner || isAdmin;
 
-    // Логика фейкового прироста просмотров
     const [fakeOffset, setFakeOffset] = useState(0);
     const [stepIndex, setStepIndex] = useState(0);
 
@@ -117,14 +125,14 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const displayedViews = realViews + fakeOffset;
 
     const createdAtDate = new Date(video.createdAt || video.expiresAt);
-    const expiresDate = new Date(video.expiresAt);
     const now = new Date();
 
     const hoursSinceCreation = (now.getTime() - createdAtDate.getTime()) / (1000 * 60 * 60);
     const isWithinFirst24Hours = hoursSinceCreation <= 24 && !video.isPaidActive;
 
-    const diffTime = expiresDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffMs = new Date(video.createdAt).getTime() + 24 * 60 * 60 * 1000 - now.getTime();
+    const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
+    const minutesLeft = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
 
     const handlePlayVideo = () => {
         if (!videoSrc) {
@@ -181,7 +189,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     return (
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700 relative">
             
-            {/* Метка о просрочке (если не оплачено) */}
             {video.isExpired && !canManage && (
                 <div className="absolute top-3 right-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] px-2.5 py-1 rounded-lg font-medium">
                     {tr("Тўлов кутилмоқда (Автор маълумоти яширилган)", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}
@@ -190,7 +197,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
-                {/* МЕДИАТЕКА / ПЛЕЕР ИЛИ ОБЛОЖКА */}
                 <div className="relative w-full sm:w-48 aspect-video sm:aspect-square rounded-2xl object-cover border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
                     {!isPlayingVideo ? (
                         <div 
@@ -250,7 +256,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                    {/* НАЗВАНИЕ ВИДЕО ВСЕГДА ЧЕТКОЕ И КЛИКАБЕЛЬНОЕ */}
                     <h3 
                         onClick={handlePlayVideo}
                         className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition"
@@ -258,24 +263,23 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                         {video.title}
                     </h3>
 
-                    {/* АВТОР, ЖАНР И СТАТИСТИКА БЛЮРИТСЯ ПРИ ИСТЕЧЕНИИ СРОКА */}
                     <div className={video.isExpired && !canManage ? "filter blur-[6px] select-none pointer-events-none opacity-60 mt-1" : "mt-1"}>
                         <p className="text-base text-neutral-200 break-words font-medium">
                             {video.singer} • <span className="text-amber-400">{video.genre}</span>
                         </p>
-                        
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
-                            <span>
-                                {tr("Кўрилган", "Ko'rilgan", "Просмотров", "Views")}:{" "}
-                                <strong className="text-white font-semibold">{displayedViews}</strong>
-                                <span className="text-neutral-500 text-xs ml-1.5">({realViews})</span>
-                            </span>
-                            <span className="hidden sm:inline">•</span>
-                            <span>
-                                {tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}:{" "}
-                                <strong className="text-white font-semibold">{video.downloadsCount || 0}</strong>
-                            </span>
-                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
+                        <span>
+                            {tr("Муҳлислар томонидан томоша қилинган", "Muhlislar tomonidan tomosha qilingan", "Сколько раз просмотрено", "Views")}:{" "}
+                            <strong className="text-white font-semibold">{displayedViews}</strong>
+                            <span className="text-neutral-500 text-xs ml-1.5">({realViews})</span>
+                        </span>
+                        <span className="hidden sm:inline">•</span>
+                        <span>
+                            {tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}:{" "}
+                            <strong className="text-white font-semibold">{video.downloadsCount || 0}</strong>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -289,18 +293,57 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                             {video.isExpired ? tr("Муддати тугаган (Кўриш мумкин)", "Muddati tugagan", "Срок истек (Доступен просмотр)", "Expired (View only)") : (video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired"))}
                         </span>
                         
-                        <span className="text-neutral-200 font-semibold">
-                            {isAdmin ? (
+                        <span className="text-neutral-200 font-semibold text-xs sm:text-sm">
+                            {isAdmin && video.isExpired ? (
                                 <span className="text-emerald-400">
-                                    {tr("Чексиз фаол (Администратор)", "Cheksiz faol (Administrator)", "Активен бессрочно (Администратор)", "Active indefinitely (Administrator)")}
+                                    {tr("Администратор ҳуқуқи", "Administrator huquqi", "Права администратора", "Administrator privileges")}
                                 </span>
-                            ) : diffDays > 0 ? (
-                                `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}.`
+                            ) : diffMs > 0 ? (
+                                <span className="text-amber-400">
+                                    ⚠️ {tr("Видео файлни ўзгартириш ёки алмаштириш учун яна", "Videofaylni o'zgartirish yoki almashtirish uchun yana", "Для внесений изменений или замены файла осталось", "Time left to replace:")} {hoursLeft} {tr("соат", "soat", "часов", "hours")} {minutesLeft} {tr("дақиқа вақт қолди", "daqiqa vaqt qoldi", "минут", "minutes")}
+                                </span>
                             ) : (
-                                <span className="text-amber-400">{tr("Тўлов кутилмоқда (Авто-блюр ёқилган)", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}</span>
+                                <span className="text-red-400">
+                                    {tr("Файлни ўзгартириш муддати тугаган (24 соат)", "Faylni o'zgartirish muddati tugagan", "Срок изменения файла истек", "File change time expired")}
+                                </span>
                             )}
                         </span>
                     </div>
+
+                    {/* Показываем блок оплаты ТОЛЬКО если 24 часа уже истекли ИЛИ контент реально просрочен */}
+                    {!isAdmin && (!video.isPaidActive || video.isExpired) && !isWithinFirst24Hours && (
+                        <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3 text-sm sm:text-base">
+                            <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-400">
+                                <span>⚠️ {tr("Диққат! Жойлаштириш муддати тугади:", "Diqqat! Joylashtirish muddati tugadi:", "Внимание! Срок размещения истек:", "Attention! Placement expired:")}</span>
+                                <button 
+                                    onClick={() => setShowTariffs(!showTariffs)}
+                                    className="underline hover:text-amber-300 transition text-sm font-semibold cursor-pointer bg-transparent border-none p-0"
+                                >
+                                    {showTariffs ? tr("Тарифларни яшириш", "Tariflarni yashirish", "Скрыть тарифы", "Hide tariffs") : tr("Тўлов қилиш ва очиш", "To'lov qilish va ochish", "Оплатить и разблокировать", "Pay & Unlock")}
+                                </button>
+                            </div>
+
+                            <p className="text-neutral-200 leading-relaxed font-medium">
+                                {tr(
+                                    "Видео ҳозир ҳам сайтда трансляция қилинмоқда, лекин тўлов қилинмагани сабабли автор маълумотлари блюр (хиралаштирилган) қилинган. Тўловни амалга ошириб маълумотларни тўлиқ очинг!",
+                                    "Video hozir ham saytda translyatsiya qilinmoqda, lekin to'lov qilinmagani sababli muallif ma'lumotlari blur qilingan.",
+                                    "Видео продолжает транслироваться, но данные автора размыты из-за неоплаты. Оплатите размещение, чтобы снять блюр!",
+                                    "Video is still broadcast, but author info is blurred due to lack of payment."
+                                )}
+                            </p>
+
+                            {showTariffs && (
+                                <div className="pt-3 border-t border-amber-500/20 space-y-2 text-neutral-100">
+                                    <p className="font-bold text-amber-300">💡 {tr("ПЛАТФОРМА ТАРИФЛАРИ:", "PLATFORMA TARIFLARI:", "ТАРИФЫ ПЛАТФОРМЫ:", "PLATFORM TARIFFS:")}</p>
+                                    <ul className="list-disc list-inside space-y-1.5 text-neutral-200 pl-1 font-medium">
+                                        <li><strong className="text-white">{tr("Базавий тўлов:", "Bazaviy to'lov:", "Базовый платеж:", "Base fee:")}</strong> {videoInitial.toLocaleString()} сўм</li>
+                                        <li><strong className="text-white">{tr("Кунлик тўлов:", "Kunlik to'lov:", "Ежедневно:", "Daily:")}</strong> {videoDaily.toLocaleString()} сўм / кун</li>
+                                        <li><strong className="text-white">{tr("Оптом 1 ойлик:", "Optom 1 oylik:", "Месячный опт:", "Monthly:")}</strong> <span className="text-emerald-400 font-bold">{videoMonthly.toLocaleString()} сўм</span></li>
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 

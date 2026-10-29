@@ -1,4 +1,4 @@
-// src/app/api/videos/[id]/route.ts
+//src\app\api\videos\[id]\route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { dbConnect } from "@/lib/mongoose";
@@ -227,7 +227,9 @@ export async function PUT(
                 const now = Date.now();
                 const twentyFourHours = 24 * 60 * 60 * 1000;
 
-                if (now - createdAtTime > twentyFourHours) {
+                const diff = now - createdAtTime;
+
+                if (diff > twentyFourHours && diff > 0) {
                     return NextResponse.json(
                         { 
                             error: tr(

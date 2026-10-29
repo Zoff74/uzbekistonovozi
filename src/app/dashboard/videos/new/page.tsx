@@ -258,7 +258,7 @@ export default function NewVideoPage() {
                             className="relative z-10 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-neutral-400 hover:text-white text-sm bg-neutral-950 transition"
                         >
                             <ArrowLeft size={16} />
-                            <span>{tr("Дашбордга қайтиш", "Dashboardga qaytish", "Вернуться в дашборд", "Back to dashboard")}</span>
+                            <span>{tr("Орқага қайтиш", "Orqaga qaytish", "Вернуться назад", "Back to dashboard")}</span>
                         </Link>
                         <GradientBorder />
                     </div>

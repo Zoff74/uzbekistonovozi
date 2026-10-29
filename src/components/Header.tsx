@@ -92,9 +92,6 @@ export default function Header() {
   <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
     {tr("Машҳурликка Биринчи Қадам", "Mashhurlikka Birinchi Qadam", "Первый шаг к известности", "First Step to Fame")}
   </span>
-  <span className="text-[10px] sm:text-[11px] font-semibold text-red-500 uppercase tracking-wider mt-0.5">
-    {tr("Синов жараёни кетмоқда", "Sinov jarayoni ketmoqda", "Идет Тестовый прогон", "Test run")}
-  </span>
 </Link>
 
               <span className="text-[11px] sm:text-[10px] tracking-widest text-emerald-400 font-bold uppercase block mt-0.5">

@@ -6,13 +6,7 @@ import TelegramToken from '@/models/TelegramToken';
 import User from '@/models/User';
 import { dbConnect } from '@/lib/mongoose';
 import { nanoid } from 'nanoid';
-import { exec } from 'child_process';
-import util from 'util';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
 
-const execPromise = util.promisify(exec);
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'UzbekistonOvoziBot';
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
@@ -193,7 +187,7 @@ export async function notifyAuthorAboutSale(chatId: string, trackTitle: string, 
 
 /**
  * Загрузка видеофайла в публичное хранилище Telegram через официальный Telegram Bot API
- * Включает сжатие видеофайла перед отправкой, если размер превышает 20 МБ.
+ * Включает двухпроходное сжатие точно под 19 МБ без искусственных тайм-аутов.
  */
 export async function uploadVideoToTelegramStorage(
     videoBuffer: Buffer,
@@ -210,37 +204,101 @@ export async function uploadVideoToTelegramStorage(
     let bufferToUpload = videoBuffer;
     const sizeInMB = videoBuffer.length / (1024 * 1024);
 
-    // Утвержденная архитектурная проверка: если видео > 20 МБ, проводим предварительное сжатие
-    if (sizeInMB > 20) {
-        console.log(`[VIDEO COMPRESSION] Файл ${fileName} весит ${sizeInMB.toFixed(2)} МБ (> 20 МБ). Запуск предварительного сжатия...`);
-        const tempDir = os.tmpdir();
-        const inputPath = path.join(tempDir, `input_${Date.now()}_${fileName.replace(/\s+/g, '_')}`);
-        const outputPath = path.join(tempDir, `output_${Date.now()}_${fileName.replace(/\s+/g, '_')}`);
-
+    if (sizeInMB > 19) {
+        console.log(`[VIDEO COMPRESSION] Файл ${fileName} весит ${sizeInMB.toFixed(2)} МБ (> 19 МБ). Запуск двухпроходного сжатия...`);
         try {
+            const fs = await import('fs/promises');
+            const path = await import('path');
+            const os = await import('os');
+            const ffmpeg = (await import('fluent-ffmpeg')).default;
+            const ffmpegStatic = (await import('ffmpeg-static')).default;
+
+            ffmpeg.setFfmpegPath(ffmpegStatic as string);
+
+            const tempDir = os.tmpdir();
+            const uniqueId = Date.now();
+            const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+            const inputPath = path.join(tempDir, `input_${uniqueId}_${safeName}`);
+            const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
+
             await fs.writeFile(inputPath, videoBuffer);
-            const ffmpegCommand = `ffmpeg -y -i "${inputPath}" -vcodec libx264 -crf 28 -preset fast -acodec aac -b:a 128k "${outputPath}"`;
-            await execPromise(ffmpegCommand);
+
+            const duration = await new Promise<number>((resolve, reject) => {
+                ffmpeg.ffprobe(inputPath, (err, metadata) => {
+                    if (err || !metadata.format || !metadata.format.duration) {
+                        reject(new Error("Не удалось определить длительность видео"));
+                    } else {
+                        resolve(metadata.format.duration);
+                    }
+                });
+            });
+
+            const targetSizeMB = 19;
+            const totalBits = targetSizeMB * 1024 * 1024 * 8;
+            const audioBitrateKbps = 96;
+            const audioBits = audioBitrateKbps * 1000 * duration;
+            
+            let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
+            if (videoBitrateKbps < 300) videoBitrateKbps = 300;
+            const videoBitrateStr = `${videoBitrateKbps}k`;
+
+            const logPath = path.join(tempDir, `ffmpeg2pass_${uniqueId}.log`);
+
+            // 1 проход
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg(inputPath)
+                    .outputOptions([
+                        "-c:v libx264",
+                        `-b:v ${videoBitrateStr}`,
+                        "-pass 1",
+                        "-an",
+                        "-f null"
+                    ])
+                    .output(logPath)
+                    .on('end', () => resolve())
+                    .on('error', (err) => reject(err))
+                    .run();
+            });
+
+            // 2 проход
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg(inputPath)
+                    .outputOptions([
+                        "-c:v libx264",
+                        `-b:v ${videoBitrateStr}`,
+                        "-pass 2",
+                        "-preset slow",
+                        "-c:a aac",
+                        `-b:a ${audioBitrateKbps}k`,
+                        "-pix_fmt yuv420p",
+                        "-movflags +faststart",
+                        `-passlogfile ${logPath}`
+                    ])
+                    .output(outputPath)
+                    .on('end', () => resolve())
+                    .on('error', (err) => reject(err))
+                    .run();
+            });
+
+            await fs.unlink(logPath).catch(() => {});
 
             const compressedBuffer = await fs.readFile(outputPath);
-            const compressedSizeMB = compressedBuffer.length / (1024 * 1024);
-
             if (compressedBuffer.length < videoBuffer.length) {
                 bufferToUpload = compressedBuffer;
-                console.log(`[VIDEO COMPRESSION SUCCESS] Видео сжато: ${sizeInMB.toFixed(2)} МБ -> ${compressedSizeMB.toFixed(2)} МБ`);
+                console.log(`[VIDEO COMPRESSION SUCCESS] Видео сжато: ${sizeInMB.toFixed(2)} МБ -> ${(compressedBuffer.length / (1024 * 1024)).toFixed(2)} МБ`);
             }
 
             await fs.unlink(inputPath).catch(() => {});
             await fs.unlink(outputPath).catch(() => {});
         } catch (err) {
-            console.error("[VIDEO COMPRESSION ERROR] Не удалось сжать через ffmpeg, предпринимается попытка отправки оригинала:", err);
+            console.error("[VIDEO COMPRESSION ERROR] Ошибка сжатия через ffmpeg, попытка отправки оригинала:", err);
         }
     }
 
-    if (bufferToUpload.length > 50 * 1024 * 1024) {
+    if (bufferToUpload.length > 20 * 1024 * 1024) {
         return { 
             success: false, 
-            error: "Файл превышает лимит Telegram Bot API в 50 МБ. Пожалуйста, сожмите видео или выберите файл меньшего размера." 
+            error: "Файл превышает лимит Telegram Bot API в 20 МБ даже после сжатия." 
         };
     }
 
@@ -255,16 +313,10 @@ export async function uploadVideoToTelegramStorage(
         formData.append('caption', caption);
         formData.append('parse_mode', 'HTML');
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000);
-
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
             body: formData,
-            signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
 
         const responseText = await response.text();
         let data;
@@ -286,10 +338,6 @@ export async function uploadVideoToTelegramStorage(
         console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", errorMsg);
         return { success: false, error: errorMsg };
     } catch (error: any) {
-        if (error.name === 'AbortError') {
-            console.error("ОШИБКА: Превышено время ожидания отправки в Telegram (таймаут 5 минут)");
-            return { success: false, error: "Превышено время ожидания загрузки файла в Telegram" };
-        }
         console.error("ОШИБКА ЗАГРУЗКИ ВИДЕО В TELEGRAM STORAGE:", error.message || error);
         return { success: false, error: error.message || "Ошибка сети" };
     }

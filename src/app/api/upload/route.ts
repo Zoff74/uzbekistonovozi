@@ -129,53 +129,70 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 3. ВИДЕО — сжатие при необходимости
+        // 3. ВИДЕО — сжатие точно под 19 МБ (2-pass для высокого качества)
         if (uploadType === "video") {
             const fileStats = await fs.stat(inputPath);
-            if (fileStats.size > 18 * 1024 * 1024) {
+            if (fileStats.size > 19 * 1024 * 1024) {
                 try {
-                    const duration = await new Promise<number>((resolve) => {
+                    const duration = await new Promise<number>((resolve, reject) => {
                         ffmpeg.ffprobe(inputPath, (err, metadata) => {
-                            if (err || !metadata.format.duration) {
-                                resolve(480);
+                            if (err || !metadata.format || !metadata.format.duration) {
+                                reject(new Error("Не удалось определить длительность видеофайла"));
                             } else {
                                 resolve(metadata.format.duration);
                             }
                         });
                     });
 
-                    const targetSizeMB = 15;
+                    // Целевой размер строго 19 МБ в битах
+                    const targetSizeMB = 19;
                     const totalBits = targetSizeMB * 1024 * 1024 * 8;
-                    const audioBitrateKbps = 64;
+                    const audioBitrateKbps = 96; 
                     const audioBits = audioBitrateKbps * 1000 * duration;
                     
                     let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
-                    if (videoBitrateKbps < 200) videoBitrateKbps = 200;
-                    if (videoBitrateKbps > 500) videoBitrateKbps = 500;
+                    if (videoBitrateKbps < 300) videoBitrateKbps = 300;
 
                     const videoBitrateStr = `${videoBitrateKbps}k`;
-                    const maxRateStr = `${Math.floor(videoBitrateKbps * 1.2)}k`;
-                    const bufSizeStr = `${videoBitrateKbps * 2}k`;
 
+                    // ПЕРВЫЙ ПРОХОД (анализ)
+                    const logPath = path.join(tempDir, `ffmpeg2pass_${uniqueId}.log`);
                     await new Promise<void>((resolve, reject) => {
                         ffmpeg(inputPath)
-                            .output(outputPath)
-                            .videoCodec('libx264')
-                            .audioCodec('aac')
-                            .audioBitrate('64k')
                             .outputOptions([
-                                '-preset ultrafast',
+                                "-c:v libx264",
                                 `-b:v ${videoBitrateStr}`,
-                                `-maxrate ${maxRateStr}`,
-                                `-bufsize ${bufSizeStr}`,
-                                '-vf scale=-2:270',
-                                '-pix_fmt yuv420p',
-                                '-movflags +faststart',
+                                "-pass 1",
+                                "-an",
+                                "-f null"
                             ])
+                            .output(logPath)
                             .on('end', () => resolve())
                             .on('error', (err) => reject(err))
                             .run();
                     });
+
+                    // ВТОРОЙ ПРОХОД (финальная запись с сохранением качества)
+                    await new Promise<void>((resolve, reject) => {
+                        ffmpeg(inputPath)
+                            .outputOptions([
+                                "-c:v libx264",
+                                `-b:v ${videoBitrateStr}`,
+                                "-pass 2",
+                                "-preset slow",
+                                "-c:a aac",
+                                `-b:a ${audioBitrateKbps}k`,
+                                "-pix_fmt yuv420p",
+                                "-movflags +faststart",
+                                `-passlogfile ${logPath}`
+                            ])
+                            .output(outputPath)
+                            .on('end', () => resolve())
+                            .on('error', (err) => reject(err))
+                            .run();
+                    });
+
+                    await fs.unlink(logPath).catch(() => {});
 
                     finalPathToUpload = outputPath;
                     finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
@@ -191,11 +208,11 @@ export async function POST(request: NextRequest) {
         }
 
         const finalStats = await fs.stat(finalPathToUpload);
-        if (finalStats.size > 50 * 1024 * 1024) {
+        if (finalStats.size > 20 * 1024 * 1024) {
             await fs.unlink(inputPath).catch(() => {});
             if (outputPath) await fs.unlink(outputPath).catch(() => {});
             if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
-            return NextResponse.json({ error: "Файл превышает допустимый размер (50 МБ)." }, { status: 400 });
+            return NextResponse.json({ error: "Ошибка: даже после сжатия файл превышает 20 МБ." }, { status: 400 });
         }
 
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;

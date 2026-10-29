@@ -22,10 +22,10 @@ interface TrackCardProps {
         expiresAt: string;
         createdAt: string;
         isPaidActive?: boolean;
-        isExpired?: boolean; // 👈 Флаг просрочки от бэкенда
-        authorId?: string;
-        author?: string;
-        userId?: string;
+        isExpired?: boolean;
+        authorId?: string | { _id: string; toString(): string };
+        author?: string | { _id: string; toString(): string };
+        userId?: string | { _id: string; toString(): string };
         audioUrl?: string;
         fileUrl?: string;
     };
@@ -46,19 +46,28 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     const [isRemoved, setIsRemoved] = useState(false);
     const trackId = track._id.toString();
 
-    // Проверка прав: является ли текущий юзер владельцем или админом
+    // Цены из .env для треков
+    const trackInitial = Number(process.env.NEXT_PUBLIC_TRACK_PRICE_INITIAL || 10000);
+    const trackDaily = Number(process.env.NEXT_PUBLIC_TRACK_PRICE_DAILY || 1000);
+    const trackMonthly = Number(process.env.NEXT_PUBLIC_TRACK_PRICE_MONTHLY || 30000);
+
     const currentUserId = (session?.user as any)?.id;
     const currentUserRole = (session?.user as any)?.role;
     const isAdmin = currentUserRole === 'admin' || (session?.user as any)?.isAdmin === true;
     
-    const trackAuthor = track.authorId || track.author || track.userId;
-    const isOwner = currentUserId && trackAuthor && trackAuthor.toString() === currentUserId.toString();
+    const getNormalizedId = (field: any) => {
+        if (!field) return "";
+        if (typeof field === 'string') return field;
+        if (typeof field === 'object') return field._id?.toString() || field.toString() || "";
+        return String(field);
+    };
+
+    const authorField = getNormalizedId(track.authorId) || getNormalizedId(track.author) || getNormalizedId(track.userId);
+    const isOwner = currentUserId && authorField && authorField === currentUserId.toString();
     const canManage = isOwner || isAdmin;
 
-    // Проверяем, играет ли именно этот трек прямо сейчас
     const isThisTrackPlaying = currentTrack && (currentTrack.id === trackId || currentTrack._id === trackId) && isPlaying;
 
-    // Логика фейкового прироста прослушиваний
     const [fakeOffset, setFakeOffset] = useState(0);
     const [stepIndex, setStepIndex] = useState(0);
 
@@ -97,15 +106,15 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     const realPlays = track.plays || 0;
     const displayedPlays = realPlays + fakeOffset;
 
-    const createdAtDate = new Date(track.createdAt || track.expiresAt);
-    const expiresDate = new Date(track.expiresAt);
     const now = new Date();
+    const createdAtDate = new Date(track.createdAt || track.expiresAt);
 
     const hoursSinceCreation = (now.getTime() - createdAtDate.getTime()) / (1000 * 60 * 60);
     const isWithinFirst24Hours = hoursSinceCreation <= 24 && !track.isPaidActive;
 
-    const diffTime = expiresDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffMs = new Date(track.createdAt).getTime() + 24 * 60 * 60 * 1000 - now.getTime();
+    const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
+    const minutesLeft = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
 
     const handlePlayClick = () => {
         const audioSrc = track.audioUrl || track.fileUrl || "";
@@ -165,7 +174,6 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
     return (
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700 relative">
             
-            {/* Уведомление о просрочке (если не оплачено) */}
             {track.isExpired && !canManage && (
                 <div className="absolute top-3 right-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] px-2.5 py-1 rounded-lg font-medium">
                     {tr("Тўлов кутилмоқда (Автор маълумоти яширилган)", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}
@@ -188,7 +196,6 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                    {/* НАЗВАНИЕ ТРЕКА ВСЕГДА ЧЕТКОЕ И КЛИКАБЕЛЬНОЕ */}
                     <h3 
                         onClick={handlePlayClick}
                         className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-emerald-400 transition"
@@ -196,24 +203,23 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                         {track.title}
                     </h3>
 
-                    {/* ВСЁ ОСТАЛЬНОЕ (Исполнитель, Жанр, Статистика) БЛЮРИТСЯ ПРИ ИСТЕЧЕНИИ СРОКА */}
                     <div className={track.isExpired && !canManage ? "filter blur-[6px] select-none pointer-events-none opacity-60 mt-1" : "mt-1"}>
                         <p className="text-base text-neutral-200 break-words font-medium">
                             {track.singer} • <span className="text-amber-400">{track.genre}</span>
                         </p>
-                        
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
-                            <span>
-                                {tr("Эшитилган", "Eshitilgan", "Прослушиваний", "Plays")}:{" "}
-                                <strong className="text-white font-semibold">{displayedPlays}</strong>
-                                <span className="text-neutral-500 text-xs ml-1.5">({realPlays})</span>
-                            </span>
-                            <span className="hidden sm:inline">•</span>
-                            <span>
-                                {tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}:{" "}
-                                <strong className="text-white font-semibold">{track.downloadsCount || 0}</strong>
-                            </span>
-                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
+                        <span>
+                            {tr("Эшитилган", "Eshitilgan", "Прослушиваний", "Plays")}:{" "}
+                            <strong className="text-white font-semibold">{displayedPlays}</strong>
+                            <span className="text-neutral-500 text-xs ml-1.5">({realPlays})</span>
+                        </span>
+                        <span className="hidden sm:inline">•</span>
+                        <span>
+                            {tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}:{" "}
+                            <strong className="text-white font-semibold">{track.downloadsCount || 0}</strong>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -227,20 +233,25 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                             {track.isExpired ? tr("Мөддати тугаган (Тинглаш мумкин)", "Muddati tugagan", "Срок истек (Доступно прослушивание)", "Expired (Listen only)") : (track.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Музлатилган", "Muzlatilgan", "Заморожен", "Frozen"))}
                         </span>
                         
-                        <span className="text-neutral-200 font-semibold">
-                            {isAdmin ? (
+                        <span className="text-neutral-200 font-semibold text-xs sm:text-sm">
+                            {isAdmin && track.isExpired ? (
                                 <span className="text-emerald-400">
-                                    {tr("Чексиз фаол (Администратор)", "Cheksiz faol (Administrator)", "Активен бессрочно (Администратор)", "Active indefinitely (Administrator)")}
+                                    {tr("Администратор ҳуқуқи", "Administrator huquqi", "Права администратора", "Administrator privileges")}
                                 </span>
-                            ) : diffDays > 0 ? (
-                                `${tr("Серверда сақланиш вақти:", "Serverda saqlanish vaqti:", "Срок размещения на сайте:", "Time left on site:")} ${diffDays} ${tr("кун", "kun", "дней", "days")}.`
+                            ) : diffMs > 0 ? (
+                                <span className="text-amber-400">
+                                    ⚠️ {tr("Файлни алмаштириш учун яна", "Faylni almashtirish uchun yana", "Для замены файла осталось", "Time left to replace:")} {hoursLeft} {tr("соат", "soat", "часов", "hours")} {minutesLeft} {tr("дақиқа вақт қолди", "daqiqa vaqt qoldi", "минут", "minutes")}
+                                </span>
                             ) : (
-                                <span className="text-amber-400">{tr("Тўлов кутилмоқда (Авто-блюр ёқилган)", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}</span>
+                                <span className="text-red-400">
+                                    {tr("Файлни ўзгартириш муддати тугаган (24 соат)", "Faylni o'zgartirish muddati tugagan", "Срок изменения файла истек", "File change time expired")}
+                                </span>
                             )}
                         </span>
                     </div>
 
-                    {!isAdmin && (!track.isPaidActive || track.isExpired) && (
+                    {/* Показываем блок оплаты ТОЛЬКО если 24 часа уже истекли ИЛИ контент реально просрочен */}
+                    {!isAdmin && (!track.isPaidActive || track.isExpired) && !isWithinFirst24Hours && (
                         <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3 text-sm sm:text-base">
                             <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-400">
                                 <span>⚠️ {tr("Диққат! Жойлаштириш муддати тугади:", "Diqqat! Joylashtirish muddati tugadi:", "Внимание! Срок размещения истек:", "Attention! Placement expired:")}</span>
@@ -265,9 +276,9 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                                 <div className="pt-3 border-t border-amber-500/20 space-y-2 text-neutral-100">
                                     <p className="font-bold text-amber-300">💡 {tr("ПЛАТФОРМА ТАРИФЛАРИ:", "PLATFORMA TARIFLARI:", "ТАРИФЫ ПЛАТФОРМЫ:", "PLATFORM TARIFFS:")}</p>
                                     <ul className="list-disc list-inside space-y-1.5 text-neutral-200 pl-1 font-medium">
-                                        <li><strong className="text-white">{tr("Базавий тўлов:", "Bazaviy to'lov:", "Базовый платеж:", "Base fee:")}</strong> 10 000 сўм</li>
-                                        <li><strong className="text-white">{tr("Кунлик тўлов:", "Kunlik to'lov:", "Ежедневно:", "Daily:")}</strong> 1 000 сўм / кун</li>
-                                        <li><strong className="text-white">{tr("Оптом 1 ойлик:", "Optom 1 oylik:", "Месячный опт:", "Monthly:")}</strong> <span className="text-emerald-400 font-bold">30 000 сўм</span></li>
+                                        <li><strong className="text-white">{tr("Базавий тўлов:", "Bazaviy to'lov:", "Базовый платеж:", "Base fee:")}</strong> {trackInitial.toLocaleString()} сўм</li>
+                                        <li><strong className="text-white">{tr("Кунлик тўлов:", "Kunlik to'lov:", "Ежедневно:", "Daily:")}</strong> {trackDaily.toLocaleString()} сўм / кун</li>
+                                        <li><strong className="text-white">{tr("Оптом 1 ойлик:", "Optom 1 oylik:", "Месячный опт:", "Monthly:")}</strong> <span className="text-emerald-400 font-bold">{trackMonthly.toLocaleString()} сўм</span></li>
                                     </ul>
                                 </div>
                             )}
