@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
-
+//src\app\api\upload\route.ts
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
@@ -13,6 +13,7 @@ import fs from "fs/promises";
 import { createReadStream } from "fs";
 import { Readable } from "stream";
 import ffmpeg from "fluent-ffmpeg";
+import { compressVideoBuffer } from "@/utils/videoCompressor";
 
 const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
@@ -129,81 +130,26 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 3. ВИДЕО — сжатие точно под 19 МБ (2-pass для высокого качества)
+        // 3. ВИДЕО — сжатие через общую утилиту (до ~19.5 МБ с качественным звуком)
         if (uploadType === "video") {
-            const fileStats = await fs.stat(inputPath);
-            if (fileStats.size > 19 * 1024 * 1024) {
-                try {
-                    const duration = await new Promise<number>((resolve, reject) => {
-                        ffmpeg.ffprobe(inputPath, (err, metadata) => {
-                            if (err || !metadata.format || !metadata.format.duration) {
-                                reject(new Error("Не удалось определить длительность видеофайла"));
-                            } else {
-                                resolve(metadata.format.duration);
-                            }
-                        });
-                    });
+            try {
+                const videoBuffer = await fs.readFile(inputPath);
+                const compressionResult = await compressVideoBuffer(videoBuffer, originalName);
 
-                    // Целевой размер строго 19 МБ в битах
-                    const targetSizeMB = 19;
-                    const totalBits = targetSizeMB * 1024 * 1024 * 8;
-                    const audioBitrateKbps = 96; 
-                    const audioBits = audioBitrateKbps * 1000 * duration;
-                    
-                    let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
-                    if (videoBitrateKbps < 300) videoBitrateKbps = 300;
-
-                    const videoBitrateStr = `${videoBitrateKbps}k`;
-
-                    // ПЕРВЫЙ ПРОХОД (анализ)
-                    const logPath = path.join(tempDir, `ffmpeg2pass_${uniqueId}.log`);
-                    await new Promise<void>((resolve, reject) => {
-                        ffmpeg(inputPath)
-                            .outputOptions([
-                                "-c:v libx264",
-                                `-b:v ${videoBitrateStr}`,
-                                "-pass 1",
-                                "-an",
-                                "-f null"
-                            ])
-                            .output(logPath)
-                            .on('end', () => resolve())
-                            .on('error', (err) => reject(err))
-                            .run();
-                    });
-
-                    // ВТОРОЙ ПРОХОД (финальная запись с сохранением качества)
-                    await new Promise<void>((resolve, reject) => {
-                        ffmpeg(inputPath)
-                            .outputOptions([
-                                "-c:v libx264",
-                                `-b:v ${videoBitrateStr}`,
-                                "-pass 2",
-                                "-preset slow",
-                                "-c:a aac",
-                                `-b:a ${audioBitrateKbps}k`,
-                                "-pix_fmt yuv420p",
-                                "-movflags +faststart",
-                                `-passlogfile ${logPath}`
-                            ])
-                            .output(outputPath)
-                            .on('end', () => resolve())
-                            .on('error', (err) => reject(err))
-                            .run();
-                    });
-
-                    await fs.unlink(logPath).catch(() => {});
-
-                    finalPathToUpload = outputPath;
-                    finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
-
-                } catch (ffmpegErr: any) {
-                    console.error("FFmpeg video error:", ffmpegErr);
-                    await fs.unlink(inputPath).catch(() => {});
-                    await fs.unlink(outputPath).catch(() => {});
-                    await fs.unlink(audioOutputPath).catch(() => {});
-                    return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
+                if (!compressionResult.success || !compressionResult.buffer) {
+                    return NextResponse.json({ error: compressionResult.error || "Ошибка сжатия видео" }, { status: 500 });
                 }
+
+                await fs.writeFile(outputPath, compressionResult.buffer);
+                finalPathToUpload = outputPath;
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
+
+            } catch (ffmpegErr: any) {
+                console.error("FFmpeg video error:", ffmpegErr);
+                await fs.unlink(inputPath).catch(() => {});
+                await fs.unlink(outputPath).catch(() => {});
+                await fs.unlink(audioOutputPath).catch(() => {});
+                return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
             }
         }
 
@@ -225,7 +171,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка через sendDocument (только для аудио и видео)
+        // Отправка через sendDocument
         const stream = createReadStream(finalPathToUpload);
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);

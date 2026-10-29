@@ -177,7 +177,8 @@
 │       ├── auth-validators.ts
 │       ├── image-compressor.ts
 │       ├── register-validators.ts
-│       └── translate.ts
+│       ├── translate.ts
+│       └── videoCompressor.ts
 ├── .env.local
 ├── .gitignore
 ├── Dockerfile

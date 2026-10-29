@@ -6,6 +6,7 @@ import TelegramToken from '@/models/TelegramToken';
 import User from '@/models/User';
 import { dbConnect } from '@/lib/mongoose';
 import { nanoid } from 'nanoid';
+import { compressVideoBuffer } from '@/utils/videoCompressor';
 
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'UzbekistonOvoziBot';
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
@@ -160,14 +161,6 @@ export async function verifyAndLinkTelegram(token: string, chatId: string): Prom
     } catch { return { success: false, message: "Ошибка при привязке." }; }
 }
 
-export async function checkTelegramLinkStatusServer(userId: string | Types.ObjectId): Promise<{ isVerified: boolean }> {
-    await dbConnect();
-    const identifier = userId.toString();
-    const query = mongoose.isValidObjectId(identifier) ? { _id: identifier } : { username: identifier };
-    const user = await User.findOne(query).select('isTelegramVerified telegramChatId').lean();
-    return { isVerified: !!(user?.isTelegramVerified && user?.telegramChatId && user.telegramChatId !== "null") };
-}
-
 export async function checkMailingBotAccess(chatId: string): Promise<boolean> {
     const bot = getMailingBotInstance();
     if (!bot || !chatId || ["null", "undefined", ""].includes(chatId)) return false;
@@ -187,7 +180,7 @@ export async function notifyAuthorAboutSale(chatId: string, trackTitle: string, 
 
 /**
  * Загрузка видеофайла в публичное хранилище Telegram через официальный Telegram Bot API
- * Включает двухпроходное сжатие точно под 19 МБ без искусственных тайм-аутов.
+ * Использует единый модуль сжатия `compressVideoBuffer`.
  */
 export async function uploadVideoToTelegramStorage(
     videoBuffer: Buffer,
@@ -201,99 +194,13 @@ export async function uploadVideoToTelegramStorage(
         return { success: false, error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" };
     }
 
-    let bufferToUpload = videoBuffer;
-    const sizeInMB = videoBuffer.length / (1024 * 1024);
-
-    if (sizeInMB > 19) {
-        console.log(`[VIDEO COMPRESSION] Файл ${fileName} весит ${sizeInMB.toFixed(2)} МБ (> 19 МБ). Запуск двухпроходного сжатия...`);
-        try {
-            const fs = await import('fs/promises');
-            const path = await import('path');
-            const os = await import('os');
-            const ffmpeg = (await import('fluent-ffmpeg')).default;
-            const ffmpegStatic = (await import('ffmpeg-static')).default;
-
-            ffmpeg.setFfmpegPath(ffmpegStatic as string);
-
-            const tempDir = os.tmpdir();
-            const uniqueId = Date.now();
-            const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
-            const inputPath = path.join(tempDir, `input_${uniqueId}_${safeName}`);
-            const outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
-
-            await fs.writeFile(inputPath, videoBuffer);
-
-            const duration = await new Promise<number>((resolve, reject) => {
-                ffmpeg.ffprobe(inputPath, (err, metadata) => {
-                    if (err || !metadata.format || !metadata.format.duration) {
-                        reject(new Error("Не удалось определить длительность видео"));
-                    } else {
-                        resolve(metadata.format.duration);
-                    }
-                });
-            });
-
-            const targetSizeMB = 19;
-            const totalBits = targetSizeMB * 1024 * 1024 * 8;
-            const audioBitrateKbps = 96;
-            const audioBits = audioBitrateKbps * 1000 * duration;
-            
-            let videoBitrateKbps = Math.floor((totalBits - audioBits) / duration / 1000);
-            if (videoBitrateKbps < 300) videoBitrateKbps = 300;
-            const videoBitrateStr = `${videoBitrateKbps}k`;
-
-            const logPath = path.join(tempDir, `ffmpeg2pass_${uniqueId}.log`);
-
-            // 1 проход
-            await new Promise<void>((resolve, reject) => {
-                ffmpeg(inputPath)
-                    .outputOptions([
-                        "-c:v libx264",
-                        `-b:v ${videoBitrateStr}`,
-                        "-pass 1",
-                        "-an",
-                        "-f null"
-                    ])
-                    .output(logPath)
-                    .on('end', () => resolve())
-                    .on('error', (err) => reject(err))
-                    .run();
-            });
-
-            // 2 проход
-            await new Promise<void>((resolve, reject) => {
-                ffmpeg(inputPath)
-                    .outputOptions([
-                        "-c:v libx264",
-                        `-b:v ${videoBitrateStr}`,
-                        "-pass 2",
-                        "-preset slow",
-                        "-c:a aac",
-                        `-b:a ${audioBitrateKbps}k`,
-                        "-pix_fmt yuv420p",
-                        "-movflags +faststart",
-                        `-passlogfile ${logPath}`
-                    ])
-                    .output(outputPath)
-                    .on('end', () => resolve())
-                    .on('error', (err) => reject(err))
-                    .run();
-            });
-
-            await fs.unlink(logPath).catch(() => {});
-
-            const compressedBuffer = await fs.readFile(outputPath);
-            if (compressedBuffer.length < videoBuffer.length) {
-                bufferToUpload = compressedBuffer;
-                console.log(`[VIDEO COMPRESSION SUCCESS] Видео сжато: ${sizeInMB.toFixed(2)} МБ -> ${(compressedBuffer.length / (1024 * 1024)).toFixed(2)} МБ`);
-            }
-
-            await fs.unlink(inputPath).catch(() => {});
-            await fs.unlink(outputPath).catch(() => {});
-        } catch (err) {
-            console.error("[VIDEO COMPRESSION ERROR] Ошибка сжатия через ffmpeg, попытка отправки оригинала:", err);
-        }
+    // Сжатие через общую утилиту
+    const compressionResult = await compressVideoBuffer(videoBuffer, fileName);
+    if (!compressionResult.success || !compressionResult.buffer) {
+        return { success: false, error: compressionResult.error || "Ошибка сжатия видео" };
     }
+
+    const bufferToUpload = compressionResult.buffer;
 
     if (bufferToUpload.length > 20 * 1024 * 1024) {
         return { 
