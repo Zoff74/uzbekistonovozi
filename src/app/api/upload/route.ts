@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
-//src\app\api\upload\route.ts
+
+// src\app\api\upload\route.ts
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
@@ -10,8 +11,6 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/auth.config";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
-import { createReadStream } from "fs";
-import { Readable } from "stream";
 import ffmpeg from "fluent-ffmpeg";
 import { compressVideoBuffer } from "@/utils/videoCompressor";
 
@@ -171,14 +170,15 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // Отправка через sendDocument
-        const stream = createReadStream(finalPathToUpload);
+        // Отправка в Telegram через чтение файла в Buffer и Blob (стабильно, без потоковых сбоев и 502 ошибки)
+        const fileBufferToUpload = await fs.readFile(finalPathToUpload);
+        const blob = new Blob([fileBufferToUpload], { 
+            type: uploadType === "audio" ? 'audio/mpeg' : 'video/mp4' 
+        });
+
+        const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
         const tgFormData = new globalThis.FormData();
         tgFormData.append('chat_id', storageChatId);
-        
-        const blob = await new Response(Readable.toWeb(stream) as any).blob();
-        const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
-        
         tgFormData.append('document', blob, finalFileName);
         tgFormData.append('caption', `${prefixLabel}: ${(session.user as any).name || (session.user as any).id}`);
         tgFormData.append('parse_mode', 'HTML');

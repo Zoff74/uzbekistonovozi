@@ -42,3 +42,8 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# FFmpeg temporary and log files
+*.temp
+*.mbtree
+ffmpeg2pass*
