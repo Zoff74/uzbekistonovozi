@@ -6,12 +6,12 @@ import TelegramToken from '@/models/TelegramToken';
 import User from '@/models/User';
 import { dbConnect } from '@/lib/mongoose';
 import { nanoid } from 'nanoid';
-import { compressVideoBuffer } from '@/utils/videoCompressor';
+import { createReadStream } from 'fs';
+import fs from 'fs/promises';
 
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'UzbekistonOvoziBot';
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
-// Инстанс ОСНОВНОГО бота
 function getBotInstance() {
     const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     if (!BOT_TOKEN) return null;
@@ -19,7 +19,6 @@ function getBotInstance() {
     return (global as any).tgBotInstance;
 }
 
-// Инстанс бота для рассылок
 function getMailingBotInstance() {
     const MAILING_TOKEN = process.env.TELEGRAM_BOT_TOKEN_FOR_HANDLER || process.env.TELEGRAM_BOT_TOKEN;
     if (!MAILING_TOKEN) return null;
@@ -179,11 +178,10 @@ export async function notifyAuthorAboutSale(chatId: string, trackTitle: string, 
 }
 
 /**
- * Загрузка видеофайла в публичное хранилище Telegram через официальный Telegram Bot API
- * Использует единый модуль сжатия `compressVideoBuffer`.
+ * Сквозная загрузка видеофайла в публичное хранилище Telegram по путям на диске (БЕЗ БУФЕРИЗАЦИИ)
  */
-export async function uploadVideoToTelegramStorage(
-    videoBuffer: Buffer,
+export async function uploadVideoFileToTelegramStorage(
+    filePath: string,
     fileName: string,
     caption: string
 ): Promise<{ success: boolean; fileId?: string; messageId?: number; error?: string }> {
@@ -194,28 +192,25 @@ export async function uploadVideoToTelegramStorage(
         return { success: false, error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" };
     }
 
-    // Сжатие через общую утилиту (целевой вес ~19.5 МБ)
-    const compressionResult = await compressVideoBuffer(videoBuffer, fileName);
-    if (!compressionResult.success || !compressionResult.buffer) {
-        return { success: false, error: compressionResult.error || "Ошибка сжатия видео" };
-    }
-
-    const bufferToUpload = compressionResult.buffer;
-
-    if (bufferToUpload.length > 20 * 1024 * 1024) {
-        return { 
-            success: false, 
-            error: "Файл превышает лимит Telegram Bot API в 20 МБ даже после сжатия." 
-        };
-    }
-
     try {
+        const stats = await fs.stat(filePath);
+        if (stats.size > 20 * 1024 * 1024) {
+            return { success: false, error: "Файл превышает лимит Telegram Bot API в 20 МБ." };
+        }
+
         const formData = new globalThis.FormData();
         formData.append('chat_id', storageChatId);
         
-        const uint8Array = new Uint8Array(bufferToUpload);
-        const blob = new Blob([uint8Array], { type: 'video/mp4' });
-        
+        const fileStream = createReadStream(filePath);
+        const webStream = new ReadableStream({
+            start(controller) {
+                fileStream.on('data', (chunk) => controller.enqueue(chunk));
+                fileStream.on('end', () => controller.close());
+                fileStream.on('error', (err) => controller.error(err));
+            }
+        });
+
+        const blob = await new Response(webStream).blob();
         formData.append('document', blob, fileName || 'video.mp4');
         formData.append('caption', caption);
         formData.append('parse_mode', 'HTML');
@@ -250,9 +245,6 @@ export async function uploadVideoToTelegramStorage(
     }
 }
 
-/**
- * Удаление видеофайла из публичного хранилища Telegram (общего котла)
- */
 export async function deleteVideoFromTelegramStorage(messageId: number): Promise<{ success: boolean; error?: string }> {
     const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;

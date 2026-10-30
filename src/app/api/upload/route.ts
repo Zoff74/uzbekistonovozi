@@ -9,7 +9,9 @@ import { getToken } from "next-auth/jwt";
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
-import { createReadStream } from "fs";
+import { createReadStream, createWriteStream } from "fs";
+import { pipeline } from "stream/promises";
+import { Readable } from "stream";
 import ffmpeg from "fluent-ffmpeg";
 import { compressVideoPath } from "@/utils/videoCompressor";
 
@@ -95,8 +97,9 @@ export async function POST(request: NextRequest) {
         outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
         audioOutputPath = path.join(tempDir, `audio_${uniqueId}.mp3`);
 
-        const fileBuffer = Buffer.from(await file.arrayBuffer());
-        await fs.writeFile(inputPath, fileBuffer);
+        // СКВОЗНОЙ ПОТОК НА ДИСК (БЕЗ БУФЕРИЗАЦИИ В RAM)
+        const nodeStream = Readable.fromWeb(file.stream() as any);
+        await pipeline(nodeStream, createWriteStream(inputPath));
 
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
@@ -171,7 +174,7 @@ export async function POST(request: NextRequest) {
         telegramFormData.append("caption", captionText);
 
         const fileStream = createReadStream(finalPathToUpload);
-        const webStream = new ReadableStream({
+        const webUploadStream = new ReadableStream({
             start(controller) {
                 fileStream.on('data', (chunk) => controller.enqueue(chunk));
                 fileStream.on('end', () => controller.close());
@@ -179,7 +182,7 @@ export async function POST(request: NextRequest) {
             }
         });
 
-        const fileBlob = await new Response(webStream).blob();
+        const fileBlob = await new Response(webUploadStream).blob();
         telegramFormData.append("document", fileBlob, finalFileName);
 
         console.log(`[UPLOAD] Отправка файла в Telegram потоком...`);
