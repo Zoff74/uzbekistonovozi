@@ -6,9 +6,10 @@ import fs from "fs/promises";
 
 const execAsync = promisify(exec);
 const MAX_ALLOWED_SIZE_BYTES = 20 * 1024 * 1024; // 20 МБ
+const TARGET_MAX_BYTES = 19.8 * 1024 * 1024; // Целевой потолок под завязку лимита
 
 /**
- * Сжатие видео через буфер (для telegram.action.ts) — цель ~19.5 МБ
+ * Сжатие видео через буфер с максимальным качеством под 19.8 МБ (для telegram.action.ts)
  */
 export async function compressVideoBuffer(
     videoBuffer: Buffer, 
@@ -26,17 +27,30 @@ export async function compressVideoBuffer(
     const outputPath = path.join(tempDir, `out_${uniqueId}.mp4`);
 
     try {
-        console.log(`[FFMPEG] Старт сжатия файла: ${originalName} (${(videoBuffer.length / (1024 * 1024)).toFixed(2)} МБ)`);
+        console.log(`[FFMPEG] Старт сжатия (цель ~19.8 МБ, макс качество) для: ${originalName}`);
         await fs.writeFile(inputPath, videoBuffer);
 
-        // Битрейт настроен на выходной размер ~19.5 МБ
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 23 -preset ultrafast -maxrate 2.8M -bufsize 5.6M -acodec aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // CRF 20 + maxrate 4.0M — максимальная детализация без квадратов и зерна
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 20 -preset ultrafast -maxrate 4.0M -bufsize 8.0M -acodec aac -b:a 160k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 100 });
 
-        const compressedBuffer = await fs.readFile(outputPath);
-        const finalSizeMB = compressedBuffer.length / (1024 * 1024);
-        console.log(`[FFMPEG SUCCESS] Итоговый вес: ${finalSizeMB.toFixed(2)} МБ`);
+        let compressedBuffer = await fs.readFile(outputPath);
+        let finalSizeMB = compressedBuffer.length / (1024 * 1024);
+
+        // Если файл случайно перешагнул 19.8 МБ, делаем легкий дожим до заветных 19.5-19.8 МБ, не убивая качество
+        if (compressedBuffer.length > TARGET_MAX_BYTES) {
+            console.log(`[FFMPEG OPTIMIZE] Вес ${finalSizeMB.toFixed(2)} МБ чуть выше цели, полируем до 19.7 МБ...`);
+            const fineTunePath = path.join(tempDir, `fine_${uniqueId}.mp4`);
+            const fineTuneCmd = `ffmpeg -y -i "${outputPath}" -vcodec libx264 -crf 22 -preset ultrafast -maxrate 3.2M -bufsize 6.4M -acodec aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${fineTunePath}"`;
+            
+            await execAsync(fineTuneCmd, { maxBuffer: 1024 * 1024 * 100 });
+            compressedBuffer = await fs.readFile(fineTunePath);
+            finalSizeMB = compressedBuffer.length / (1024 * 1024);
+            await fs.unlink(fineTunePath).catch(() => {});
+        }
+
+        console.log(`[FFMPEG SUCCESS] Идеальный вес под лимит: ${finalSizeMB.toFixed(2)} МБ`);
 
         await fs.unlink(inputPath).catch(() => {});
         await fs.unlink(outputPath).catch(() => {});
@@ -55,7 +69,7 @@ export async function compressVideoBuffer(
 }
 
 /**
- * Сжатие видео напрямую по путям на диске (для route.ts) — цель ~19.5 МБ
+ * Сжатие видео по путям на диске с максимальным качеством под 19.8 МБ (для route.ts)
  */
 export async function compressVideoPath(
     inputPath: string,
@@ -73,14 +87,25 @@ export async function compressVideoPath(
             return { success: true };
         }
 
-        console.log(`[FFMPEG PATH] Старт сжатия с диска для: ${originalName} (${(stats.size / (1024 * 1024)).toFixed(2)} МБ)`);
+        console.log(`[FFMPEG PATH] Старт сжатия (цель ~19.8 МБ, макс качество) для: ${originalName}`);
 
-        // Битрейт настроен на выходной размер ~19.5 МБ
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 23 -preset ultrafast -maxrate 2.8M -bufsize 5.6M -acodec aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 20 -preset ultrafast -maxrate 4.0M -bufsize 8.0M -acodec aac -b:a 160k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 100 });
 
-        const finalStats = await fs.stat(outputPath);
+        let finalStats = await fs.stat(outputPath);
+        
+        if (finalStats.size > TARGET_MAX_BYTES) {
+            console.log(`[FFMPEG PATH OPTIMIZE] Вес ${(finalStats.size / (1024 * 1024)).toFixed(2)} МБ выше цели, полируем...`);
+            const fineTunePath = outputPath + "_fine.mp4";
+            const fineTuneCmd = `ffmpeg -y -i "${outputPath}" -vcodec libx264 -crf 22 -preset ultrafast -maxrate 3.2M -bufsize 6.4M -acodec aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${fineTunePath}"`;
+            
+            await execAsync(fineTuneCmd, { maxBuffer: 1024 * 1024 * 100 });
+            await fs.unlink(outputPath).catch(() => {});
+            await fs.rename(fineTunePath, outputPath);
+            finalStats = await fs.stat(outputPath);
+        }
+
         console.log(`[FFMPEG PATH SUCCESS] Итоговый вес: ${(finalStats.size / (1024 * 1024)).toFixed(2)} МБ`);
 
         return { success: true };
