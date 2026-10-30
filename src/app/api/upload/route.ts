@@ -12,7 +12,7 @@ import os from "os";
 import fs from "fs/promises";
 import { createReadStream } from "fs";
 import ffmpeg from "fluent-ffmpeg";
-import { compressVideoBuffer } from "@/utils/videoCompressor";
+import { compressVideoPath } from "@/utils/videoCompressor";
 
 const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
@@ -130,28 +130,26 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 3. ВИДЕО — сжатие через утилиту
-        if (uploadType === "video") {
-            try {
-                const videoBuffer = await fs.readFile(inputPath);
-                const compressionResult = await compressVideoBuffer(videoBuffer, originalName);
+        // 3. ВИДЕО — сжатие прямо с диска без раздутия памяти
+if (uploadType === "video") {
+    try {
+        const compressionResult = await compressVideoPath(inputPath, outputPath, originalName);
 
-                if (!compressionResult.success || !compressionResult.buffer) {
-                    return NextResponse.json({ error: compressionResult.error || "Ошибка сжатия видео" }, { status: 500 });
-                }
-
-                await fs.writeFile(outputPath, compressionResult.buffer);
-                finalPathToUpload = outputPath;
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
-
-            } catch (ffmpegErr: any) {
-                console.error("FFmpeg video error:", ffmpegErr);
-                await fs.unlink(inputPath).catch(() => {});
-                await fs.unlink(outputPath).catch(() => {});
-                await fs.unlink(audioOutputPath).catch(() => {});
-                return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
-            }
+        if (!compressionResult.success) {
+            return NextResponse.json({ error: compressionResult.error || "Ошибка сжатия видео" }, { status: 500 });
         }
+
+        finalPathToUpload = outputPath;
+        finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
+
+    } catch (ffmpegErr: any) {
+        console.error("FFmpeg video error:", ffmpegErr);
+        await fs.unlink(inputPath).catch(() => {});
+        await fs.unlink(outputPath).catch(() => {});
+        await fs.unlink(audioOutputPath).catch(() => {});
+        return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
+    }
+}
 
         const finalStats = await fs.stat(finalPathToUpload);
         if (finalStats.size > 20 * 1024 * 1024) {
