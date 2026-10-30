@@ -23,7 +23,8 @@ export async function compressVideoBuffer(
         console.log(`[FFMPEG BUFFER->DISK] Старт сжатия для: ${originalName} (${(videoBuffer.length / (1024 * 1024)).toFixed(2)} МБ)`);
         await fs.writeFile(inputPath, videoBuffer);
 
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vcodec libx264 -crf 26 -preset ultrafast -maxrate 1.8M -bufsize 3.6M -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // Умный scale: если видео больше 720p — сожмет до 720p, если меньше — не тронет (защита от апскейла)
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 26 -preset ultrafast -maxrate 1.8M -bufsize 3.6M -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 50 });
 
@@ -55,7 +56,8 @@ export async function compressVideoPath(
     try {
         console.log(`[FFMPEG PATH] Старт сжатия с диска для: ${originalName}`);
 
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vcodec libx264 -crf 26 -preset ultrafast -maxrate 1.8M -bufsize 3.6M -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // Умный scale: если видео больше 720p — сожмет до 720p, если меньше — не тронет
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 26 -preset ultrafast -maxrate 1.8M -bufsize 3.6M -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 50 });
 

@@ -3,7 +3,6 @@ export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
 
-// src/app/api/upload/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getToken } from "next-auth/jwt";
@@ -49,7 +48,6 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // АВТООПРЕДЕЛЕНИЕ ТИПА ЕСЛИ НЕ ПЕРЕДАН ЯВНО
         if (!uploadType) {
             if (file.type.startsWith("image/") || originalName.match(/\.(jpg|jpeg|png|webp|avif)$/i)) {
                 uploadType = "avatar";
@@ -60,7 +58,6 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 1. ИЗОБРАЖЕНИЕ / АВАТАР / ОБЛОЖКА — ИДЕТ ИСКЛЮЧИТЕЛЬНО В IMAGEKIT
         if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar" || uploadType === "img") {
             const oldFileId = formData.get("oldFileId") as string | null;
             const buffer = Buffer.from(await file.arrayBuffer());
@@ -91,7 +88,6 @@ export async function POST(request: NextRequest) {
             });
         } 
 
-        // Подготовка временных путей для аудио/видео
         const tempDir = os.tmpdir();
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -99,14 +95,12 @@ export async function POST(request: NextRequest) {
         outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
         audioOutputPath = path.join(tempDir, `audio_${uniqueId}.mp3`);
 
-        // Сохраняем входящий поток файла на диск частями (без забивания оперативки)
         const fileBuffer = Buffer.from(await file.arrayBuffer());
         await fs.writeFile(inputPath, fileBuffer);
 
         let finalPathToUpload = inputPath;
         let finalFileName = originalName;
 
-        // 2. АУДИО — КОНВЕРТАЦИЯ В MP3
         if (uploadType === "audio") {
             try {
                 await new Promise<void>((resolve, reject) => {
@@ -130,26 +124,25 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // 3. ВИДЕО — сжатие прямо с диска без раздутия памяти
-if (uploadType === "video") {
-    try {
-        const compressionResult = await compressVideoPath(inputPath, outputPath, originalName);
+        if (uploadType === "video") {
+            try {
+                const compressionResult = await compressVideoPath(inputPath, outputPath, originalName);
 
-        if (!compressionResult.success) {
-            return NextResponse.json({ error: compressionResult.error || "Ошибка сжатия видео" }, { status: 500 });
+                if (!compressionResult.success) {
+                    return NextResponse.json({ error: compressionResult.error || "Ошибка сжатия видео" }, { status: 500 });
+                }
+
+                finalPathToUpload = outputPath;
+                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
+
+            } catch (ffmpegErr: any) {
+                console.error("FFmpeg video error:", ffmpegErr);
+                await fs.unlink(inputPath).catch(() => {});
+                await fs.unlink(outputPath).catch(() => {});
+                await fs.unlink(audioOutputPath).catch(() => {});
+                return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
+            }
         }
-
-        finalPathToUpload = outputPath;
-        finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
-
-    } catch (ffmpegErr: any) {
-        console.error("FFmpeg video error:", ffmpegErr);
-        await fs.unlink(inputPath).catch(() => {});
-        await fs.unlink(outputPath).catch(() => {});
-        await fs.unlink(audioOutputPath).catch(() => {});
-        return NextResponse.json({ error: "Ошибка сжатия видео: " + ffmpegErr.message }, { status: 500 });
-    }
-}
 
         const finalStats = await fs.stat(finalPathToUpload);
         if (finalStats.size > 20 * 1024 * 1024) {
@@ -169,7 +162,6 @@ if (uploadType === "video") {
             return NextResponse.json({ error: "Ошибка конфигурации хранилища (нет токена или Chat ID)" }, { status: 500 });
         }
 
-        // ОТПРАВКА В TELEGRAM ЧЕРЕЗ ПОТОКОВЫЙ FETCH БЕЗ ОГРОМНЫХ БУФЕРОВ
         const prefixLabel = uploadType === "audio" ? "🎵 Track" : "🎥 Video";
         const captionText = `${prefixLabel}: ${userName}`;
 
@@ -178,7 +170,6 @@ if (uploadType === "video") {
         telegramFormData.append("parse_mode", "HTML");
         telegramFormData.append("caption", captionText);
 
-        // Читаем файл стримом с диска без буферизации в памяти
         const fileStream = createReadStream(finalPathToUpload);
         const webStream = new ReadableStream({
             start(controller) {
@@ -199,7 +190,6 @@ if (uploadType === "video") {
 
         const telegramResult = await telegramRes.json();
 
-        // Очищаем временные файлы
         await fs.unlink(inputPath).catch(() => {});
         if (outputPath) await fs.unlink(outputPath).catch(() => {});
         if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
