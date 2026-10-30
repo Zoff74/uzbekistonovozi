@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 const MAX_ALLOWED_SIZE_BYTES = 20 * 1024 * 1024; // 20 МБ
 
 /**
- * Сжатие видео через буфер
+ * Сжатие видео через буфер (для telegram.action.ts) — цель ~19.5 МБ
  */
 export async function compressVideoBuffer(
     videoBuffer: Buffer, 
@@ -29,7 +29,8 @@ export async function compressVideoBuffer(
         console.log(`[FFMPEG] Старт сжатия файла: ${originalName} (${(videoBuffer.length / (1024 * 1024)).toFixed(2)} МБ)`);
         await fs.writeFile(inputPath, videoBuffer);
 
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 26 -preset ultrafast -maxrate 1.8M -bufsize 3.6M -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // Битрейт настроен на выходной размер ~19.5 МБ
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 23 -preset ultrafast -maxrate 2.8M -bufsize 5.6M -acodec aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 100 });
 
@@ -54,7 +55,7 @@ export async function compressVideoBuffer(
 }
 
 /**
- * Сжатие видео напрямую по путям на диске (используется в роуте загрузки)
+ * Сжатие видео напрямую по путям на диске (для route.ts) — цель ~19.5 МБ
  */
 export async function compressVideoPath(
     inputPath: string,
@@ -64,7 +65,6 @@ export async function compressVideoPath(
     try {
         const stats = await fs.stat(inputPath);
 
-        // Если файл меньше 20 МБ — просто копируем его (или оставляем на месте)
         if (stats.size <= MAX_ALLOWED_SIZE_BYTES) {
             console.log(`[FFMPEG PATH] Файл меньше 20 МБ (${(stats.size / (1024 * 1024)).toFixed(2)} МБ). Пропускаем сжатие.`);
             if (inputPath !== outputPath) {
@@ -75,7 +75,8 @@ export async function compressVideoPath(
 
         console.log(`[FFMPEG PATH] Старт сжатия с диска для: ${originalName} (${(stats.size / (1024 * 1024)).toFixed(2)} МБ)`);
 
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 26 -preset ultrafast -maxrate 1.8M -bufsize 3.6M -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // Битрейт настроен на выходной размер ~19.5 МБ
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(1280,iw)':-2" -vcodec libx264 -crf 23 -preset ultrafast -maxrate 2.8M -bufsize 5.6M -acodec aac -b:a 128k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 100 });
 

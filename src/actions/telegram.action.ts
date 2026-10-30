@@ -194,7 +194,7 @@ export async function uploadVideoToTelegramStorage(
         return { success: false, error: "Telegram бот или TELEGRAM_STORAGE_CHAT_ID не настроены" };
     }
 
-    // Сжатие через общую утилиту
+    // Сжатие через общую утилиту (целевой вес ~19.5 МБ)
     const compressionResult = await compressVideoBuffer(videoBuffer, fileName);
     if (!compressionResult.success || !compressionResult.buffer) {
         return { success: false, error: compressionResult.error || "Ошибка сжатия видео" };
