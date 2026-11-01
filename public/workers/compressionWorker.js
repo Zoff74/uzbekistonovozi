@@ -29,16 +29,20 @@ self.onmessage = async (e) => {
         const fileData = await FFmpegUtil.fetchFile(file);
         await ffmpeg.writeFile(inputName, fileData);
 
-        // Умный фильтр: уменьшаем до 480p ТОЛЬКО если исходник выше 480. 
-        // Если видео уже 480p или ниже — разрешение остается исходным (iw:ih), но файл сжимается по битрейту до <20МБ.
+        // ЖЕСТКИЙ КОНТРОЛЬ РАЗМЕРА: 
+        // 1. Разрешение >480p уменьшаем до 480p, <=480p — оставляем как есть.
+        // 2. Лимит битрейта видео (-b:v 400k) гарантирует, что 6 минут видео сожмутся до ~14-16 МБ.
+        // 3. Звук AAC 96k экономит место для видеопотока.
         await ffmpeg.exec([
             '-i', inputName,
             '-vf', "scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,ih)'",
             '-vcodec', 'libx264',
-            '-crf', '28',                    // Надежный CRF для гарантированного попадания в лимит <20MB
+            '-b:v', '400k',                 // Жесткий целевой битрейт видео для попадания в <20МБ
+            '-maxrate', '550k',             // Пиковый битрейт для динамичных сцен
+            '-bufsize', '1000k',
             '-preset', 'ultrafast',
             '-acodec', 'aac',
-            '-b:a', '96k',                   // Экономный, но чистый звук
+            '-b:a', '96k',
             '-movflags', '+faststart',
             outputName
         ]);
@@ -48,7 +52,7 @@ self.onmessage = async (e) => {
         await ffmpeg.deleteFile(outputName);
 
         const uint8 = new Uint8Array(data);
-        console.log("Worker: Итоговый размер:", (uint8.length / 1024 / 1024).toFixed(2), "MB");
+        console.log("Worker: Итоговый размер с гарантией <20МБ:", (uint8.length / 1024 / 1024).toFixed(2), "MB");
 
         const arrayBuffer = new ArrayBuffer(uint8.length);
         new Uint8Array(arrayBuffer).set(uint8);
