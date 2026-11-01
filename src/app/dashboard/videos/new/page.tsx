@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
+import { compressVideoOnClient } from "@/utils/videoCompressor";
 
 export default function NewVideoPage() {
     const router = useRouter();
@@ -118,24 +119,40 @@ export default function NewVideoPage() {
         setLoading(true);
         setError(null);
         setUploadProgress(0);
-        setStatusMessage(tr("Видео серверга юкланмоқда...", "Video serverga yuklanmoqda...", "Загрузка видео на сервер...", "Uploading video to server..."));
 
         try {
+            // 1. СЖИМАЕМ ВИДЕО НА КЛИЕНТЕ ЧЕРЕЗ WEB WORKER (<20 МБ)
+            setStatusMessage(tr(
+                "Видео браузерда сиқилмоқда (Фоновый режим)...",
+                "Video brauzerda siqilmoqda (Fonoviy rejim)...",
+                "Сжатие видео в браузере (фоновый режим)...",
+                "Compressing video in browser (background mode)..."
+            ));
+
+            const compressedFile = await compressVideoOnClient(videoFile, (progress) => {
+                // Прогресс сжатия занимает от 0% до 60% шкалы загрузки
+                const mappedProgress = Math.round(progress * 0.6);
+                setUploadProgress(mappedProgress);
+            });
+
+            setStatusMessage(tr(
+                "Видео серверга юкланмоқда...",
+                "Video serverga yuklanmoqda...",
+                "Загрузка сжатого видео на сервер...",
+                "Uploading compressed video to server..."
+            ));
+
+            // 2. ОТПРАВЛЯЕМ ГОТОВЫЙ ЛЕГКИЙ ФАЙЛ НА СЕРВЕР ЧЕРЕЗ XHR
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "/api/upload");
-                
-                // УСТАНАВЛИВАЕМ БЕСКОНЕЧНЫЙ ТАЙМАУТ БРАУЗЕРА (0 = без ограничений)
-                // Чтобы браузер не сбрасывал соединение по тайм-ауту во время долгого сжатия видео на сервере (10-20 минут)
                 xhr.timeout = 0;
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const percentComplete = Math.round((event.loaded / event.total) * 80);
-                        setUploadProgress(percentComplete);
-                        if (percentComplete >= 80) {
-                            setStatusMessage(tr("Видео серверга Муваффақиятли юкланди. Энди сервер видеони кичрайтирмоқда. Бу жараён 10-15 дақиқа вақт олиши мумкин... Сабр қилиб кутинг...", "Video serverga Muvaffaquyatli yoklandi. Endi Server videoni kichraitirmoqda. Bu jarayon 10-15 daqiqa vaqt olishi mumkin... Sabr qilib kuting...", "Сервер обрабатывает и сжимает видео. Это может занять 10-15 минут... Пожалуйста, ждите...", "Server is processing and compressing video. Please wait..."));
-                        }
+                        // Загрузка на сервер занимает от 60% до 90% шкалы
+                        const uploadProgressVal = 60 + Math.round((event.loaded / event.total) * 30);
+                        setUploadProgress(uploadProgressVal);
                     }
                 };
 
@@ -176,13 +193,13 @@ export default function NewVideoPage() {
                 };
 
                 const data = new FormData();
-                data.append("file", videoFile);
+                data.append("file", compressedFile); // Передаем сжатый файл (<20МБ)
                 data.append("type", "video");
 
                 xhr.send(data);
             });
             
-            setUploadProgress(90);
+            setUploadProgress(95);
             setStatusMessage("Сохранение данных в базу...");
 
             const metadataFormData = new FormData();
@@ -406,21 +423,7 @@ export default function NewVideoPage() {
                             <div className="flex items-start gap-2 text-xs text-neutral-400">
                                 <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={15} />
                                 <div className="space-y-1 text-neutral-300 leading-relaxed">
-                                    {isLargeVideo ? (
-                                        <>
-                                            <p className="text-amber-400 font-medium">
-                                                {tr("Видео ҳажми катта. Ҳозир у автоматик равишда кичрайтирилади. Бу жараён интернет тезлигига боғлиқ ва 1 дақиқадан 15 дақиқагача вақт керак бўлиши мумкун...", "Video hajmi katta. Hozir u avtomatik ravishda kichraytiriladi. Bu jarayon internet tezligiga bogliq va 1 daqiqadan 15 daqiqagacha vaqt kerak bo'lishi mumkun...", "Размер видео очень большой. Сейчас оно автоматически сжимается. Это может занять от 1 до 15 минут в зависимости от Вашего скорости интернета...", "Video size is very large. It is currently being compressed automatically. This may take 1 to 15 minutes...")}
-                                            </p>
-                                            <p className="text-amber-400 text-[12px]">
-                                                {tr("Илтимос сабр қилиб, тугашини кутинг...", "Iltimos sabr qilib tugashini kuting...", "Пожалуйста, подождите...", "Please wait...")}
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <p className="text-amber-400 font-medium">
-                                            {tr("Видео юкланмоқда, илтимос кутинг...", "Video yuklanmoqda, iltimos kuting...", "Загрузка видео, пожалуйста подождите...", "Uploading video, please wait...")}
-                                        </p>
-                                    )}
-                                    <p className="text-amber-400/90 font-medium text-[11px] pt-1">
+                                    <p className="text-amber-400 font-medium">
                                         {statusMessage}
                                     </p>
                                 </div>
