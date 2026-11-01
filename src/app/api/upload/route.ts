@@ -1,3 +1,4 @@
+//src\app\api\upload\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
@@ -12,7 +13,6 @@ import fs from "fs/promises";
 import { createReadStream, createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
 import { Readable } from "stream";
-import { compressVideoPath } from "@/utils/videoCompressor";
 
 // Инициализация ImageKit строго по актуальной типизации пакета
 const imagekit = new ImageKit({
@@ -21,7 +21,6 @@ const imagekit = new ImageKit({
 
 export async function POST(request: NextRequest) {
     let inputPath = "";
-    let outputPath = "";
     let audioOutputPath = "";
 
     try {
@@ -94,32 +93,15 @@ export async function POST(request: NextRequest) {
         const uniqueId = Date.now();
         const safeFileName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
         inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
-        outputPath = path.join(tempDir, `output_${uniqueId}.mp4`);
         audioOutputPath = path.join(tempDir, `audio_${uniqueId}.mp3`);
 
-        // Потоковая запись на диск без буферизации в RAM
+        // Потоковая запись на диск файла, уже сжатого на клиенте
         const nodeStream = Readable.fromWeb(file.stream() as any);
         await pipeline(nodeStream, createWriteStream(inputPath));
 
-        let finalPathToUpload = inputPath;
-        let finalFileName = originalName;
-
-        if (uploadType === "video") {
-            try {
-                const compressionResult = await compressVideoPath(inputPath, outputPath, originalName);
-                if (!compressionResult.success) {
-                    return NextResponse.json({ error: compressionResult.error || "Ошибка сжатия видео" }, { status: 500 });
-                }
-                finalPathToUpload = outputPath;
-                finalFileName = originalName.replace(/\.[^/.]+$/, "") + "_compressed.mp4";
-            } catch (ffmpegErr: any) {
-                console.error("FFmpeg error:", ffmpegErr);
-                return NextResponse.json({ error: "Ошибка обработки FFmpeg: " + ffmpegErr.message }, { status: 500 });
-            }
-        }
-
-        const finalStats = await fs.stat(finalPathToUpload);
+        const finalStats = await fs.stat(inputPath);
         if (finalStats.size > 20 * 1024 * 1024) {
+            await fs.unlink(inputPath).catch(() => {});
             return NextResponse.json({ error: "Файл превышает лимит Telegram в 20 МБ." }, { status: 400 });
         }
 
@@ -127,6 +109,7 @@ export async function POST(request: NextRequest) {
         const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
 
         if (!BOT_TOKEN || !storageChatId) {
+            await fs.unlink(inputPath).catch(() => {});
             return NextResponse.json({ error: "Не настроен Telegram Storage" }, { status: 500 });
         }
 
@@ -136,7 +119,7 @@ export async function POST(request: NextRequest) {
         telegramFormData.append("parse_mode", "HTML");
         telegramFormData.append("caption", `${prefixLabel}: ${userName}`);
 
-        const fileStream = createReadStream(finalPathToUpload);
+        const fileStream = createReadStream(inputPath);
         const webUploadStream = new ReadableStream({
             start(controller) {
                 fileStream.on('data', (chunk) => controller.enqueue(chunk));
@@ -146,7 +129,7 @@ export async function POST(request: NextRequest) {
         });
 
         const fileBlob = await new Response(webUploadStream).blob();
-        telegramFormData.append("document", fileBlob, finalFileName);
+        telegramFormData.append("document", fileBlob, originalName);
 
         const telegramRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
@@ -157,7 +140,6 @@ export async function POST(request: NextRequest) {
 
         // Очистка временных файлов
         await fs.unlink(inputPath).catch(() => {});
-        if (outputPath) await fs.unlink(outputPath).catch(() => {});
         if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
 
         if (!telegramRes.ok || !telegramResult.ok) {
@@ -181,7 +163,6 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         if (inputPath) await fs.unlink(inputPath).catch(() => {});
-        if (outputPath) await fs.unlink(outputPath).catch(() => {});
         if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
         console.error("🔥 Upload Error:", error);
         return NextResponse.json({ error: error.message || "Ошибка сервера" }, { status: 500 });
