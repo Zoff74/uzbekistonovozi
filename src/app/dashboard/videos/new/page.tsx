@@ -1,5 +1,4 @@
 "use client";
-// src/app/dashboard/videos/new/page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -121,7 +120,6 @@ export default function NewVideoPage() {
         setUploadProgress(0);
 
         try {
-            // 1. СЖИМАЕМ ВИДЕО НА КЛИЕНТЕ ЧЕРЕЗ WEB WORKER (<20 МБ)
             setStatusMessage(tr(
                 "Видео браузерда сиқилмоқда (Фоновый режим)...",
                 "Video brauzerda siqilmoqda (Fonoviy rejim)...",
@@ -130,7 +128,6 @@ export default function NewVideoPage() {
             ));
 
             const compressedFile = await compressVideoOnClient(videoFile, (progress) => {
-                // Прогресс сжатия занимает от 0% до 60% шкалы загрузки
                 const mappedProgress = Math.round(progress * 0.6);
                 setUploadProgress(mappedProgress);
             });
@@ -142,7 +139,6 @@ export default function NewVideoPage() {
                 "Uploading compressed video to server..."
             ));
 
-            // 2. ОТПРАВЛЯЕМ ГОТОВЫЙ ЛЕГКИЙ ФАЙЛ НА СЕРВЕР ЧЕРЕЗ XHR
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open("POST", "/api/upload");
@@ -150,7 +146,6 @@ export default function NewVideoPage() {
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        // Загрузка на сервер занимает от 60% до 90% шкалы
                         const uploadProgressVal = 60 + Math.round((event.loaded / event.total) * 30);
                         setUploadProgress(uploadProgressVal);
                     }
@@ -193,7 +188,7 @@ export default function NewVideoPage() {
                 };
 
                 const data = new FormData();
-                data.append("file", compressedFile); // Передаем сжатый файл (<20МБ)
+                data.append("file", compressedFile);
                 data.append("type", "video");
 
                 xhr.send(data);
@@ -268,8 +263,6 @@ export default function NewVideoPage() {
             }}
         />
     );
-
-    const isLargeVideo = videoFile && videoFile.size > 48 * 1024 * 1024;
 
     return (
         <div className="min-h-screen bg-neutral-950 text-white p-6 md:p-12 relative font-sans">

@@ -29,16 +29,12 @@ self.onmessage = async (e) => {
         const fileData = await FFmpegUtil.fetchFile(file);
         await ffmpeg.writeFile(inputName, fileData);
 
-        // ЖЕСТКИЙ КОНТРОЛЬ РАЗМЕРА: 
-        // 1. Разрешение >480p уменьшаем до 480p, <=480p — оставляем как есть.
-        // 2. Лимит битрейта видео (-b:v 400k) гарантирует, что 6 минут видео сожмутся до ~14-16 МБ.
-        // 3. Звук AAC 96k экономит место для видеопотока.
         await ffmpeg.exec([
             '-i', inputName,
             '-vf', "scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,ih)'",
             '-vcodec', 'libx264',
-            '-b:v', '400k',                 // Жесткий целевой битрейт видео для попадания в <20МБ
-            '-maxrate', '550k',             // Пиковый битрейт для динамичных сцен
+            '-b:v', '400k',
+            '-maxrate', '550k',
             '-bufsize', '1000k',
             '-preset', 'ultrafast',
             '-acodec', 'aac',

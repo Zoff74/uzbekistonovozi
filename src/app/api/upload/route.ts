@@ -1,4 +1,3 @@
-//src\app\api\upload\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
@@ -14,7 +13,6 @@ import { createReadStream, createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
 import { Readable } from "stream";
 
-// Инициализация ImageKit строго по актуальной типизации пакета
 const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "",
 });
@@ -58,7 +56,6 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Загрузка картинок через актуальное API ImageKit (.files)
         if (uploadType === "image" || uploadType === "cover" || uploadType === "avatar" || uploadType === "img") {
             const oldFileId = formData.get("oldFileId") as string | null;
             const buffer = Buffer.from(await file.arrayBuffer());
@@ -95,7 +92,6 @@ export async function POST(request: NextRequest) {
         inputPath = path.join(tempDir, `input_${uniqueId}_${safeFileName}`);
         audioOutputPath = path.join(tempDir, `audio_${uniqueId}.mp3`);
 
-        // Потоковая запись на диск файла, уже сжатого на клиенте
         const nodeStream = Readable.fromWeb(file.stream() as any);
         await pipeline(nodeStream, createWriteStream(inputPath));
 
@@ -138,7 +134,6 @@ export async function POST(request: NextRequest) {
 
         const telegramResult = await telegramRes.json();
 
-        // Очистка временных файлов
         await fs.unlink(inputPath).catch(() => {});
         if (audioOutputPath) await fs.unlink(audioOutputPath).catch(() => {});
 

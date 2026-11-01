@@ -3,8 +3,13 @@ export async function compressVideoOnClient(
     onProgress?: (progress: number) => void
 ): Promise<File> {
     return new Promise((resolve, reject) => {
-        // Создаем воркер
-        const worker = new Worker(new URL('/public/workers/compressionWorker.js', import.meta.url));
+        let worker: Worker;
+        try {
+            worker = new Worker(new URL('/workers/compressionWorker.js', import.meta.url));
+        } catch (err) {
+            console.error("Ошибка создания Worker:", err);
+            return reject(err);
+        }
 
         worker.postMessage({ file });
 
