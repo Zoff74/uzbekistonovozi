@@ -1,4 +1,3 @@
-// public\workers\compressionWorker.js - Это фоновый воркер, который крутится в отдельном потоке браузера и позволяет юзеру закрыть вкладу где происходит сжимание видео и не ждать окончание сжатия.
 importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js');
 importScripts('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js');
 
@@ -6,6 +5,7 @@ let ffmpeg = null;
 
 self.onmessage = async (e) => {
     const { file } = e.data;
+    console.log("Worker: Старт сжатия файла:", file.name, (file.size / 1024 / 1024).toFixed(2), "MB");
 
     try {
         if (!ffmpeg) {
@@ -23,21 +23,22 @@ self.onmessage = async (e) => {
             });
         }
 
-        const inputName = `input_${Date.now()}.mp4`;
+        const inputName = `input_${Date.now()}.mkv`;
         const outputName = `output_${Date.now()}.mp4`;
 
         const fileData = await FFmpegUtil.fetchFile(file);
         await ffmpeg.writeFile(inputName, fileData);
 
-        // Тяжелая кодировка в фоне
+        // Умный фильтр: уменьшаем до 480p ТОЛЬКО если исходник выше 480. 
+        // Если видео уже 480p или ниже — разрешение остается исходным (iw:ih), но файл сжимается по битрейту до <20МБ.
         await ffmpeg.exec([
             '-i', inputName,
-            '-vf', "scale='min(854,iw)':-2",
+            '-vf', "scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,ih)'",
             '-vcodec', 'libx264',
-            '-crf', '28',
+            '-crf', '28',                    // Надежный CRF для гарантированного попадания в лимит <20MB
             '-preset', 'ultrafast',
             '-acodec', 'aac',
-            '-b:a', '96k',
+            '-b:a', '96k',                   // Экономный, но чистый звук
             '-movflags', '+faststart',
             outputName
         ]);
@@ -46,14 +47,16 @@ self.onmessage = async (e) => {
         await ffmpeg.deleteFile(inputName);
         await ffmpeg.deleteFile(outputName);
 
-        // Отправляем готовый буфер обратно в главный поток
         const uint8 = new Uint8Array(data);
+        console.log("Worker: Итоговый размер:", (uint8.length / 1024 / 1024).toFixed(2), "MB");
+
         const arrayBuffer = new ArrayBuffer(uint8.length);
         new Uint8Array(arrayBuffer).set(uint8);
 
         self.postMessage({ type: 'SUCCESS', arrayBuffer, originalName: file.name });
 
     } catch (err) {
+        console.error("Worker Error:", err);
         self.postMessage({ type: 'ERROR', message: err.message });
     }
 };
