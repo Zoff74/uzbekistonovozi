@@ -5,8 +5,8 @@ export async function compressVideoOnClient(
     return new Promise((resolve, reject) => {
         let worker: Worker;
         try {
-            // Исправленный путь для Webpack/Next.js (ссылка на public/workers/compressionWorker.js)
-            worker = new Worker(new URL('../../public/workers/compressionWorker.js', import.meta.url));
+            // Создаем воркер напрямую из папки public, что гарантирует доступность на Render
+            worker = new Worker('/workers/compressionWorker.js');
         } catch (err) {
             console.error("Ошибка создания Worker:", err);
             return reject(err);
