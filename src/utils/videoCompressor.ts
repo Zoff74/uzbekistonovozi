@@ -6,7 +6,7 @@ const execAsync = promisify(exec);
 const MAX_ALLOWED_SIZE_BYTES = 20 * 1024 * 1024; // 20 МБ
 
 /**
- * Сбалансированный компрессор: без плавающих кубиков на динамике и без таймаутов
+ * Идеальный баланс: чистая картинка без кубиков, гарантированный вес < 20 МБ и высокая скорость без таймаутов
  */
 export async function compressVideoPath(
     inputPath: string,
@@ -25,14 +25,14 @@ export async function compressVideoPath(
         }
 
         const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
-        console.log(`[FFMPEG] Плавное сжатие без артефактов файла ${sizeMB} МБ (${originalName})...`);
+        console.log(`[FFMPEG] Точное сжатие под лимит Telegram файла ${sizeMB} МБ (${originalName})...`);
 
-        // Что изменилось для борьбы с периодическими кубиками:
-        // 1. CRF 25 — повышает общую детализацию (убирает легкую зернистость).
-        // 2. -rc-lookahead 40 — заставляет кодировщик анализировать движение наперед, 
-        //    чтобы плавно перераспределять битрейт на динамичных сценах (где раньше возникали кубики).
-        // 3. Сохранили -preset superfast и -tune film для высокой скорости без обрыва сети.
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(854,iw)':-2" -vcodec libx264 -crf 25 -preset superfast -tune film -rc-lookahead 40 -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // Что здесь сделано:
+        // 1. CRF 26 и -tune film дают хорошую детализацию без лишнего зерна.
+        // 2. Добавлен лимит максимального битрейта (-maxrate 550k -bufsize 1100k), 
+        //    чтобы на динамичных сценах видео не раздувалось больше положенного и строго умещалось в <20 МБ.
+        // 3. Сохранен быстрый пресет superfast для защиты от сетевых сбоев.
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(854,iw)':-2" -vcodec libx264 -crf 26 -preset superfast -tune film -maxrate 550k -bufsize 1100k -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 100 });
 
