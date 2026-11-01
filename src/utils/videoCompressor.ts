@@ -6,7 +6,7 @@ const execAsync = promisify(exec);
 const MAX_ALLOWED_SIZE_BYTES = 20 * 1024 * 1024; // 20 МБ
 
 /**
- * Оптимизированный компрессор: баланс между качеством (без сильных кубиков) и скоростью без 502 ошибок
+ * Сбалансированный компрессор: без плавающих кубиков на динамике и без таймаутов
  */
 export async function compressVideoPath(
     inputPath: string,
@@ -25,14 +25,14 @@ export async function compressVideoPath(
         }
 
         const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
-        console.log(`[FFMPEG] Качественное сжатие файла ${sizeMB} МБ (${originalName})...`);
+        console.log(`[FFMPEG] Плавное сжатие без артефактов файла ${sizeMB} МБ (${originalName})...`);
 
-        // Что изменилось для улучшения картинки:
-        // 1. Подняли битрейт видео с 300k до 450k (теперь файл будет весить около 18.5–19.2 МБ — прямо под завязку Telegram).
-        // 2. Снизили CRF с 35 до 28 (уберет мыло и сильные кубики).
-        // 3. Добавили параметр -tune film — оптимизирует кодировщик x264 для работы с реальными видео, уменьшая артефакты сжатия.
-        // 4. Подняли битрейт аудио до 96k, чтобы звук был чище.
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(854,iw)':-2" -vcodec libx264 -crf 28 -preset ultrafast -tune film -b:v 450k -maxrate 600k -bufsize 1200k -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // Что изменилось для борьбы с периодическими кубиками:
+        // 1. CRF 25 — повышает общую детализацию (убирает легкую зернистость).
+        // 2. -rc-lookahead 40 — заставляет кодировщик анализировать движение наперед, 
+        //    чтобы плавно перераспределять битрейт на динамичных сценах (где раньше возникали кубики).
+        // 3. Сохранили -preset superfast и -tune film для высокой скорости без обрыва сети.
+        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(854,iw)':-2" -vcodec libx264 -crf 25 -preset superfast -tune film -rc-lookahead 40 -acodec aac -b:a 96k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 100 });
 
