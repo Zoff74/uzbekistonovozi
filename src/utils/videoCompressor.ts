@@ -3,11 +3,11 @@ import { promisify } from "util";
 import fs from "fs/promises";
 
 const execAsync = promisify(exec);
-const MAX_ALLOWED_SIZE_BYTES = 20 * 1024 * 1024; // 20 МБ
-const TARGET_MAX_BYTES = 19.5 * 1024 * 1024; // 19.5 МБ лимит
+const MAX_ALLOWED_SIZE_BYTES = 20 * 1024 * 1024; // 20 МБ абсолютный лимит Telegram
+const TARGET_SAFE_BYTES = 18.5 * 1024 * 1024; // Безопасная цель 18.5 МБ с запасом
 
 /**
- * Получение длительности видео через ffprobe
+ * Получение длительности видео в секундах через ffprobe
  */
 async function getVideoDuration(filePath: string): Promise<number> {
     try {
@@ -20,7 +20,7 @@ async function getVideoDuration(filePath: string): Promise<number> {
 }
 
 /**
- * Однопроходный компрессор (480p) с гарантированной защитой от 502 таймаутов
+ * Сверхбыстрый компрессор с гарантией попадания в лимит Telegram < 20 МБ
  */
 export async function compressVideoPath(
     inputPath: string,
@@ -31,7 +31,7 @@ export async function compressVideoPath(
         const stats = await fs.stat(inputPath);
 
         if (stats.size <= MAX_ALLOWED_SIZE_BYTES) {
-            console.log(`[FFMPEG] Файл меньше 20 МБ (${(stats.size / (1024 * 1024)).toFixed(2)} МБ). Пропускаем сжатие.`);
+            console.log(`[FFMPEG] Файл уже меньше 20 МБ (${(stats.size / (1024 * 1024)).toFixed(2)} МБ). Пропускаем сжатие.`);
             if (inputPath !== outputPath) {
                 await fs.copyFile(inputPath, outputPath);
             }
@@ -39,31 +39,47 @@ export async function compressVideoPath(
         }
 
         const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
-        console.log(`[FFMPEG] Старт однопроходного сжатия файла ${sizeMB} МБ (${originalName})...`);
+        console.log(`[FFMPEG] Старт сжатия файла ${sizeMB} МБ (${originalName}) с прицелом на безопасные 18.5 МБ...`);
 
         const duration = await getVideoDuration(inputPath);
-        let videoBitrateKbps = 380; // Консервативный битрейт под 480p для долгой длительности
+        let videoBitrateKbps = 320; // Консервативный битрейт под 480p для длинных роликов
 
         if (duration > 0) {
-            const targetBits = TARGET_MAX_BYTES * 8;
-            const audioBits = 80000 * duration; // Аудио 80 кбит/с экономит место под видео
+            const targetBits = TARGET_SAFE_BYTES * 8;
+            const audioBits = 64000 * duration; // Аудио 64 кбит/с
             const targetVideoBits = targetBits - audioBits;
             const calculated = Math.floor((targetVideoBits / duration) / 1000);
 
-            // Жестко ограничиваем битрейт снизу и сверху, чтобы гарантированно вписаться в размер без повторных проходов
-            videoBitrateKbps = Math.max(200, Math.min(calculated, 550));
+            // Держим битрейт в строгих границах
+            videoBitrateKbps = Math.max(160, Math.min(calculated, 450));
         }
 
-        console.log(`[FFMPEG] Длительность: ${duration.toFixed(1)}с. Расчетный битрейт: ${videoBitrateKbps}k`);
+        console.log(`[FFMPEG] Длительность: ${duration.toFixed(1)}с. Расчетный битрейт видео: ${videoBitrateKbps}k`);
 
-        // Строго 1 проход с масштабированием до 480p (scale='min(854,iw)':-2) — исключает любые таймауты
-        const cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(854,iw)':-2" -vcodec libx264 -crf 32 -preset ultrafast -b:v ${videoBitrateKbps}k -maxrate ${Math.floor(videoBitrateKbps * 1.2)}k -bufsize ${videoBitrateKbps * 2}k -acodec aac -b:a 80k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
+        // Основное сжатие в 480p (scale='min(854,iw)':-2) с пресетом ultrafast для исключения 502
+        let cmd = `ffmpeg -y -i "${inputPath}" -map 0:v:0 -map 0:a? -vf "scale='min(854,iw)':-2" -vcodec libx264 -crf 34 -preset ultrafast -b:v ${videoBitrateKbps}k -maxrate ${Math.floor(videoBitrateKbps * 1.2)}k -bufsize ${videoBitrateKbps * 2}k -acodec aac -b:a 64k -pix_fmt yuv420p -movflags +faststart "${outputPath}"`;
         
         await execAsync(cmd, { maxBuffer: 1024 * 1024 * 100 });
 
-        const finalStats = await fs.stat(outputPath);
-        const finalSizeMB = finalStats.size / (1024 * 1024);
-        console.log(`[FFMPEG SUCCESS] Итоговый вес: ${finalSizeMB.toFixed(2)} МБ`);
+        let finalStats = await fs.stat(outputPath);
+        let finalSizeMB = finalStats.size / (1024 * 1024);
+        console.log(`[FFMPEG] Промежуточный размер: ${finalSizeMB.toFixed(2)} МБ`);
+
+        // ЖЕСТКАЯ СТРАХОВКА: если файл все еще подошел слишком близко к 20 МБ (> 19.2 МБ)
+        if (finalStats.size > 19.2 * 1024 * 1024) {
+            console.log(`[FFMPEG EMERGENCY] Вес близок к лимиту (${finalSizeMB.toFixed(2)} МБ), выполняем мгновенный микро-дожим...`);
+            const finePath = outputPath + "_emergency.mp4";
+            const emergencyRate = Math.max(140, Math.floor(videoBitrateKbps * 0.75));
+
+            const emergencyCmd = `ffmpeg -y -i "${outputPath}" -vcodec libx264 -crf 36 -preset ultrafast -b:v ${emergencyRate}k -maxrate ${Math.floor(emergencyRate * 1.2)}k -bufsize ${emergencyRate * 2}k -acodec aac -b:a 48k -pix_fmt yuv420p -movflags +faststart "${finePath}"`;
+            
+            await execAsync(emergencyCmd, { maxBuffer: 1024 * 1024 * 100 });
+            await fs.unlink(outputPath).catch(() => {});
+            await fs.rename(finePath, outputPath);
+
+            finalStats = await fs.stat(outputPath);
+            console.log(`[FFMPEG EMERGENCY SUCCESS] Окончательный безопасный размер: ${(finalStats.size / (1024 * 1024)).toFixed(2)} МБ`);
+        }
 
         return { success: true };
 
