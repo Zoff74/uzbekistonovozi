@@ -1,4 +1,5 @@
-//src\utils\videoCompressor.ts
+// Полный клиентский файл для запуска видеокомпрессии в воркере
+
 export async function compressVideoOnClient(
     file: File,
     onProgress?: (progress: number) => void
@@ -6,18 +7,25 @@ export async function compressVideoOnClient(
     return new Promise(async (resolve, reject) => {
         let worker: Worker;
         try {
-            worker = new Worker('/workers/compressionWorker.js');
+            // Добавляем ?v=2, чтобы гарантированно обойти кэш браузера для воркера
+            worker = new Worker('/workers/compressionWorker.js?v=2');
         } catch (err) {
             console.error("Ошибка создания Worker:", err);
             return reject(err);
         }
 
-        // Читаем файл в ArrayBuffer на клиенте перед отправкой в воркер
         try {
+            // Читаем файл в ArrayBuffer на главном потоке перед отправкой в воркер
             const arrayBuffer = await file.arrayBuffer();
+            
+            // Передаем буфер и метаданные, используя transferable objects для производительности
             worker.postMessage(
-                { arrayBuffer, name: file.name, size: file.size },
-                [arrayBuffer] // Передаем владение буфером без копирования для максимальной скорости
+                { 
+                    arrayBuffer: arrayBuffer, 
+                    name: file.name, 
+                    size: file.size 
+                },
+                [arrayBuffer]
             );
         } catch (e) {
             worker.terminate();
@@ -41,6 +49,10 @@ export async function compressVideoOnClient(
             if (type === 'ERROR') {
                 worker.terminate();
                 reject(new Error(message));
+            }
+
+            if (type === 'LOG') {
+                console.log(`[Worker Log]: ${message}`);
             }
         };
 

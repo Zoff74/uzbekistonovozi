@@ -68,7 +68,6 @@ self.onmessage = async (e) => {
                         const now = Date.now();
                         if (now - lastSentTime > 300) {
                             lastSentTime = now;
-                            // Условная шкала на основе времени кодирования (можно скорректировать под размер)
                             const estimatedTotalSec = 45; 
                             const percent = Math.min(Math.round((currentTimeSec / estimatedTotalSec) * 100), 95);
                             self.postMessage({ type: 'PROGRESS', percent: percent > 0 ? percent : 5 });
