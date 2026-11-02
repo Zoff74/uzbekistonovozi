@@ -55,10 +55,11 @@ self.onmessage = async (e) => {
         const arrayBuffer = new ArrayBuffer(uint8.length);
         new Uint8Array(arrayBuffer).set(uint8);
 
-        self.postMessage({ type: 'SUCCESS', arrayBuffer, originalName: file.name });
+        // Передаем массив через Transferable Objects, чтобы избежать лагов интерфейса
+        self.postMessage({ type: 'SUCCESS', arrayBuffer, originalName: file.name }, [arrayBuffer]);
 
     } catch (err) {
         console.error("Worker Error:", err);
-        self.postMessage({ type: 'ERROR', message: err.message });
+        self.postMessage({ type: 'ERROR', message: err.message || String(err) });
     }
 };
