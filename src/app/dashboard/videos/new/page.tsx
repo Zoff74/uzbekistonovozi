@@ -1,9 +1,11 @@
 "use client";
+//src\app\dashboard\videos\new\page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
+import { compressVideoOnClient } from "@/utils/videoCompressor";
 
 export default function NewVideoPage() {
     const router = useRouter();
@@ -102,36 +104,6 @@ export default function NewVideoPage() {
         setVideoDuration(duration);
     };
 
-    const compressVideoInWorker = (file: File, onProgress: (p: number) => void, onLog: (msg: string) => void): Promise<File> => {
-        return new Promise((resolve, reject) => {
-            const worker = new Worker('/workers/compressionWorker.js');
-
-            worker.onmessage = (e) => {
-                const { type, percent, message, arrayBuffer, originalName } = e.data;
-                if (type === 'LOG') {
-                    onLog(message);
-                } else if (type === 'PROGRESS') {
-                    onProgress(percent);
-                } else if (type === 'SUCCESS') {
-                    worker.terminate();
-                    const compressedBlob = new Blob([arrayBuffer], { type: 'video/mp4' });
-                    const compressedFile = new File([compressedBlob], originalName || 'compressed.mp4', { type: 'video/mp4' });
-                    resolve(compressedFile);
-                } else if (type === 'ERROR') {
-                    worker.terminate();
-                    reject(new Error(message));
-                }
-            };
-
-            worker.onerror = (err) => {
-                worker.terminate();
-                reject(new Error(err.message || 'Ошибка выполнения Web Worker'));
-            };
-
-            worker.postMessage({ file });
-        });
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!videoFile) {
@@ -149,18 +121,16 @@ export default function NewVideoPage() {
         setUploadProgress(0);
 
         try {
-            setStatusMessage("Инициализация сжатия...");
+            setStatusMessage("Сжатие видео на устройстве...");
 
-            const compressedFile = await compressVideoInWorker(
+            // Используем нативную функцию сжатия на клиенте без воркеров
+            const compressedFile = await compressVideoOnClient(
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
                         const mappedProgress = Math.round(progress * 0.6);
                         setUploadProgress(mappedProgress);
                     });
-                },
-                (logMsg) => {
-                    setStatusMessage(logMsg);
                 }
             );
 
