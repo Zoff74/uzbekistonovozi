@@ -1,6 +1,5 @@
 // public/workers/compressionWorker.js
 importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
-importScripts('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js');
 
 let ffmpeg = null;
 let lastSentTime = 0;
@@ -8,6 +7,14 @@ let lastSentTime = 0;
 function sendLog(text) {
     console.log(text);
     self.postMessage({ type: 'LOG', message: text });
+}
+
+// Функция-замена FFmpegUtil.toBlobURL без использования document и сторонних либ
+async function fetchToBlobURL(url, mimeType) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Не удалось загрузить ${url}: ${response.statusText}`);
+    const blob = await response.blob();
+    return URL.createObjectURL(new Blob([blob], { type: mimeType }));
 }
 
 self.onmessage = async (e) => {
@@ -35,10 +42,9 @@ self.onmessage = async (e) => {
                 }
             });
 
-            sendLog("📥 Загрузка ядра FFmpeg из памяти...");
-            // Используем локальные файлы core.js и core.wasm, которые лежат в папке /workers/
-            const coreURL = await FFmpegUtil.toBlobURL('/workers/ffmpeg-core.js', 'text/javascript');
-            const wasmURL = await FFmpegUtil.toBlobURL('/workers/ffmpeg-core.wasm', 'application/wasm');
+            sendLog("📥 Загрузка ядра FFmpeg через fetch...");
+            const coreURL = await fetchToBlobURL('/workers/ffmpeg-core.js', 'text/javascript');
+            const wasmURL = await fetchToBlobURL('/workers/ffmpeg-core.wasm', 'application/wasm');
 
             await ffmpeg.load({ coreURL, wasmURL });
             sendLog("✅ FFmpeg успешно загружен в память");
