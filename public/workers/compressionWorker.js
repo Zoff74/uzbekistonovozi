@@ -21,24 +21,37 @@ self.onmessage = async (e) => {
 
     try {
         if (!ffmpegInstance) {
-            sendLog("⚙️ Загрузка локального ядра FFmpeg...");
+            sendLog("⚙️ Загрузка локальных файлов ядра...");
 
-            // Читаем core.js как текст и wasm как blob напрямую
+            // Грузим core.js как текст
             const coreRes = await fetch('/workers/ffmpeg-core.js');
             if (!coreRes.ok) throw new Error("Не удалось загрузить /workers/ffmpeg-core.js");
             const coreText = await coreRes.text();
 
+            // Грузим wasm как blob URL
             const wasmRes = await fetch('/workers/ffmpeg-core.wasm');
             if (!wasmRes.ok) throw new Error("Не удалось загрузить /workers/ffmpeg-core.wasm");
             const wasmBlob = await wasmRes.blob();
             const wasmURL = URL.createObjectURL(wasmBlob);
 
-            // Выполняем скрипт ядра в контексте воркера без importScripts и без unpkg
-            const createCore = new Function(coreText + '\nreturn createFFmpegCore;');
-            const createFFmpegCoreFn = createCore();
+            // Создаем изолированную функцию фабрики ядра из текста core.js
+            // Так как в конце файла есть module.exports = createFFmpegCore, мы подменяем модульное окружение
+            const factoryCode = `
+                var module = { exports: {} };
+                var exports = module.exports;
+                var define = undefined;
+                ${coreText}
+                return module.exports;
+            `;
+
+            const createFFmpegCore = new Function(factoryCode)();
+
+            if (typeof createFFmpegCore !== 'function') {
+                throw new Error("Не удалось инициализировать фабрику createFFmpegCore из файла");
+            }
 
             sendLog("🚀 Инициализация Emscripten ядра...");
-            ffmpegInstance = await createFFmpegCoreFn({
+            ffmpegInstance = await createFFmpegCore({
                 locateFile: (path) => {
                     if (path.endsWith('.wasm')) return wasmURL;
                     return path;
