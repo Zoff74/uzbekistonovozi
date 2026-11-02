@@ -24,9 +24,7 @@
 │   ├── workers
 │   │   ├── compressionWorker.js
 │   │   ├── ffmpeg-core.js
-│   │   ├── ffmpeg-core.wasm
-│   │   ├── ffmpeg-util.js
-│   │   └── ffmpeg.js
+│   │   └── ffmpeg-core.wasm
 │   └── microfon.avif
 ├── scripts
 │   ├── cleanup-unpaid.js
