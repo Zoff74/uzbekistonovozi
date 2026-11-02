@@ -9,15 +9,16 @@ function sendLog(text) {
 }
 
 self.onmessage = async (e) => {
-    const file = e.data && e.data.file;
+    const { arrayBuffer, name, size } = e.data || {};
     
-    if (!file) {
-        sendLog("❌ Ошибка: Файл не передан в воркер");
-        self.postMessage({ type: 'ERROR', message: 'Файл не передан в воркер' });
+    if (!arrayBuffer) {
+        sendLog("❌ Ошибка: Данные файла не переданы в воркер");
+        self.postMessage({ type: 'ERROR', message: 'Данные файла не переданы в воркер' });
         return;
     }
 
-    sendLog(`🎬 Старт: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
+    const fileSizeMB = (size / (1024 * 1024)).toFixed(2);
+    sendLog(`🎬 Старт: ${name} (${fileSizeMB} MB)`);
 
     try {
         if (!ffmpegInstance) {
@@ -56,10 +57,7 @@ self.onmessage = async (e) => {
                     console.log(`[FFmpeg] ${text}`);
                 },
                 printErr: (text) => {
-                    // FFmpeg шлет весь прогресс сжатия в stderr (printErr)
                     console.log(`[FFmpeg err] ${text}`);
-
-                    // Пытаемся вытащить время из логов для расчета прогресса (например: time=00:00:12.34)
                     const timeMatch = text.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
                     if (timeMatch) {
                         const hours = parseFloat(timeMatch[1]);
@@ -67,29 +65,13 @@ self.onmessage = async (e) => {
                         const seconds = parseFloat(timeMatch[3]);
                         const currentTimeSec = hours * 3600 + minutes * 60 + seconds;
 
-                        // Приблизительная оценка длительности файла (если передана или берется из метаданных)
-                        // Если точной длительности нет, берем условные 60 секунд для теста шкалы, 
-                        // либо делим текущее время на предполагаемую длительность.
-                        // Здесь сделаем безопасный тик прогресса на основе логов:
                         const now = Date.now();
                         if (now - lastSentTime > 300) {
                             lastSentTime = now;
-                            // Эмулируем плавный рост прогресса на основе секунд кодирования
-                            // (каждые 10 секунд кодирования добавляют ~15% условного прогресса до 95%)
-                            const estimatedTotalSec = 60; 
+                            // Условная шкала на основе времени кодирования (можно скорректировать под размер)
+                            const estimatedTotalSec = 45; 
                             const percent = Math.min(Math.round((currentTimeSec / estimatedTotalSec) * 100), 95);
                             self.postMessage({ type: 'PROGRESS', percent: percent > 0 ? percent : 5 });
-                        }
-                    }
-                },
-                progress: (p) => {
-                    const now = Date.now();
-                    if (now - lastSentTime > 300) {
-                        lastSentTime = now;
-                        const rawP = p && typeof p.progress === 'number' ? p.progress : 0;
-                        const percent = Math.min(Math.round(rawP * 100), 100);
-                        if (percent > 0) {
-                            self.postMessage({ type: 'PROGRESS', percent });
                         }
                     }
                 }
@@ -99,20 +81,17 @@ self.onmessage = async (e) => {
         }
 
         const uniqueSuffix = Date.now();
-        const inputName = `input_${uniqueSuffix}.mkv`; // Поддерживаем оригинальное расширение
+        const inputName = `input_${uniqueSuffix}.mkv`;
         const outputName = `output_${uniqueSuffix}.mp4`;
 
-        sendLog("📂 Чтение файла в память...");
-        const arrayBufferData = await file.arrayBuffer();
-        const uint8Input = new Uint8Array(arrayBufferData);
-
-        sendLog("✍️ Запись файла в виртуальную файловую систему...");
+        sendLog("✍️ Запись полученного буфера в виртуальную файловую систему...");
+        const uint8Input = new Uint8Array(arrayBuffer);
         ffmpegInstance.FS.writeFile(inputName, uint8Input);
 
         const args = [
             '-i', inputName,
-            '-threads', '4', // Задействуем потоки для ускорения
-            '-vf', "scale=-2:480", // Упрощенный фильтр масштабирования по высоте 480p
+            '-threads', '4',
+            '-vf', "scale=-2:480",
             '-vcodec', 'libx264',
             '-b:v', '400k',
             '-preset', 'ultrafast',
@@ -137,7 +116,7 @@ self.onmessage = async (e) => {
         const resultBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
         sendLog(`📦 Итог сжатия: ${(resultBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB`);
 
-        self.postMessage({ type: 'SUCCESS', arrayBuffer: resultBuffer, originalName: file.name }, [resultBuffer]);
+        self.postMessage({ type: 'SUCCESS', arrayBuffer: resultBuffer, originalName: name }, [resultBuffer]);
 
     } catch (err) {
         const errorMsg = err && err.message ? err.message : String(err);
