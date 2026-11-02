@@ -22,7 +22,11 @@
 │   │   ├── tamada2.webp
 │   │   └── tamada5.webp
 │   ├── workers
-│   │   └── compressionWorker.js
+│   │   ├── compressionWorker.js
+│   │   ├── ffmpeg-core.js
+│   │   ├── ffmpeg-core.wasm
+│   │   ├── ffmpeg-util.js
+│   │   └── ffmpeg.js
 │   └── microfon.avif
 ├── scripts
 │   ├── cleanup-unpaid.js
