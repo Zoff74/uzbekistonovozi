@@ -8,14 +8,6 @@ function sendLog(text) {
     self.postMessage({ type: 'LOG', message: text });
 }
 
-// Универсальная функция для создания blob URL из локальных файлов ядра
-async function loadCoreToBlob(url) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Не удалось загрузить ${url}: ${response.statusText}`);
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
-}
-
 self.onmessage = async (e) => {
     const file = e.data && e.data.file;
     
@@ -29,31 +21,31 @@ self.onmessage = async (e) => {
 
     try {
         if (!ffmpegInstance) {
-            sendLog("⚙️ Инициализация FFmpeg в воркере...");
+            sendLog("⚙️ Загрузка локального ядра FFmpeg...");
 
-            // Загружаем ядро и WASM через fetch из папки /workers/
-            const coreURL = await loadCoreToBlob('/workers/ffmpeg-core.js');
-            const wasmURL = await loadCoreToBlob('/workers/ffmpeg-core.wasm');
+            // Читаем core.js как текст и wasm как blob напрямую
+            const coreRes = await fetch('/workers/ffmpeg-core.js');
+            if (!coreRes.ok) throw new Error("Не удалось загрузить /workers/ffmpeg-core.js");
+            const coreText = await coreRes.text();
 
-            // Подгружаем скрипт ядра Emscripten прямо в воркер
-            importScripts(coreURL);
+            const wasmRes = await fetch('/workers/ffmpeg-core.wasm');
+            if (!wasmRes.ok) throw new Error("Не удалось загрузить /workers/ffmpeg-core.wasm");
+            const wasmBlob = await wasmRes.blob();
+            const wasmURL = URL.createObjectURL(wasmBlob);
 
-            if (typeof createFFmpegCore === 'undefined') {
-                throw new Error("createFFmpegCore не определен после импорта core.js");
-            }
+            // Выполняем скрипт ядра в контексте воркера без importScripts и без unpkg
+            const createCore = new Function(coreText + '\nreturn createFFmpegCore;');
+            const createFFmpegCoreFn = createCore();
 
-            sendLog("📥 Запуск Emscripten ядра...");
-            ffmpegInstance = await createFFmpegCore({
+            sendLog("🚀 Инициализация Emscripten ядра...");
+            ffmpegInstance = await createFFmpegCoreFn({
                 locateFile: (path) => {
                     if (path.endsWith('.wasm')) return wasmURL;
                     return path;
                 },
-                print: (text) => sendLog(`[FFmpeg stdout] ${text}`),
+                print: (text) => sendLog(`[FFmpeg] ${text}`),
                 printErr: (text) => {
-                    // Игнорируем обычные логи stderr, которые FFmpeg шлет туда же
-                    if (!text.includes("Aborted")) {
-                        console.log(`[FFmpeg stderr] ${text}`);
-                    }
+                    if (!text.includes("Aborted")) console.log(`[FFmpeg err] ${text}`);
                 },
                 progress: (p) => {
                     const now = Date.now();
@@ -79,7 +71,6 @@ self.onmessage = async (e) => {
         sendLog("✍️ Запись файла в виртуальную файловую систему...");
         ffmpegInstance.FS.writeFile(inputName, uint8Input);
 
-        // Аргументы для сжатия
         const args = [
             '-i', inputName,
             '-vf', "scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,ih)'",
