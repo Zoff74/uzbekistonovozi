@@ -4,192 +4,116 @@ export async function compressVideoOnClient(
     file: File,
     onProgress?: (progress: number) => void
 ): Promise<File> {
-    return new Promise(async (resolve, reject) => {
-        let worker: Worker;
-        try {
-            const workerCode = `
-                let ffmpegInstance = null;
-                let lastSentTime = 0;
+    return new Promise((resolve, reject) => {
+        if (!file || !(file instanceof Blob)) {
+            return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
+        }
 
-                function sendLog(text) {
-                    console.log(text);
-                    self.postMessage({ type: 'LOG', message: text });
+        console.log("📁 Старт нативного сжатия файла:", {
+            name: file.name,
+            sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
+        });
+
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        video.playsInline = true;
+
+        const objectUrl = URL.createObjectURL(file);
+        video.src = objectUrl;
+
+        video.onloadedmetadata = async () => {
+            try {
+                video.currentTime = 0;
+
+                const canvas = document.createElement('canvas');
+                const targetHeight = 480; // Снижаем до 480p для уменьшения веса
+                const scale = targetHeight / video.videoHeight;
+                canvas.width = Math.round(video.videoWidth * scale);
+                canvas.height = targetHeight;
+
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    URL.revokeObjectURL(objectUrl);
+                    return reject(new Error('Не удалось инициализировать Canvas 2D context'));
                 }
 
-                self.onmessage = async (e) => {
-                    const payload = e.data || {};
-                    const arrayBuffer = payload.arrayBuffer || (payload instanceof ArrayBuffer ? payload : null);
-                    const name = payload.name || "video.mkv";
-                    const size = payload.size || (arrayBuffer ? arrayBuffer.byteLength : 0);
+                // Захват потока с canvas (30 кадров/сек)
+                const stream = canvas.captureStream(30);
+                
+                // Подбираем поддерживаемый MIME-тип для записи
+                let mimeType = 'video/webm;codecs=vp9';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/webm';
+                }
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/mp4';
+                }
+
+                let recorder: MediaRecorder;
+                try {
+                    recorder = new MediaRecorder(stream, {
+                        mimeType: mimeType,
+                        videoBitsPerSecond: 400000 // Ограничиваем битрейт до ~400 kbps для компактного размера
+                    });
+                } catch (e) {
+                    recorder = new MediaRecorder(stream);
+                }
+
+                const chunks: Blob[] = [];
+                recorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) {
+                        chunks.push(e.data);
+                    }
+                };
+
+                recorder.onstop = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    const resultBlob = new Blob(chunks, { type: 'video/mp4' });
+                    const newFileName = file.name.replace(/\.[^/.]+$/, '') + '.mp4';
                     
-                    if (!arrayBuffer) {
-                        sendLog("❌ Ошибка: Данные файла не переданы в воркер");
-                        self.postMessage({ type: 'ERROR', message: 'Данные файла не переданы в воркер' });
+                    console.log("📦 Сжатие завершено. Новый размер:", (resultBlob.size / (1024 * 1024)).toFixed(2) + " MB");
+                    resolve(new File([resultBlob], newFileName, { type: 'video/mp4' }));
+                };
+
+                recorder.onerror = (err) => {
+                    URL.revokeObjectURL(objectUrl);
+                    reject(err);
+                };
+
+                recorder.start();
+                video.play();
+
+                const duration = video.duration || 1;
+                const drawFrame = () => {
+                    if (video.ended || video.paused) {
+                        if (recorder.state !== 'inactive') {
+                            recorder.stop();
+                        }
                         return;
                     }
 
-                    const fileSizeMB = (size / (1024 * 1024)).toFixed(2);
-                    sendLog(\`🎬 Старт: \${name} (\${fileSizeMB} MB)\`);
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    try {
-                        if (!ffmpegInstance) {
-                            sendLog("⚙️ Загрузка локальных файлов ядра...");
-
-                            const coreRes = await fetch('/workers/ffmpeg-core.js');
-                            if (!coreRes.ok) throw new Error("Не удалось загрузить /workers/ffmpeg-core.js");
-                            const coreText = await coreRes.text();
-
-                            const wasmRes = await fetch('/workers/ffmpeg-core.wasm');
-                            if (!wasmRes.ok) throw new Error("Не удалось загрузить /workers/ffmpeg-core.wasm");
-                            const wasmBlob = await wasmRes.blob();
-                            const wasmURL = URL.createObjectURL(wasmBlob);
-
-                            const factoryCode = \`
-                                var module = { exports: {} };
-                                var exports = module.exports;
-                                var define = undefined;
-                                \${coreText}
-                                return module.exports;
-                            \`;
-
-                            const createFFmpegCore = new Function(factoryCode)();
-
-                            if (typeof createFFmpegCore !== 'function') {
-                                throw new Error("Не удалось инициализировать фабрику createFFmpegCore из файла");
-                            }
-
-                            sendLog("🚀 Инициализация Emscripten ядра...");
-                            ffmpegInstance = await createFFmpegCore({
-                                locateFile: (path) => {
-                                    if (path.endsWith('.wasm')) return wasmURL;
-                                    return path;
-                                },
-                                print: (text) => {
-                                    console.log(\`[FFmpeg] \${text}\`);
-                                },
-                                printErr: (text) => {
-                                    console.log(\`[FFmpeg err] \${text}\`);
-                                    const timeMatch = text.match(/time=(\\d{2}):(\\d{2}):(\\d{2}\\.\\d{2})/);
-                                    if (timeMatch) {
-                                        const hours = parseFloat(timeMatch[1]);
-                                        const minutes = parseFloat(timeMatch[2]);
-                                        const seconds = parseFloat(timeMatch[3]);
-                                        const currentTimeSec = hours * 3600 + minutes * 60 + seconds;
-
-                                        const now = Date.now();
-                                        if (now - lastSentTime > 300) {
-                                            lastSentTime = now;
-                                            const estimatedTotalSec = 45; 
-                                            const percent = Math.min(Math.round((currentTimeSec / estimatedTotalSec) * 100), 95);
-                                            self.postMessage({ type: 'PROGRESS', percent: percent > 0 ? percent : 5 });
-                                        }
-                                    }
-                                }
-                            });
-
-                            sendLog("✅ Ядро FFmpeg успешно инициализировано");
-                        }
-
-                        const uniqueSuffix = Date.now();
-                        const inputName = \`input_\${uniqueSuffix}.mkv\`;
-                        const outputName = \`output_\${uniqueSuffix}.mp4\`;
-
-                        sendLog("✍️ Запись полученного буфера в виртуальную файловую систему...");
-                        const uint8Input = new Uint8Array(arrayBuffer);
-                        ffmpegInstance.FS.writeFile(inputName, uint8Input);
-
-                        const args = [
-                            '-i', inputName,
-                            '-threads', '4',
-                            '-vf', "scale=-2:480",
-                            '-vcodec', 'libx264',
-                            '-b:v', '400k',
-                            '-preset', 'ultrafast',
-                            '-acodec', 'aac',
-                            '-b:a', '96k',
-                            '-movflags', '+faststart',
-                            outputName
-                        ];
-
-                        sendLog("🔄 Запуск сжатия видео...");
-                        const startTime = Date.now();
-                        ffmpegInstance.exec(...args);
-                        sendLog(\`⚡ Сжатие завершено за \${(Date.now() - startTime) / 1000} сек.\`);
-
-                        sendLog("📖 Чтение сжатого файла...");
-                        const data = ffmpegInstance.FS.readFile(outputName);
-
-                        sendLog("🧹 Очистка временных файлов...");
-                        try { ffmpegInstance.FS.unlink(inputName); } catch (e) {}
-                        try { ffmpegInstance.FS.unlink(outputName); } catch (e) {}
-
-                        const resultBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-                        sendLog(\`📦 Итог сжатия: \${(resultBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB\`);
-
-                        self.postMessage({ type: 'SUCCESS', arrayBuffer: resultBuffer, originalName: name }, [resultBuffer]);
-
-                    } catch (err) {
-                        const errorMsg = err && err.message ? err.message : String(err);
-                        sendLog(\`🔥 КРИТИЧЕСКАЯ ОШИБКА: \${errorMsg}\`);
-                        self.postMessage({ type: 'ERROR', message: \`Сбой сжатия: \${errorMsg}\` });
+                    if (onProgress) {
+                        const percent = Math.min(Math.round((video.currentTime / duration) * 100), 99);
+                        onProgress(percent);
                     }
+
+                    requestAnimationFrame(drawFrame);
                 };
-            `;
 
-            const blob = new Blob([workerCode], { type: 'application/javascript' });
-            const workerUrl = URL.createObjectURL(blob);
-            worker = new Worker(workerUrl);
-        } catch (err) {
-            console.error("Ошибка создания Worker:", err);
-            return reject(err);
-        }
+                drawFrame();
 
-        try {
-            const arrayBuffer = await file.arrayBuffer();
-            console.log("📤 Отправка файла в воркер:", file.name, "Размер буфера:", arrayBuffer.byteLength);
-
-            if (arrayBuffer.byteLength === 0) {
-                throw new Error("Файл пустой (0 байт)");
-            }
-
-            worker.postMessage({ 
-                arrayBuffer: arrayBuffer, 
-                name: file.name, 
-                size: file.size 
-            });
-        } catch (e) {
-            console.error("🔥 Ошибка подготовки буфера:", e);
-            worker.terminate();
-            return reject(e);
-        }
-
-        worker.onmessage = (e) => {
-            const { type, percent, arrayBuffer, originalName, message } = e.data;
-
-            if (type === 'PROGRESS' && onProgress) {
-                onProgress(percent);
-            }
-
-            if (type === 'SUCCESS') {
-                worker.terminate();
-                const outBlob = new Blob([arrayBuffer], { type: "video/mp4" });
-                const newFileName = originalName.replace(/\.[^/.]+$/, "") + ".mp4";
-                resolve(new File([outBlob], newFileName, { type: "video/mp4" }));
-            }
-
-            if (type === 'ERROR') {
-                worker.terminate();
-                reject(new Error(message));
-            }
-
-            if (type === 'LOG') {
-                console.log(`[Worker Log]: ${message}`);
+            } catch (err) {
+                URL.revokeObjectURL(objectUrl);
+                reject(err);
             }
         };
 
-        worker.onerror = (err) => {
-            worker.terminate();
-            reject(err);
+        video.onerror = (err) => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error("Ошибка загрузки видеофайла в элемент превью"));
         };
     });
 }
