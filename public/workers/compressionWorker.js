@@ -1,7 +1,6 @@
 // public/workers/compressionWorker.js
-importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
 
-let ffmpeg = null;
+let ffmpegInstance = null;
 let lastSentTime = 0;
 
 function sendLog(text) {
@@ -9,12 +8,12 @@ function sendLog(text) {
     self.postMessage({ type: 'LOG', message: text });
 }
 
-// Функция-замена FFmpegUtil.toBlobURL без использования document и сторонних либ
-async function fetchToBlobURL(url, mimeType) {
+// Универсальная функция для создания blob URL из локальных файлов ядра
+async function loadCoreToBlob(url) {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Не удалось загрузить ${url}: ${response.statusText}`);
     const blob = await response.blob();
-    return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+    return URL.createObjectURL(blob);
 }
 
 self.onmessage = async (e) => {
@@ -29,39 +28,58 @@ self.onmessage = async (e) => {
     sendLog(`🎬 Старт: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
 
     try {
-        if (!ffmpeg) {
-            sendLog("⚙️ Инициализация FFmpeg...");
-            ffmpeg = new FFmpegWASM.FFmpeg();
-            
-            ffmpeg.on('progress', ({ progress }) => {
-                const now = Date.now();
-                if (now - lastSentTime > 500) {
-                    lastSentTime = now;
-                    const percent = Math.min(Math.round(progress * 100), 100);
-                    self.postMessage({ type: 'PROGRESS', percent });
+        if (!ffmpegInstance) {
+            sendLog("⚙️ Инициализация FFmpeg в воркере...");
+
+            // Загружаем ядро и WASM через fetch из папки /workers/
+            const coreURL = await loadCoreToBlob('/workers/ffmpeg-core.js');
+            const wasmURL = await loadCoreToBlob('/workers/ffmpeg-core.wasm');
+
+            // Подгружаем скрипт ядра Emscripten прямо в воркер
+            importScripts(coreURL);
+
+            if (typeof createFFmpegCore === 'undefined') {
+                throw new Error("createFFmpegCore не определен после импорта core.js");
+            }
+
+            sendLog("📥 Запуск Emscripten ядра...");
+            ffmpegInstance = await createFFmpegCore({
+                locateFile: (path) => {
+                    if (path.endsWith('.wasm')) return wasmURL;
+                    return path;
+                },
+                print: (text) => sendLog(`[FFmpeg stdout] ${text}`),
+                printErr: (text) => {
+                    // Игнорируем обычные логи stderr, которые FFmpeg шлет туда же
+                    if (!text.includes("Aborted")) {
+                        console.log(`[FFmpeg stderr] ${text}`);
+                    }
+                },
+                progress: (p) => {
+                    const now = Date.now();
+                    if (now - lastSentTime > 500) {
+                        lastSentTime = now;
+                        const percent = Math.min(Math.round(p.progress * 100), 100);
+                        self.postMessage({ type: 'PROGRESS', percent });
+                    }
                 }
             });
 
-            sendLog("📥 Загрузка ядра FFmpeg через fetch...");
-            const coreURL = await fetchToBlobURL('/workers/ffmpeg-core.js', 'text/javascript');
-            const wasmURL = await fetchToBlobURL('/workers/ffmpeg-core.wasm', 'application/wasm');
-
-            await ffmpeg.load({ coreURL, wasmURL });
-            sendLog("✅ FFmpeg успешно загружен в память");
-        } else {
-            sendLog("♻️ Используется ранее загруженный FFmpeg");
+            sendLog("✅ Ядро FFmpeg успешно инициализировано");
         }
 
         const uniqueSuffix = Date.now();
         const inputName = `input_${uniqueSuffix}.mp4`;
         const outputName = `output_${uniqueSuffix}.mp4`;
 
-        sendLog("📂 Чтение файла в память (ArrayBuffer)...");
+        sendLog("📂 Чтение файла в память...");
         const arrayBufferData = await file.arrayBuffer();
-        
-        sendLog(`✍️ Запись файла в виртуальную файловую систему (${arrayBufferData.byteLength} байт)...`);
-        await ffmpeg.writeFile(inputName, new Uint8Array(arrayBufferData));
+        const uint8Input = new Uint8Array(arrayBufferData);
 
+        sendLog("✍️ Запись файла в виртуальную файловую систему...");
+        ffmpegInstance.FS.writeFile(inputName, uint8Input);
+
+        // Аргументы для сжатия
         const args = [
             '-i', inputName,
             '-vf', "scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,ih)'",
@@ -76,23 +94,20 @@ self.onmessage = async (e) => {
             outputName
         ];
 
-        sendLog("🔄 Запуск сжатия видео (ffmpeg.exec)...");
+        sendLog("🔄 Запуск сжатия видео...");
         const startTime = Date.now();
-        await ffmpeg.exec(args);
+        ffmpegInstance.exec(...args);
         sendLog(`⚡ Сжатие завершено за ${(Date.now() - startTime) / 1000} сек.`);
 
         sendLog("📖 Чтение сжатого файла...");
-        const data = await ffmpeg.readFile(outputName);
-        
+        const data = ffmpegInstance.FS.readFile(outputName);
+
         sendLog("🧹 Очистка временных файлов...");
-        await ffmpeg.deleteFile(inputName).catch(() => {});
-        await ffmpeg.deleteFile(outputName).catch(() => {});
+        try { ffmpegInstance.FS.unlink(inputName); } catch (e) {}
+        try { ffmpegInstance.FS.unlink(outputName); } catch (e) {}
 
-        const uint8 = new Uint8Array(data);
-        sendLog(`📦 Итог сжатия: ${(uint8.length / (1024 * 1024)).toFixed(2)} MB`);
-
-        const resultBuffer = new ArrayBuffer(uint8.length);
-        new Uint8Array(resultBuffer).set(uint8);
+        const resultBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+        sendLog(`📦 Итог сжатия: ${(resultBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB`);
 
         self.postMessage({ type: 'SUCCESS', arrayBuffer: resultBuffer, originalName: file.name }, [resultBuffer]);
 
