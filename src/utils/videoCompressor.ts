@@ -17,7 +17,6 @@ export async function compressVideoOnClient(
                 }
 
                 self.onmessage = async (e) => {
-                    // Принимаем напрямую arrayBuffer либо объект из сообщения
                     const payload = e.data || {};
                     const arrayBuffer = payload.arrayBuffer || (payload instanceof ArrayBuffer ? payload : null);
                     const name = payload.name || "video.mkv";
@@ -147,13 +146,19 @@ export async function compressVideoOnClient(
 
         try {
             const arrayBuffer = await file.arrayBuffer();
-            // Убираем массив передачи прав [arrayBuffer], чтобы объект гарантированно клонировался без обнуления на клиенте
+            console.log("📤 Отправка файла в воркер:", file.name, "Размер буфера:", arrayBuffer.byteLength);
+
+            if (arrayBuffer.byteLength === 0) {
+                throw new Error("Файл пустой (0 байт)");
+            }
+
             worker.postMessage({ 
                 arrayBuffer: arrayBuffer, 
                 name: file.name, 
                 size: file.size 
             });
         } catch (e) {
+            console.error("🔥 Ошибка подготовки буфера:", e);
             worker.terminate();
             return reject(e);
         }
