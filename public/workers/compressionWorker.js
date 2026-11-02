@@ -1,5 +1,5 @@
-importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js');
-importScripts('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js');
+importScripts('./ffmpeg.js');
+importScripts('./ffmpeg-util.js');
 
 let ffmpeg = null;
 
@@ -10,7 +10,9 @@ self.onmessage = async (e) => {
     try {
         if (!ffmpeg) {
             ffmpeg = new FFmpegWASM.FFmpeg();
-            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+            
+            // Локальный базовый путь из папки public для core и wasm файлов
+            const baseURL = '/workers';
             
             ffmpeg.on('progress', ({ progress }) => {
                 const percent = Math.min(Math.round(progress * 100), 100);
