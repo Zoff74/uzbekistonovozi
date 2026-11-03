@@ -120,7 +120,8 @@ export async function compressVideoOnClient(
             '-maxrate', '600k',
             '-bufsize', '1200k',
             '-vf', 'fps=30,scale=-2:480',
-            '-c:a', 'copy',
+            '-c:a', 'aac',
+            '-b:a', '128k',
             '-movflags', '+faststart',
             outputName
         ]);
