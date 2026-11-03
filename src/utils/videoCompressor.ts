@@ -50,26 +50,21 @@ export async function compressVideoOnClient(
     let currentPercent = 0.0000;
     let isFinished = false;
 
-    // Живой таймер прогресса с честным микро-хвостом (4 знака после запятой)
+    // Живой таймер прогресса с гарантированным движением хвоста без замираний
     const progressInterval = setInterval(() => {
         if (isFinished) return;
 
-        if (currentPercent < 98.5) {
-            // Плавный органический рост до 98.5%
-            const remaining = 98.5 - currentPercent;
-            const increment = Math.max(remaining * 0.012, 0.0008);
+        if (currentPercent < 99.0) {
+            // Плавный рост с гарантированным минимальным шагом, чтобы хвост никогда не останавливался
+            const remaining = 99.0 - currentPercent;
+            const increment = Math.max(remaining * 0.015, 0.0015);
             currentPercent += increment;
         } else {
-            // Если дошли до 98.5%, но кодек еще думает, аккуратно ползем дальше к 99.5%,
-            // заставляя хвост (.0001, .0002...) бешено крутиться вперед без замираний
-            if (currentPercent < 99.5) {
-                currentPercent += 0.001;
-            }
+            // Если дошли до 99%, но FFmpeg еще думает, держим живой плавающий хвост около 99.2%
+            currentPercent = 99.0 + (Math.sin(Date.now() / 200) * 0.2);
         }
 
         if (onProgress) {
-            // Передаем точное значение с 4 знаками (верхний шкальный счетчик бежит плавно, 
-            // а нижний округленный до .toFixed(1) честно следует за ним без обмана)
             onProgress(Number(currentPercent.toFixed(4)));
         }
     }, 40);
