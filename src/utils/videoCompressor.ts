@@ -54,32 +54,31 @@ export async function compressVideoOnClient(
 
     await ff.writeFile(inputName, await fetchFile(file));
 
-    // ⏱️ Сначала узнаем длительность видео через ffprobe или через запуск быстрого анализа, 
-    // но так как в ffmpeg.wasm это сложно, рассчитываем через средний целевой битрейт для 720p.
-    // Целимся в 18.5 Мб (148 мегабит). Для стандартных роликов до 3-5 минут это идеальный баланс.
-    
     console.log("⚙️ Кодирование в 720p с защитой от кубиков и зернистости...");
 
-    // Используем кодек libx264 с высоким качеством (crf 21 дает кристальную четкость без кубиков)
     await ff.exec([
         '-i', inputName,
         '-c:v', 'libx264',
         '-preset', 'medium',
-        '-crf', '21',             // 21 — стандарт высочайшего качества для веб-видео (никаких кубиков!)
-        '-maxrate', '2200k',      // Ограничение пикового битрейта, чтобы не вылетать за лимиты
-        '-bufsize', '4400k',      // Буфер для плавности потока
+        '-crf', '21',             // Высокое качество без кубиков
+        '-maxrate', '2200k',      // Ограничение пикового битрейта для лимита
+        '-bufsize', '4400k',      // Плавность потока
         '-vf', 'scale=-2:720',    // Четкое HD 720p
         '-c:a', 'aac',
-        '-b:a', '128k',           // Отличный чистый звук
-        '-movflags', '+faststart', // Мгновенный стриминг на сайте без ожидания скачивания
+        '-b:a', '128k',           // Чистый звук
+        '-movflags', '+faststart', // Мгновенный стриминг
         outputName
     ]);
 
     const data = await ff.readFile(outputName);
-    const resultBlob = new Blob([data], { type: 'video/mp4' });
+    
+    // 🔥 Явно приводим данные к Uint8Array, чтобы удовлетворить строгий TS-компилятор Blob
+    const uint8Array = new Uint8Array(data as any);
+    const resultBlob = new Blob([uint8Array], { type: 'video/mp4' });
+    
     const newFileName = file.name.replace(/\.[^/.]+$/, '') + '.mp4';
-
     const compressedFile = new File([resultBlob], newFileName, { type: 'video/mp4' });
+    
     console.log(`📦 Готово! Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
 
     try {
