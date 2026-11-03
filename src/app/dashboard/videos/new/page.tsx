@@ -128,13 +128,17 @@ export default function NewVideoPage() {
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
-                        const mappedProgress = Math.round(progress * 0.6);
+                        // Раньше было умножение на 0.6, из-за чего шкала стопорилась на 60%. 
+                        // Даем прогрессу доходить до 90% на этапе сжатия на клиенте:
+                        const mappedProgress = Math.min(Math.round(progress * 0.9), 90);
                         setUploadProgress(mappedProgress);
                     });
                 }
             );
 
             setStatusMessage("Видео серверга юкланмоqda...");
+            // Когда сжатие завершено, переходим к загрузке (от 90% до 100%)
+            setUploadProgress(90);
 
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
@@ -143,7 +147,7 @@ export default function NewVideoPage() {
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const uploadProgressVal = 60 + Math.round((event.loaded / event.total) * 30);
+                        const uploadProgressVal = 90 + Math.round((event.loaded / event.total) * 10);
                         setUploadProgress(uploadProgressVal);
                     }
                 };
