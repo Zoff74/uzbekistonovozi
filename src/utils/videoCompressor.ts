@@ -20,24 +20,6 @@ async function getFFmpegInstance(): Promise<FFmpeg> {
     return ffmpeg;
 }
 
-// Вспомогательная функция для точного определения длительности видео в секундах
-async function getVideoDuration(file: File): Promise<number> {
-    return new Promise((resolve) => {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        const url = URL.createObjectURL(file);
-        video.onloadedmetadata = () => {
-            URL.revokeObjectURL(url);
-            resolve(video.duration || 0);
-        };
-        video.onerror = () => {
-            URL.revokeObjectURL(url);
-            resolve(0);
-        };
-        video.src = url;
-    });
-}
-
 export async function compressVideoOnClient(
     file: File,
     onProgress?: (progress: number) => void
@@ -58,9 +40,6 @@ export async function compressVideoOnClient(
         sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
     });
 
-    const totalDuration = await getVideoDuration(file);
-    console.log(`⏱️ Реальная длительность видео: ${totalDuration.toFixed(1)} сек.`);
-
     const ff = await getFFmpegInstance();
 
     const inputName = 'input_source_video';
@@ -68,47 +47,23 @@ export async function compressVideoOnClient(
 
     await ff.writeFile(inputName, await fetchFile(file));
 
-    // Подписываемся на НАСТОЯЩИЙ прогресс от FFmpeg
-    let lastReportedPercent = 0;
-    if (onProgress) {
-        onProgress(0);
-    }
+    let currentPercent = 0;
+    let isFinished = false;
 
-    ff.on('progress', ({ time }) => {
-        // time приходит в микросекундах или секундах (в зависимости от версии core, обычно в секундах или микросекундах)
-        // В @ffmpeg/core 0.12.6 'time' измеряется в микросекундах (или секундах? Проверим: делим на 1000000 если микросекунды, но безопаснее конвертировать)
-        // На всякий случай: если time слишком большое число, это микросекунды.
-        let currentTimeSec = time > 10000 ? time / 1000000 : time;
+    // Автономный независимый таймер: плавно идет вперед до 99%, никогда не откатывается назад
+    const progressInterval = setInterval(() => {
+        if (isFinished) return;
 
-        if (totalDuration > 0) {
-            let percent = (currentTimeSec / totalDuration) * 100;
-            // Ограничиваем в пределах 0 - 99.5%, чтобы 100% отдать только по факту завершения
-            percent = Math.min(99.5, Math.max(0, percent));
-            
-            // Гарантируем, что прогресс идет только вперед
-            if (percent > lastReportedPercent) {
-                lastReportedPercent = percent;
-                if (onProgress) {
-                    onProgress(Number(percent.toFixed(3)));
-                }
-            }
+        if (currentPercent < 95.0) {
+            currentPercent += 0.35; // Уверенный шаг
+        } else if (currentPercent < 99.0) {
+            currentPercent += 0.05; // Плавное замедление на финише
         }
-    });
 
-    // Страховочный микро-таймер на случай, если FFmpeg по какой-то причине не прислал событие progress,
-    // но он будет ползти ОЧЕНЬ медленно и плавно, подстраиваясь под реальное время (например, рассчитывая на 3-5 минут работы)
-    let fallbackProgress = 0;
-    const fallbackInterval = setInterval(() => {
-        if (fallbackProgress < 95.0 && fallbackProgress <= lastReportedPercent) {
-            fallbackProgress += 0.05; // Медленный, честный прирост
-            if (fallbackProgress > lastReportedPercent) {
-                lastReportedPercent = fallbackProgress;
-                if (onProgress) {
-                    onProgress(Number(fallbackProgress.toFixed(3)));
-                }
-            }
+        if (onProgress) {
+            onProgress(Number(Math.min(99.0, currentPercent).toFixed(2)));
         }
-    }, 1000); // Раз в секунду, а не каждые 40мс
+    }, 150);
 
     try {
         await ff.exec([
@@ -120,13 +75,14 @@ export async function compressVideoOnClient(
             '-maxrate', '600k',
             '-bufsize', '1200k',
             '-vf', 'fps=30,scale=-2:480',
-            '-c:a', 'aac',
+            '-c:a', 'aac',         // Жесткое перекодирование звука исключает зависания таймстампов
             '-b:a', '128k',
             '-movflags', '+faststart',
             outputName
         ]);
     } finally {
-        clearInterval(fallbackInterval);
+        isFinished = true;
+        clearInterval(progressInterval);
         if (onProgress) {
             onProgress(100);
         }

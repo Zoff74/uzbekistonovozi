@@ -127,19 +127,25 @@ export default function NewVideoPage() {
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
-                        const mappedProgress = Math.min((progress / 100) * 90, 90);
+                        // Если сжатие дошло до финала, принудительно отдаем 90%
+                        if (progress >= 99) {
+                            setUploadProgress(90);
+                            return;
+                        }
+
+                        // Масштабируем 0-99% в диапазон 0-89.9%
+                        const mappedProgress = (progress / 100) * 89.9;
                         
-                        // ЖЕСТКАЯ ЗАЩИТА: Новое значение прогресса ВСЕГДА должно быть больше или равно предыдущему!
                         setUploadProgress((prev) => {
-                            const nextVal = Number(mappedProgress.toFixed(3));
+                            const nextVal = Number(mappedProgress.toFixed(2));
                             return nextVal > prev ? nextVal : prev;
                         });
                     });
                 }
             );
 
-            setStatusMessage("Видео серверга юкланмоqda...");
             setUploadProgress(90);
+            setStatusMessage("Видео серверга юкланмоqda...");
 
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
@@ -428,7 +434,7 @@ export default function NewVideoPage() {
                                     <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                                 </div>
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-16 text-right">
-                                    {uploadProgress.toFixed(3)}%
+                                    {uploadProgress.toFixed(2)}%
                                 </span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
