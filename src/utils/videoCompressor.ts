@@ -52,19 +52,21 @@ export async function compressVideoOnClient(
 
     // Автономный независимый таймер: ему абсолютно плевать на внутренние затыки FFmpeg.
     // Он линейно и неотвратимо крутит цифры вперед каждую миллисекунду.
+    // Автономный живой таймер: всегда идет строго вперед, никогда не откатывается
     const progressInterval = setInterval(() => {
         if (isFinished) return;
 
         if (currentPercent < 99.0) {
-            // Равномерный уверенный шаг, который гарантированно меняет последние знаки (4 знака после запятой)
+            // Основной быстрый подъем
             currentPercent += 0.025; 
-        } else {
-            // Если подошли к 99%, держим живой плавающий хвост
-            currentPercent = 99.0 + (Math.sin(Date.now() / 200) * 0.3);
+        } else if (currentPercent < 99.9) {
+            // На финишной прямой ультра-плавный микро-шаг вперед каждую миллисекунду.
+            // Цифры будут неумолимо ползти: 99.0012 -> 99.0025 -> 99.0039 ... и дальше к 99.9%
+            currentPercent += 0.001;
         }
 
         if (onProgress) {
-            onProgress(Number(Math.min(99.5, currentPercent).toFixed(4)));
+            onProgress(Number(Math.min(99.9, currentPercent).toFixed(4)));
         }
     }, 40);
 
