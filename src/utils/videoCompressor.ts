@@ -9,7 +9,15 @@ export async function compressVideoOnClient(
             return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
         }
 
-        console.log("📁 Старт стабильного нативного сжатия в 480p со звуком:", {
+        const MAX_SIZE_BYTES = 20 * 1024 * 1024; // Строгий лимит 20 Мб
+
+        // ПРАВИЛО: Если исходный файл уже меньше или равен 20 Мб, не трогаем его
+        if (file.size <= MAX_SIZE_BYTES) {
+            console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше 20 Мб. Пропускаем сжатие.`);
+            return resolve(file);
+        }
+
+        console.log("🧠 Старт умного нативного сжатия (цель < 20 Мб):", {
             name: file.name,
             sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
         });
@@ -27,11 +35,27 @@ export async function compressVideoOnClient(
         video.onloadedmetadata = async () => {
             try {
                 video.currentTime = 0;
-                // ВАЖНО: Возвращаем нормальную скорость (1.0), чтобы аудио и видео не расходились и не обрывались
                 video.playbackRate = 1.0;
 
+                const duration = video.duration || 1;
+
+                // 🧮 ЖЕСТКИЙ РАСЧЕТ ПОД ЛИМИТ < 20 МБ
+                // Целимся в 18 Мб, чтобы с запасом уложиться в ограничение
+                const targetMaxBytes = 18 * 1024 * 1024; 
+                const totalTargetBits = targetMaxBytes * 8;
+                const audioBitrate = 96000; // 96 kbps для аудио (достаточно для голоса/музыки, экономит место)
+                const totalAudioBits = audioBitrate * duration;
+                
+                const availableVideoBits = totalTargetBits - totalAudioBits;
+                const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
+
+                // Предохранители: не ниже 300 kbps (чтобы не превращалось в кашу) и не выше 1000 kbps
+                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 300000), 1000000);
+
+                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Расчетный видеобитрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
+
                 const canvas = document.createElement('canvas');
-                const targetHeight = 480; // Золотая середина для десктопа и мобилок
+                const targetHeight = 480; // 480p для десктопа
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = targetHeight;
@@ -65,7 +89,6 @@ export async function compressVideoOnClient(
                     }
                 }
 
-                // Захват видеопотока с Canvas (30 кадров/сек)
                 const videoStream = canvas.captureStream(30);
                 const audioTracks = dest ? dest.stream.getAudioTracks() : [];
 
@@ -74,24 +97,23 @@ export async function compressVideoOnClient(
                     ...audioTracks
                 ]);
                 
-                // Пытаемся первыми принудительно взять MP4 контейнер, чтобы Telegram не путал его с анимацией
-                let mimeType = 'video/mp4';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'video/webm;codecs=vp9,opus';
-                }
+                let mimeType = 'video/webm;codecs=vp9,opus';
                 if (!MediaRecorder.isTypeSupported(mimeType)) {
                     mimeType = 'video/webm;codecs=vp8,opus';
                 }
                 if (!MediaRecorder.isTypeSupported(mimeType)) {
                     mimeType = 'video/webm';
                 }
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/mp4';
+                }
 
                 let recorder: MediaRecorder;
                 try {
                     recorder = new MediaRecorder(combinedStream, {
                         mimeType: mimeType,
-                        videoBitsPerSecond: 800000, // 800 kbps для отличного качества без квадратов
-                        audioBitsPerSecond: 128000  // 128 kbps для чистейшего звука
+                        videoBitsPerSecond: optimalVideoBitrate,
+                        audioBitsPerSecond: audioBitrate
                     });
                 } catch (e) {
                     console.warn("⚠️ Расширенные параметры MediaRecorder не поддержались:", e);
@@ -111,14 +133,14 @@ export async function compressVideoOnClient(
                         audioCtx.close().catch(() => {});
                     }
 
-                    const isMp4 = mimeType.includes('mp4');
-                    const ext = isMp4 ? '.mp4' : '.webm';
-                    const finalMime = isMp4 ? 'video/mp4' : 'video/webm';
+                    const isWebm = mimeType.includes('webm');
+                    const ext = isWebm ? '.webm' : '.mp4';
+                    const finalMime = isWebm ? 'video/webm' : 'video/mp4';
 
                     const resultBlob = new Blob(chunks, { type: finalMime });
                     const newFileName = file.name.replace(/\.[^/.]+$/, '') + ext;
                     
-                    console.log("📦 Стабильное сжатие завершено. Размер:", (resultBlob.size / (1024 * 1024)).toFixed(2) + " MB", "Формат:", finalMime);
+                    console.log(`📦 Сжатие завершено. Итоговый размер: ${(resultBlob.size / (1024 * 1024)).toFixed(2)} MB (Лимит: <20MB)`);
                     resolve(new File([resultBlob], newFileName, { type: finalMime }));
                 };
 
@@ -130,7 +152,6 @@ export async function compressVideoOnClient(
                     reject(err);
                 };
 
-                // Запуск записи с чанками по 100мс для стабильности потока
                 recorder.start(100);
 
                 if (audioCtx && audioCtx.state === 'suspended') {
@@ -144,7 +165,6 @@ export async function compressVideoOnClient(
                     await video.play();
                 }
 
-                const duration = video.duration || 1;
                 const drawFrame = () => {
                     if (video.ended || video.paused) {
                         if (recorder.state !== 'inactive') {
