@@ -35,7 +35,7 @@ export async function compressVideoOnClient(
         return file;
     }
 
-    console.log("🧠 Старт FFmpeg сжатия с ультра-плавным микропроцентным счетчиком:", {
+    console.log("🧠 Старт оптимизированного сжатия (480p под лимит 19.5MB):", {
         name: file.name,
         sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
     });
@@ -47,14 +47,12 @@ export async function compressVideoOnClient(
 
     await ff.writeFile(inputName, await fetchFile(file));
 
-    // 🔥 Сверхчастый таймер (каждые 40мс) для тех самых микропроцентов (1.8120, 1.8121...)
     let currentPercent = 0.0000;
     let isFinished = false;
 
+    // Живой таймер прогресса (40мс) для бегущих субпроцентов
     const progressInterval = setInterval(() => {
         if (isFinished) return;
-        
-        // Плавный прирост с математическим затуханием к 99%
         if (currentPercent < 98.5) {
             const remaining = 99 - currentPercent;
             const increment = Math.max(remaining * 0.015, 0.0012);
@@ -64,20 +62,20 @@ export async function compressVideoOnClient(
                 onProgress(Number(currentPercent.toFixed(4)));
             }
         }
-    }, 40); // 40мс обновление дает абсолютно плавный бег цифр на экране
+    }, 40);
 
     try {
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',   // Максимальная скорость WebAssembly
-            '-threads', '0',          // Автоматически задействовать все ядра процессора для ускорения
-            '-crf', '23',             // Баланс качества без кубиков
-            '-maxrate', '2200k',      // Лимит битрейта для Telegram
-            '-bufsize', '4400k',
-            '-vf', 'scale=-2:720',    // HD 720p для гитары
-            '-c:a', 'aac',
-            '-b:a', '128k',
+            '-preset', 'ultrafast',   // Максимальная скорость в браузере
+            '-threads', '0',          // Все ядра процессора
+            '-b:v', '400k',           // Жесткий целевой битрейт видео под длинные ролики (~5 мин)
+            '-maxrate', '600k',       // Пиковый запас для динамичных моментов
+            '-bufsize', '1200k',
+            // Фильтры: стабильные 30 FPS (без рывков) + чистые 480p (идеально для лимита 19.5МБ без кубиков)
+            '-vf', 'fps=30,scale=-2:480', 
+            '-c:a', 'copy',           // Звук один-в-один без потерь времени и качества
             '-movflags', '+faststart',
             outputName
         ]);
@@ -85,7 +83,7 @@ export async function compressVideoOnClient(
         isFinished = true;
         clearInterval(progressInterval);
         if (onProgress) {
-            onProgress(100); // Четкие 100% по завершении
+            onProgress(100);
         }
     }
 
