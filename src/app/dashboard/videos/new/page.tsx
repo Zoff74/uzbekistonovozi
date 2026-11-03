@@ -10,7 +10,7 @@ import { compressVideoOnClient } from "@/utils/videoCompressor";
 export default function NewVideoPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadProgress, setUploadProgress] = useState<number>(0); // Изменили на number для микропроцентов
     const [statusMessage, setStatusMessage] = useState("");
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -128,16 +128,14 @@ export default function NewVideoPage() {
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
-                        // Раньше было умножение на 0.6, из-за чего шкала стопорилась на 60%. 
-                        // Даем прогрессу доходить до 90% на этапе сжатия на клиенте:
-                        const mappedProgress = Math.min(Math.round(progress * 0.9), 90);
-                        setUploadProgress(mappedProgress);
+                        // Масштабируем прогресс сжатия до 90% с сохранением микропроцентов
+                        const mappedProgress = Math.min(progress * 0.9, 90);
+                        setUploadProgress(Number(mappedProgress.toFixed(3)));
                     });
                 }
             );
 
             setStatusMessage("Видео серверга юкланмоqda...");
-            // Когда сжатие завершено, переходим к загрузке (от 90% до 100%)
             setUploadProgress(90);
 
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
@@ -147,8 +145,8 @@ export default function NewVideoPage() {
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const uploadProgressVal = 90 + Math.round((event.loaded / event.total) * 10);
-                        setUploadProgress(uploadProgressVal);
+                        const uploadProgressVal = 90 + (event.loaded / event.total) * 10;
+                        setUploadProgress(Number(uploadProgressVal.toFixed(2)));
                     }
                 };
 
@@ -426,7 +424,10 @@ export default function NewVideoPage() {
                                 <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
                                     <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                                 </div>
-                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0">{uploadProgress}%</span>
+                                {/* Выводим точные микропроценты до трех знаков после запятой */}
+                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-16 text-right">
+                                    {uploadProgress.toFixed(3)}%
+                                </span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
                                 {tr("Жараён тугамагунча ёки хатолик ҳақида маълумот келмагунча саҳифани ёпманг", "Jarayon tugamaguncha yoki xatolik haqida ma'lumot kelmaguncha sahifani yopmang", "Не закрывайте страницу до завершения процесса", "Do not close the page until the process completes")}
@@ -444,7 +445,7 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{uploadProgress === 100 ? "Сақланмоқда..." : `Бажарилмоқда: ${uploadProgress}%`}</span>
+                                        <span>{uploadProgress >= 100 ? "Сақланмоқда..." : `Бажарилмоқда: ${uploadProgress.toFixed(1)}%`}</span>
                                     </>
                                 ) : (
                                     <>

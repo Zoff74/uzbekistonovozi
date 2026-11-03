@@ -9,7 +9,7 @@ export async function compressVideoOnClient(
             return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
         }
 
-        const MAX_SIZE_BYTES = 20 * 1024 * 1024; // Строгий лимит 20 Мб
+        const MAX_SIZE_BYTES = 20 * 1024 * 1024; // Строгий лимит Telegram (< 20MB)
 
         // ПРАВИЛО: Если исходный файл уже меньше или равен 20 Мб, не трогаем его
         if (file.size <= MAX_SIZE_BYTES) {
@@ -17,7 +17,7 @@ export async function compressVideoOnClient(
             return resolve(file);
         }
 
-        console.log("🧠 Старт умного нативного сжатия (цель < 20 Мб):", {
+        console.log("🧠 Старт строгого сжатия под лимит Telegram (<20Мб):", {
             name: file.name,
             sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
         });
@@ -39,22 +39,22 @@ export async function compressVideoOnClient(
 
                 const duration = video.duration || 1;
 
-                // 🧮 ЖЕСТКИЙ РАСЧЕТ ПОД ЛИМИТ < 20 МБ
-                const targetMaxBytes = 18 * 1024 * 1024; 
+                // 🧮 СТРОГИЙ РАСЧЕТ ПОД ЛИМИТ 18.5 МБ (с запасом до 20 Мб)
+                const targetMaxBytes = 18.5 * 1024 * 1024; 
                 const totalTargetBits = targetMaxBytes * 8;
-                const audioBitrate = 96000; // 96 kbps для аудио
+                const audioBitrate = 96000; // 96 kbps для качественного звука
                 const totalAudioBits = audioBitrate * duration;
                 
                 const availableVideoBits = totalTargetBits - totalAudioBits;
                 const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
 
-                // Предохранители: не ниже 300 kbps и не выше 1000 kbps
-                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 300000), 1000000);
+                // Предохранители: не ниже 250 kbps (чтобы не было каши) и не выше 900 kbps (чтобы строго влазить в лимит)
+                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 250000), 900000);
 
-                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Расчетный видеобитрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
+                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Битрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
 
                 const canvas = document.createElement('canvas');
-                const targetHeight = 480; // 480p для десктопа/мобилок
+                const targetHeight = 480; // СТРОГО 480p для стабильной работы кодека без зависаний на 20-й секунде
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = targetHeight;
@@ -139,7 +139,7 @@ export async function compressVideoOnClient(
                     const resultBlob = new Blob(chunks, { type: finalMime });
                     const newFileName = file.name.replace(/\.[^/.]+$/, '') + ext;
                     
-                    console.log(`📦 Сжатие завершено. Итоговый размер: ${(resultBlob.size / (1024 * 1024)).toFixed(2)} MB (Лимит: <20MB)`);
+                    console.log(`📦 Сжатие завершено. Итоговый размер: ${(resultBlob.size / (1024 * 1024)).toFixed(2)} MB (Лимит Телеграм: <20MB)`);
                     resolve(new File([resultBlob], newFileName, { type: finalMime }));
                 };
 
@@ -164,7 +164,7 @@ export async function compressVideoOnClient(
                     await video.play();
                 }
 
-                let currentVisualPercent = 0; // Плавные микропроценты для живого UX
+                let currentVisualPercent = 0; // Плавные микропроценты
 
                 const drawFrame = () => {
                     // 1. ЖЕСТКАЯ ПРОВЕРКА КОНЦА ПО ДЛИТЕЛЬНОСТИ
@@ -178,9 +178,16 @@ export async function compressVideoOnClient(
                         return;
                     }
 
-                    // 2. ЗАЩИТА ОТ ОБРЫВА: если видео встало в середине из-за буферизации, принудительно толкаем дальше
+                    // 2. ЗАЩИТА ОТ ЗАВИСАНИЯ В НАЧАЛЕ ИЛИ СЕРЕДИНЕ (Буферизация)
                     if (video.paused && !video.ended) {
-                        video.play().catch(() => {});
+                        if (video.readyState < 3) {
+                            // Данные еще докачиваются из Blob — ждем следующий кадр, не обрывая запись
+                            requestAnimationFrame(drawFrame);
+                            return;
+                        } else {
+                            // Плеер готов, но встал — принудительно толкаем дальше
+                            video.play().catch(() => {});
+                        }
                     }
 
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -191,12 +198,11 @@ export async function compressVideoOnClient(
                         if (realPercent > currentVisualPercent) {
                             currentVisualPercent += (realPercent - currentVisualPercent) * 0.1;
                         } else {
-                            // Микро-шаг вперед для непрерывной анимации цифр
                             currentVisualPercent += 0.004; 
                         }
 
                         const finalPercent = Math.min(Math.max(currentVisualPercent, 0), 99);
-                        onProgress(Number(finalPercent.toFixed(3))); // Выдаем микропроценты (например, 5.142%)
+                        onProgress(Number(finalPercent.toFixed(3)));
                     }
 
                     requestAnimationFrame(drawFrame);
