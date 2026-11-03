@@ -40,22 +40,21 @@ export async function compressVideoOnClient(
                 const duration = video.duration || 1;
 
                 // 🧮 ЖЕСТКИЙ РАСЧЕТ ПОД ЛИМИТ < 20 МБ
-                // Целимся в 18 Мб, чтобы с запасом уложиться в ограничение
                 const targetMaxBytes = 18 * 1024 * 1024; 
                 const totalTargetBits = targetMaxBytes * 8;
-                const audioBitrate = 96000; // 96 kbps для аудио (достаточно для голоса/музыки, экономит место)
+                const audioBitrate = 96000; // 96 kbps для аудио
                 const totalAudioBits = audioBitrate * duration;
                 
                 const availableVideoBits = totalTargetBits - totalAudioBits;
                 const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
 
-                // Предохранители: не ниже 300 kbps (чтобы не превращалось в кашу) и не выше 1000 kbps
+                // Предохранители: не ниже 300 kbps и не выше 1000 kbps
                 const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 300000), 1000000);
 
                 console.log(`📊 Длительность: ${duration.toFixed(1)}с | Расчетный видеобитрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
 
                 const canvas = document.createElement('canvas');
-                const targetHeight = 480; // 480p для десктопа
+                const targetHeight = 480; // 480p для десктопа/мобилок
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = targetHeight;
@@ -165,19 +164,39 @@ export async function compressVideoOnClient(
                     await video.play();
                 }
 
+                let currentVisualPercent = 0; // Плавные микропроценты для живого UX
+
                 const drawFrame = () => {
-                    if (video.ended || video.paused) {
+                    // 1. ЖЕСТКАЯ ПРОВЕРКА КОНЦА ПО ДЛИТЕЛЬНОСТИ
+                    const isReachedEnd = video.ended || (Number.isFinite(duration) && video.currentTime >= duration - 0.2);
+
+                    if (isReachedEnd) {
+                        console.log(`🏁 Видео дошло до конца (${video.currentTime.toFixed(1)}с / ${duration.toFixed(1)}с). Останавливаем запись.`);
                         if (recorder.state !== 'inactive') {
                             recorder.stop();
                         }
                         return;
                     }
 
+                    // 2. ЗАЩИТА ОТ ОБРЫВА: если видео встало в середине из-за буферизации, принудительно толкаем дальше
+                    if (video.paused && !video.ended) {
+                        video.play().catch(() => {});
+                    }
+
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    if (onProgress) {
-                        const percent = Math.min(Math.round((video.currentTime / duration) * 100), 99);
-                        onProgress(percent);
+                    if (onProgress && Number.isFinite(duration) && duration > 0) {
+                        const realPercent = (video.currentTime / duration) * 100;
+                        
+                        if (realPercent > currentVisualPercent) {
+                            currentVisualPercent += (realPercent - currentVisualPercent) * 0.1;
+                        } else {
+                            // Микро-шаг вперед для непрерывной анимации цифр
+                            currentVisualPercent += 0.004; 
+                        }
+
+                        const finalPercent = Math.min(Math.max(currentVisualPercent, 0), 99);
+                        onProgress(Number(finalPercent.toFixed(3))); // Выдаем микропроценты (например, 5.142%)
                     }
 
                     requestAnimationFrame(drawFrame);
