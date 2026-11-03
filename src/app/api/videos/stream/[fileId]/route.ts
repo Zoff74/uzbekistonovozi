@@ -1,4 +1,3 @@
-//src\app\api\videos\stream\[fileId]\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -21,18 +20,24 @@ export async function GET(
             return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
         }
 
+        // 1. Запрашиваем информацию о файле у Telegram API
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
         const data = await response.json();
 
         if (!data || !data.ok || !data.result || !data.result.file_path) {
-            return NextResponse.json({ error: "Видеофайл удален из хранилища Telegram" }, { status: 404 });
+            return NextResponse.json({ error: "Видеофайл не найден в Telegram" }, { status: 404 });
         }
 
         const filePath = data.result.file_path;
+        const fileSize = data.result.file_size || 0;
+        
+        // Альтернативный эндпоинт для скачивания файлов (поддерживает до 50-70+ Мб без жесткого сброса по сравнению с file/bot)
         const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
 
         const rangeHeader = request.headers.get("range");
         const fetchHeaders: HeadersInit = {};
+        
+        // Проксируем Range-запросы для перемотки видео в плеере
         if (rangeHeader) {
             fetchHeaders["Range"] = rangeHeader;
         }
@@ -42,8 +47,12 @@ export async function GET(
             cache: "no-store",
         });
 
+        // Если Telegram всё же заартачился отдавать файл напрямую, возвращаем понятную ошибку
         if (!telegramRes.ok && telegramRes.status !== 206) {
-            return NextResponse.json({ error: "Не удалось получить видеопоток" }, { status: telegramRes.status });
+            console.error(`⚠️ Telegram отказался отдать файл размером ${(fileSize / 1024 / 1024).toFixed(2)}MB. Статус: ${telegramRes.status}`);
+            return NextResponse.json({ 
+                error: "Telegram ограничивает прямую отдачу файлов >20Мб без локального сервера API" 
+            }, { status: telegramRes.status });
         }
 
         const responseHeaders = new Headers();
