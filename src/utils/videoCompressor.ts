@@ -35,7 +35,7 @@ export async function compressVideoOnClient(
         return file;
     }
 
-    console.log("🧠 Старт FFmpeg сжатия с плавным прогрессом:", {
+    console.log("🧠 Старт FFmpeg сжатия с ультра-плавным микропроцентным счетчиком:", {
         name: file.name,
         sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
     });
@@ -47,32 +47,35 @@ export async function compressVideoOnClient(
 
     await ff.writeFile(inputName, await fetchFile(file));
 
-    // ⏱️ Запускаем искусственный плавный таймер прогресса, 
-    // который красиво и непрерывно крутит цифры перед глазами, пока FFmpeg кодирует файл
-    let currentPercent = 0;
+    // 🔥 Сверхчастый таймер (каждые 40мс) для тех самых микропроцентов (1.8120, 1.8121...)
+    let currentPercent = 0.0000;
     let isFinished = false;
 
     const progressInterval = setInterval(() => {
         if (isFinished) return;
-        // Плавное увеличение с замедлением к 98%
-        if (currentPercent < 98) {
-            const increment = (98 - currentPercent) * 0.05;
-            currentPercent += Math.max(increment, 0.001);
+        
+        // Плавный прирост с математическим затуханием к 99%
+        if (currentPercent < 98.5) {
+            const remaining = 99 - currentPercent;
+            const increment = Math.max(remaining * 0.015, 0.0012);
+            currentPercent += increment;
+            
             if (onProgress) {
                 onProgress(Number(currentPercent.toFixed(4)));
             }
         }
-    }, 150); // Обновление каждые 150мс для тех самых микропроцентов на экране
+    }, 40); // 40мс обновление дает абсолютно плавный бег цифр на экране
 
     try {
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',   // Максимальная скорость для WebAssembly
-            '-crf', '23',             // Баланс качества без зернистости и кубиков
+            '-preset', 'ultrafast',   // Максимальная скорость WebAssembly
+            '-threads', '0',          // Автоматически задействовать все ядра процессора для ускорения
+            '-crf', '23',             // Баланс качества без кубиков
             '-maxrate', '2200k',      // Лимит битрейта для Telegram
             '-bufsize', '4400k',
-            '-vf', 'scale=-2:720',    // HD 720p для идеальной видимости струн на гитаре
+            '-vf', 'scale=-2:720',    // HD 720p для гитары
             '-c:a', 'aac',
             '-b:a', '128k',
             '-movflags', '+faststart',
@@ -82,7 +85,7 @@ export async function compressVideoOnClient(
         isFinished = true;
         clearInterval(progressInterval);
         if (onProgress) {
-            onProgress(100); // По завершении доводим до 100%
+            onProgress(100); // Четкие 100% по завершении
         }
     }
 
