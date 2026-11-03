@@ -127,9 +127,13 @@ export default function NewVideoPage() {
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
-                        // ИСПРАВЛЕНО: Делим progress на 100, чтобы правильно масштабировать до 90%
                         const mappedProgress = Math.min((progress / 100) * 90, 90);
-                        setUploadProgress(Number(mappedProgress.toFixed(3)));
+                        
+                        // ЖЕСТКАЯ ЗАЩИТА: Новое значение прогресса ВСЕГДА должно быть больше или равно предыдущему!
+                        setUploadProgress((prev) => {
+                            const nextVal = Number(mappedProgress.toFixed(3));
+                            return nextVal > prev ? nextVal : prev;
+                        });
                     });
                 }
             );

@@ -20,6 +20,24 @@ async function getFFmpegInstance(): Promise<FFmpeg> {
     return ffmpeg;
 }
 
+// Вспомогательная функция для точного определения длительности видео в секундах
+async function getVideoDuration(file: File): Promise<number> {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        const url = URL.createObjectURL(file);
+        video.onloadedmetadata = () => {
+            URL.revokeObjectURL(url);
+            resolve(video.duration || 0);
+        };
+        video.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(0);
+        };
+        video.src = url;
+    });
+}
+
 export async function compressVideoOnClient(
     file: File,
     onProgress?: (progress: number) => void
@@ -40,6 +58,9 @@ export async function compressVideoOnClient(
         sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
     });
 
+    const totalDuration = await getVideoDuration(file);
+    console.log(`⏱️ Реальная длительность видео: ${totalDuration.toFixed(1)} сек.`);
+
     const ff = await getFFmpegInstance();
 
     const inputName = 'input_source_video';
@@ -47,47 +68,64 @@ export async function compressVideoOnClient(
 
     await ff.writeFile(inputName, await fetchFile(file));
 
-    let currentPercent = 0.0000;
-    let isFinished = false;
+    // Подписываемся на НАСТОЯЩИЙ прогресс от FFmpeg
+    let lastReportedPercent = 0;
+    if (onProgress) {
+        onProgress(0);
+    }
 
-    // Автономный независимый таймер: ему абсолютно плевать на внутренние затыки FFmpeg.
-    // Он линейно и неотвратимо крутит цифры вперед каждую миллисекунду.
-    // Автономный живой таймер: всегда идет строго вперед, никогда не откатывается
-    const progressInterval = setInterval(() => {
-        if (isFinished) return;
+    ff.on('progress', ({ time }) => {
+        // time приходит в микросекундах или секундах (в зависимости от версии core, обычно в секундах или микросекундах)
+        // В @ffmpeg/core 0.12.6 'time' измеряется в микросекундах (или секундах? Проверим: делим на 1000000 если микросекунды, но безопаснее конвертировать)
+        // На всякий случай: если time слишком большое число, это микросекунды.
+        let currentTimeSec = time > 10000 ? time / 1000000 : time;
 
-        if (currentPercent < 99.0) {
-            // Основной быстрый подъем
-            currentPercent += 0.025; 
-        } else if (currentPercent < 99.9) {
-            // На финишной прямой ультра-плавный микро-шаг вперед каждую миллисекунду.
-            // Цифры будут неумолимо ползти: 99.0012 -> 99.0025 -> 99.0039 ... и дальше к 99.9%
-            currentPercent += 0.001;
+        if (totalDuration > 0) {
+            let percent = (currentTimeSec / totalDuration) * 100;
+            // Ограничиваем в пределах 0 - 99.5%, чтобы 100% отдать только по факту завершения
+            percent = Math.min(99.5, Math.max(0, percent));
+            
+            // Гарантируем, что прогресс идет только вперед
+            if (percent > lastReportedPercent) {
+                lastReportedPercent = percent;
+                if (onProgress) {
+                    onProgress(Number(percent.toFixed(3)));
+                }
+            }
         }
+    });
 
-        if (onProgress) {
-            onProgress(Number(Math.min(99.9, currentPercent).toFixed(4)));
+    // Страховочный микро-таймер на случай, если FFmpeg по какой-то причине не прислал событие progress,
+    // но он будет ползти ОЧЕНЬ медленно и плавно, подстраиваясь под реальное время (например, рассчитывая на 3-5 минут работы)
+    let fallbackProgress = 0;
+    const fallbackInterval = setInterval(() => {
+        if (fallbackProgress < 95.0 && fallbackProgress <= lastReportedPercent) {
+            fallbackProgress += 0.05; // Медленный, честный прирост
+            if (fallbackProgress > lastReportedPercent) {
+                lastReportedPercent = fallbackProgress;
+                if (onProgress) {
+                    onProgress(Number(fallbackProgress.toFixed(3)));
+                }
+            }
         }
-    }, 40);
+    }, 1000); // Раз в секунду, а не каждые 40мс
 
     try {
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',   // Максимальная скорость транскодирования в браузере
-            '-threads', '0',          // Задействуем все доступные ядра процессора
-            '-b:v', '400k',           // Жесткий целевой битрейт видео под длинные ролики (~5 мин)
-            '-maxrate', '600k',       // Пиковый запас битрейта для сложных моментов
+            '-preset', 'ultrafast',
+            '-threads', '0',
+            '-b:v', '400k',
+            '-maxrate', '600k',
             '-bufsize', '1200k',
-            // Фильтры: стабильные 30 FPS (без рывков) + чистые 480p (идеально для лимита 19.5МБ без кубиков)
-            '-vf', 'fps=30,scale=-2:480', 
-            '-c:a', 'copy',           // Звук один-в-один без потерь времени и качества
+            '-vf', 'fps=30,scale=-2:480',
+            '-c:a', 'copy',
             '-movflags', '+faststart',
             outputName
         ]);
     } finally {
-        isFinished = true;
-        clearInterval(progressInterval);
+        clearInterval(fallbackInterval);
         if (onProgress) {
             onProgress(100);
         }
