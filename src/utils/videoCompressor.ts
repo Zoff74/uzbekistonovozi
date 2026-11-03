@@ -60,10 +60,11 @@ export async function compressVideoOnClient(
             const increment = Math.max(remaining * 0.012, 0.0008);
             currentPercent += increment;
         } else {
-            // Если FFmpeg засел на тяжелом финальном этапе, запускаем честные микро-колебания 
-            // в хвосте, чтобы цифры (88.6510 -> 88.6511...) бешено крутились и не стояли на месте
-            const drift = (Math.sin(Date.now() / 200) * 0.05); // микро-колебания ±0.05%
-            currentPercent = Math.min(98.9999, Math.max(88.0000, 88.6510 + drift));
+            // Если дошли до 98.5%, но кодек еще думает, аккуратно ползем дальше к 99.5%,
+            // заставляя хвост (.0001, .0002...) бешено крутиться вперед без замираний
+            if (currentPercent < 99.5) {
+                currentPercent += 0.001;
+            }
         }
 
         if (onProgress) {
