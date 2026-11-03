@@ -121,7 +121,7 @@ export default function NewVideoPage() {
         setUploadProgress(0);
 
         try {
-            setStatusMessage("Сжатие видео на устройстве...");
+            setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
 
             // Используем нативную функцию сжатия на клиенте без воркеров
             const compressedFile = await compressVideoOnClient(

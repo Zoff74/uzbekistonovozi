@@ -9,14 +9,14 @@ export async function compressVideoOnClient(
             return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
         }
 
-        const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Строгий порог — почти 20 Мб
+        const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Лимит Telegram (~19.5 Мб)
 
         if (file.size <= MAX_SIZE_BYTES) {
-            console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше лимита. Пропускаем сжатие.`);
+            console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже в норме. Пропускаем сжатие.`);
             return resolve(file);
         }
 
-        console.log("🧠 Старт качественного сжатия строго под ~18.5 Мб:", {
+        console.log("🧠 Старт оптимизированного сжатия под ~18.5 Мб (без лагов и черного экрана):", {
             name: file.name,
             sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
         });
@@ -38,22 +38,22 @@ export async function compressVideoOnClient(
 
                 const duration = video.duration || 1;
 
-                // 🧮 СТРОГИЙ РАСЧЕТ ПОД 18.5 МБ
+                // 🧮 Расчет под 18.5 Мб
                 const targetMaxBytes = 18.5 * 1024 * 1024; 
                 const totalTargetBits = targetMaxBytes * 8;
-                const audioBitrate = 96000; // 96 kbps для аудио
+                const audioBitrate = 96000; // 96 kbps аудио
                 const totalAudioBits = audioBitrate * duration;
                 
                 const availableVideoBits = totalTargetBits - totalAudioBits;
                 const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
 
-                // Ограничиваем битрейт: не ниже 600 kbps (чтобы было четко) и не выше 1800 kbps (чтобы строго влезть в 19 Мб)
-                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 600000), 1800000);
+                // Ограничиваем видеобитрейт для гитары (от 800 kbps до 1.6 Mbps)
+                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 800000), 1600000);
 
                 console.log(`📊 Длительность: ${duration.toFixed(1)}с | Видеобитрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
 
                 const canvas = document.createElement('canvas');
-                const targetHeight = 480; // 480p гарантирует отсутствие зависаний и попадание в лимит 19 Мб
+                const targetHeight = 480; // 480p для стабильного кодирования без перегруза процессора
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = targetHeight;
@@ -86,7 +86,8 @@ export async function compressVideoOnClient(
                     }
                 }
 
-                const videoStream = canvas.captureStream(30);
+                // 🔥 Снижаем до 20 кадров/сек, чтобы процессор успевал кодировать гитару без лагов
+                const videoStream = canvas.captureStream(20);
                 const audioTracks = dest ? dest.stream.getAudioTracks() : [];
 
                 const combinedStream = new MediaStream([
@@ -140,7 +141,7 @@ export async function compressVideoOnClient(
                     reject(err);
                 };
 
-                // Жесткая синхронизация старта с нулевой секунды без черного экрана
+                // Ждем готовности и запускаем воспроизведение СТРОГО с нулевого кадра
                 video.currentTime = 0;
 
                 video.onseeked = async () => {
@@ -148,14 +149,19 @@ export async function compressVideoOnClient(
                         await audioCtx.resume();
                     }
 
-                    recorder.start(100);
-
                     try {
                         await video.play();
                     } catch (playErr) {
                         video.muted = true;
                         await video.play();
                     }
+
+                    // Отрисовываем первый кадр на канвас ДО старта записи, чтобы убрать черный экран
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    // Запускаем запись рекордера ТОЛЬКО после того, как видео реально заиграло
+                    recorder.start(250);
+                    console.log("▶️ Запись и стриминг запущены с 0:00 без черного экрана.");
 
                     let currentVisualPercent = 0;
 
