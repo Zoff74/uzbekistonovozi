@@ -9,7 +9,7 @@ export async function compressVideoOnClient(
             return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
         }
 
-        console.log("📁 Старт нативного сжатия файла со звуком:", {
+        console.log("📁 Старт стабильного нативного сжатия в 480p со звуком:", {
             name: file.name,
             sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
         });
@@ -27,9 +27,11 @@ export async function compressVideoOnClient(
         video.onloadedmetadata = async () => {
             try {
                 video.currentTime = 0;
+                // ВАЖНО: Возвращаем нормальную скорость (1.0), чтобы аудио и видео не расходились и не обрывались
+                video.playbackRate = 1.0;
 
                 const canvas = document.createElement('canvas');
-                const targetHeight = 480; // 480p для компактного веса и стабильной производительности
+                const targetHeight = 480; // Золотая середина для десктопа и мобилок
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = targetHeight;
@@ -40,7 +42,7 @@ export async function compressVideoOnClient(
                     return reject(new Error('Не удалось инициализировать Canvas 2D context'));
                 }
 
-                // Инициализируем AudioContext для захвата звуковой дорожки
+                // Инициализируем AudioContext для захвата звука
                 try {
                     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
                     audioCtx = new AudioContextClass();
@@ -58,9 +60,8 @@ export async function compressVideoOnClient(
                     try {
                         sourceNode = audioCtx.createMediaElementSource(video);
                         sourceNode.connect(dest);
-                        // Важно: НЕ подключаем к audioCtx.destination, чтобы звук не дублировался наружу в динамики!
                     } catch (err) {
-                        console.warn("⚠️ Не удалось подключить аудиопоток из видео:", err);
+                        console.warn("⚠️ Не удалось подключить аудиопоток:", err);
                     }
                 }
 
@@ -68,33 +69,32 @@ export async function compressVideoOnClient(
                 const videoStream = canvas.captureStream(30);
                 const audioTracks = dest ? dest.stream.getAudioTracks() : [];
 
-                // Объединяем видео и аудио в единый поток
                 const combinedStream = new MediaStream([
                     ...videoStream.getVideoTracks(),
                     ...audioTracks
                 ]);
                 
-                // Подбираем поддерживаемый MIME-тип с поддержкой видео и аудио (VP9/VP8 + Opus)
-                let mimeType = 'video/webm;codecs=vp9,opus';
+                // Пытаемся первыми принудительно взять MP4 контейнер, чтобы Telegram не путал его с анимацией
+                let mimeType = 'video/mp4';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/webm;codecs=vp9,opus';
+                }
                 if (!MediaRecorder.isTypeSupported(mimeType)) {
                     mimeType = 'video/webm;codecs=vp8,opus';
                 }
                 if (!MediaRecorder.isTypeSupported(mimeType)) {
                     mimeType = 'video/webm';
                 }
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'video/mp4';
-                }
 
                 let recorder: MediaRecorder;
                 try {
                     recorder = new MediaRecorder(combinedStream, {
                         mimeType: mimeType,
-                        videoBitsPerSecond: 600000, // Оптимальный битрейт видео ~600 kbps для плавности и качества
-                        audioBitsPerSecond: 128000  // Битрейт аудио 128 kbps для чистейшего звука
+                        videoBitsPerSecond: 800000, // 800 kbps для отличного качества без квадратов
+                        audioBitsPerSecond: 128000  // 128 kbps для чистейшего звука
                     });
                 } catch (e) {
-                    console.warn("⚠️ Расширенные параметры MediaRecorder не поддерживаются, используем стандартные:", e);
+                    console.warn("⚠️ Расширенные параметры MediaRecorder не поддержались:", e);
                     recorder = new MediaRecorder(combinedStream);
                 }
 
@@ -111,14 +111,14 @@ export async function compressVideoOnClient(
                         audioCtx.close().catch(() => {});
                     }
 
-                    const isWebm = mimeType.includes('webm');
-                    const ext = isWebm ? '.webm' : '.mp4';
-                    const finalMime = isWebm ? 'video/webm' : 'video/mp4';
+                    const isMp4 = mimeType.includes('mp4');
+                    const ext = isMp4 ? '.mp4' : '.webm';
+                    const finalMime = isMp4 ? 'video/mp4' : 'video/webm';
 
                     const resultBlob = new Blob(chunks, { type: finalMime });
                     const newFileName = file.name.replace(/\.[^/.]+$/, '') + ext;
                     
-                    console.log("📦 Сжатие завершено. Размер:", (resultBlob.size / (1024 * 1024)).toFixed(2) + " MB", "Формат:", finalMime);
+                    console.log("📦 Стабильное сжатие завершено. Размер:", (resultBlob.size / (1024 * 1024)).toFixed(2) + " MB", "Формат:", finalMime);
                     resolve(new File([resultBlob], newFileName, { type: finalMime }));
                 };
 
@@ -130,12 +130,19 @@ export async function compressVideoOnClient(
                     reject(err);
                 };
 
-                // Запуск записи и воспроизведения
-                recorder.start(100); // Собираем чанки каждые 100мс
-                video.play().catch((err) => {
-                    console.error("Ошибка воспроизведения видео при сжатии:", err);
-                    reject(err);
-                });
+                // Запуск записи с чанками по 100мс для стабильности потока
+                recorder.start(100);
+
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+
+                try {
+                    await video.play();
+                } catch (playErr) {
+                    video.muted = true;
+                    await video.play();
+                }
 
                 const duration = video.duration || 1;
                 const drawFrame = () => {
