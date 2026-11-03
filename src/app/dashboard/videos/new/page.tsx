@@ -1,5 +1,5 @@
 "use client";
-//src\app\dashboard\videos\new\page.tsx
+// src/app/dashboard/videos/new/page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -10,7 +10,7 @@ import { compressVideoOnClient } from "@/utils/videoCompressor";
 export default function NewVideoPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState<number>(0); // Изменили на number для микропроцентов
+    const [uploadProgress, setUploadProgress] = useState<number>(0);
     const [statusMessage, setStatusMessage] = useState("");
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -123,13 +123,12 @@ export default function NewVideoPage() {
         try {
             setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
 
-            // Используем нативную функцию сжатия на клиенте без воркеров
             const compressedFile = await compressVideoOnClient(
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
-                        // Масштабируем прогресс сжатия до 90% с сохранением микропроцентов
-                        const mappedProgress = Math.min(progress * 0.9, 90);
+                        // ИСПРАВЛЕНО: Делим progress на 100, чтобы правильно масштабировать до 90%
+                        const mappedProgress = Math.min((progress / 100) * 90, 90);
                         setUploadProgress(Number(mappedProgress.toFixed(3)));
                     });
                 }
@@ -424,7 +423,6 @@ export default function NewVideoPage() {
                                 <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
                                     <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                                 </div>
-                                {/* Выводим точные микропроценты до трех знаков после запятой */}
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-16 text-right">
                                     {uploadProgress.toFixed(3)}%
                                 </span>
