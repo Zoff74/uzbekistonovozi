@@ -9,15 +9,14 @@ export async function compressVideoOnClient(
             return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
         }
 
-        const MAX_SIZE_BYTES = 48 * 1024 * 1024; // Держим планку около 48 Мб для шикарного качества
+        const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Строгий порог — почти 20 Мб
 
-        // ПРАВИЛО: Если файл уже меньше 48 Мб, не трогаем его вообще
         if (file.size <= MAX_SIZE_BYTES) {
-            console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже в пределах нормы. Пропускаем сжатие.`);
+            console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше лимита. Пропускаем сжатие.`);
             return resolve(file);
         }
 
-        console.log("🧠 Старт качественного сжатия под ~45Мб:", {
+        console.log("🧠 Старт качественного сжатия строго под ~18.5 Мб:", {
             name: file.name,
             sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
         });
@@ -39,22 +38,22 @@ export async function compressVideoOnClient(
 
                 const duration = video.duration || 1;
 
-                // 🧮 РАСЧЕТ ПОД 42 МБ (Максимум качества для клипов и концертов)
-                const targetMaxBytes = 42 * 1024 * 1024; 
+                // 🧮 СТРОГИЙ РАСЧЕТ ПОД 18.5 МБ
+                const targetMaxBytes = 18.5 * 1024 * 1024; 
                 const totalTargetBits = targetMaxBytes * 8;
-                const audioBitrate = 128000; // 128 kbps для отличного звука
+                const audioBitrate = 96000; // 96 kbps для аудио
                 const totalAudioBits = audioBitrate * duration;
                 
                 const availableVideoBits = totalTargetBits - totalAudioBits;
                 const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
 
-                // Ограничиваем битрейт снизу (не ниже 1.2 Mbps, чтобы не было мыла) и сверху (до 3.5 Mbps)
-                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 1200000), 3500000);
+                // Ограничиваем битрейт: не ниже 600 kbps (чтобы было четко) и не выше 1800 kbps (чтобы строго влезть в 19 Мб)
+                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 600000), 1800000);
 
                 console.log(`📊 Длительность: ${duration.toFixed(1)}с | Видеобитрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
 
                 const canvas = document.createElement('canvas');
-                const targetHeight = 720; // 720p HD для отличной детализации на экранах
+                const targetHeight = 480; // 480p гарантирует отсутствие зависаний и попадание в лимит 19 Мб
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = targetHeight;
@@ -87,7 +86,6 @@ export async function compressVideoOnClient(
                     }
                 }
 
-                // Захватываем на стабильных 30 кадрах
                 const videoStream = canvas.captureStream(30);
                 const audioTracks = dest ? dest.stream.getAudioTracks() : [];
 
@@ -142,54 +140,59 @@ export async function compressVideoOnClient(
                     reject(err);
                 };
 
-                recorder.start(100);
+                // Жесткая синхронизация старта с нулевой секунды без черного экрана
+                video.currentTime = 0;
 
-                if (audioCtx && audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
-
-                try {
-                    await video.play();
-                } catch (playErr) {
-                    video.muted = true;
-                    await video.play();
-                }
-
-                let currentVisualPercent = 0;
-
-                const drawFrame = () => {
-                    const isReachedEnd = video.ended || (Number.isFinite(duration) && video.currentTime >= duration - 0.2);
-
-                    if (isReachedEnd) {
-                        if (recorder.state !== 'inactive') recorder.stop();
-                        return;
+                video.onseeked = async () => {
+                    if (audioCtx && audioCtx.state === 'suspended') {
+                        await audioCtx.resume();
                     }
 
-                    if (video.paused && !video.ended) {
-                        if (video.readyState < 3) {
-                            requestAnimationFrame(drawFrame);
+                    recorder.start(100);
+
+                    try {
+                        await video.play();
+                    } catch (playErr) {
+                        video.muted = true;
+                        await video.play();
+                    }
+
+                    let currentVisualPercent = 0;
+
+                    const drawFrame = () => {
+                        const isReachedEnd = video.ended || (Number.isFinite(duration) && video.currentTime >= duration - 0.2);
+
+                        if (isReachedEnd) {
+                            if (recorder.state !== 'inactive') recorder.stop();
                             return;
-                        } else {
-                            video.play().catch(() => {});
                         }
-                    }
 
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                    if (onProgress && Number.isFinite(duration) && duration > 0) {
-                        const realPercent = (video.currentTime / duration) * 100;
-                        if (realPercent > currentVisualPercent) {
-                            currentVisualPercent += (realPercent - currentVisualPercent) * 0.1;
-                        } else {
-                            currentVisualPercent += 0.004; 
+                        if (video.paused && !video.ended) {
+                            if (video.readyState < 3) {
+                                requestAnimationFrame(drawFrame);
+                                return;
+                            } else {
+                                video.play().catch(() => {});
+                            }
                         }
-                        onProgress(Number(Math.min(Math.max(currentVisualPercent, 0), 99).toFixed(3)));
-                    }
 
-                    requestAnimationFrame(drawFrame);
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                        if (onProgress && Number.isFinite(duration) && duration > 0) {
+                            const realPercent = (video.currentTime / duration) * 100;
+                            if (realPercent > currentVisualPercent) {
+                                currentVisualPercent += (realPercent - currentVisualPercent) * 0.1;
+                            } else {
+                                currentVisualPercent += 0.004; 
+                            }
+                            onProgress(Number(Math.min(Math.max(currentVisualPercent, 0), 99).toFixed(3)));
+                        }
+
+                        requestAnimationFrame(drawFrame);
+                    };
+
+                    drawFrame();
                 };
-
-                drawFrame();
 
             } catch (err) {
                 URL.revokeObjectURL(objectUrl);
