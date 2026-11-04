@@ -10,6 +10,12 @@ async function getFFmpegInstance(): Promise<FFmpeg> {
     }
 
     ffmpeg = new FFmpeg();
+    
+    // Отключаем лишний спам в консоль, чтобы браузер не тормозил
+    ffmpeg.on('log', ({ message }) => {
+        // Можно раскомментировать для отладки: console.log('[FFmpeg log]:', message);
+    });
+
     const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
 
     await ffmpeg.load({
@@ -50,13 +56,11 @@ export async function compressVideoOnClient(
         return file;
     }
 
-    // 1. Узнаем точную длительность видео
     const duration = await getVideoDuration(file);
     if (!duration || duration <= 0) {
         throw new Error("Не удалось определить длительность видеофайла");
     }
 
-    // 2. Расчет оптимального битрейта под 19 МБ для однопроходного кодирования
     const TARGET_SIZE_BITS = 19 * 1024 * 1024 * 8;
     const audioBits = duration * 128000;
     const videoBits = TARGET_SIZE_BITS - audioBits;
@@ -69,7 +73,7 @@ export async function compressVideoOnClient(
 
     const ff = await getFFmpegInstance();
 
-    const inputName = 'input_source_video';
+    const inputName = 'input_source_video.mkv';
     const outputName = 'output_compressed.mp4';
 
     try {
@@ -77,7 +81,9 @@ export async function compressVideoOnClient(
         await ff.deleteFile(outputName);
     } catch {}
 
+    console.log('Запись файла в память FFmpeg...');
     await ff.writeFile(inputName, await fetchFile(file));
+    console.log('Файл записан. Запуск сжатия...');
 
     if (onProgress) {
         onProgress(0);
@@ -97,16 +103,14 @@ export async function compressVideoOnClient(
     ff.on('progress', progressCallback);
 
     try {
-        // Однопроходное кодирование (мгновенно и без зависаний в WASM) с жестким удержанием битрейта и 480p
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
-            '-preset', 'veryfast',     // Оптимальный баланс скорости и качества для браузера
+            '-preset', 'ultrafast',     // Самый быстрый пресет для CPU
             '-b:v', videoBitrateStr,
             '-maxrate', maxRateStr,
             '-bufsize', bufSizeStr,
-            // Ограничение до 480p (золотая середина), если исходник больше
-            '-vf', "fps=30,scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,trunc(ih/2)*2)'",
+            '-vf', 'fps=30,scale=-2:480',
             '-c:a', 'aac',
             '-b:a', '128k',
             '-movflags', '+faststart',
@@ -120,6 +124,7 @@ export async function compressVideoOnClient(
         onProgress(100);
     }
 
+    console.log('Сжатие завершено. Чтение файла из памяти...');
     const data = await ff.readFile(outputName);
     const uint8Array = new Uint8Array(data as any);
     const resultBlob = new Blob([uint8Array], { type: 'video/mp4' });
