@@ -109,15 +109,16 @@ export async function compressVideoOnClient(
     ff.on('progress', progressCallback);
 
     try {
-        // Однопроходное сжатие на пресете ultrafast (максимальная скорость работы WASM) в надежные 480p
+        // Ультра-быстрый проход: снижаем до 360p и 24fps, чтобы процессор не задыхался
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
+            '-tune', 'fastdecode',
             '-b:v', videoBitrateStr,
             '-maxrate', maxRateStr,
             '-bufsize', bufSizeStr,
-            '-vf', 'fps=30,scale=-2:480',
+            '-vf', 'fps=24,scale=-2:360',
             '-c:a', 'aac',
             '-b:a', `${audioBitrateKbps}k`,
             '-movflags', '+faststart',
