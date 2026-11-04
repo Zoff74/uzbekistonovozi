@@ -123,23 +123,13 @@ export default function NewVideoPage() {
         try {
             setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
 
+            // Честный прогресс сжатия от 0 до 90% на основе реального времени FFmpeg
             const compressedFile = await compressVideoOnClient(
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
-                        // Если сжатие дошло до финала, принудительно отдаем 90%
-                        if (progress >= 99) {
-                            setUploadProgress(90);
-                            return;
-                        }
-
-                        // Масштабируем 0-99% в диапазон 0-89.9%
-                        const mappedProgress = (progress / 100) * 89.9;
-                        
-                        setUploadProgress((prev) => {
-                            const nextVal = Number(mappedProgress.toFixed(2));
-                            return nextVal > prev ? nextVal : prev;
-                        });
+                        const mappedProgress = (progress / 100) * 90;
+                        setUploadProgress(Number(Math.min(90, mappedProgress).toFixed(2)));
                     });
                 }
             );

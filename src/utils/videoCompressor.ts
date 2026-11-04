@@ -20,26 +20,38 @@ async function getFFmpegInstance(): Promise<FFmpeg> {
     return ffmpeg;
 }
 
+// Получаем точную длительность видео через скрытый тег
+async function getVideoDuration(file: File): Promise<number> {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        const url = URL.createObjectURL(file);
+        video.onloadedmetadata = () => {
+            URL.revokeObjectURL(url);
+            resolve(video.duration || 0);
+        };
+        video.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(0);
+        };
+        video.src = url;
+    });
+}
+
 export async function compressVideoOnClient(
     file: File,
     onProgress?: (progress: number) => void
 ): Promise<File> {
     if (!file || !(file instanceof Blob)) {
-        throw new Error("В функцию сжатия не передан объект файла (File/Blob)");
+        throw new Error("В функцию сжатия не передан объект файла");
     }
 
-    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Лимит Telegram (~19.5 Мб)
-
+    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024;
     if (file.size <= MAX_SIZE_BYTES) {
-        console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже в норме. Пропускаем сжатие.`);
         return file;
     }
 
-    console.log("🧠 Старт оптимизированного сжатия (480p под лимит 19.5MB):", {
-        name: file.name,
-        sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
-    });
-
+    const totalDuration = await getVideoDuration(file);
     const ff = await getFFmpegInstance();
 
     const inputName = 'input_source_video';
@@ -47,23 +59,22 @@ export async function compressVideoOnClient(
 
     await ff.writeFile(inputName, await fetchFile(file));
 
-    let currentPercent = 0;
-    let isFinished = false;
+    if (onProgress) {
+        onProgress(0);
+    }
 
-    // Автономный независимый таймер: плавно идет вперед до 99%, никогда не откатывается назад
-    const progressInterval = setInterval(() => {
-        if (isFinished) return;
+    // Слушаем реальный прогресс от кодека FFmpeg
+    ff.on('progress', ({ time }) => {
+        // time в ffmpeg/core 0.12.6 приходит в микросекундах
+        const currentTimeSec = time > 10000 ? time / 1000000 : time;
 
-        if (currentPercent < 95.0) {
-            currentPercent += 0.35; // Уверенный шаг
-        } else if (currentPercent < 99.0) {
-            currentPercent += 0.05; // Плавное замедление на финише
+        if (totalDuration > 0 && onProgress) {
+            let percent = (currentTimeSec / totalDuration) * 100;
+            // Держим в пределах 0 - 99%, чтобы 100% отдать по факту готовности
+            percent = Math.min(99, Math.max(0, percent));
+            onProgress(Number(percent.toFixed(2)));
         }
-
-        if (onProgress) {
-            onProgress(Number(Math.min(99.0, currentPercent).toFixed(2)));
-        }
-    }, 150);
+    });
 
     try {
         await ff.exec([
@@ -75,14 +86,12 @@ export async function compressVideoOnClient(
             '-maxrate', '600k',
             '-bufsize', '1200k',
             '-vf', 'fps=30,scale=-2:480',
-            '-c:a', 'aac',         // Жесткое перекодирование звука исключает зависания таймстампов
+            '-c:a', 'aac',
             '-b:a', '128k',
             '-movflags', '+faststart',
             outputName
         ]);
     } finally {
-        isFinished = true;
-        clearInterval(progressInterval);
         if (onProgress) {
             onProgress(100);
         }
@@ -94,8 +103,6 @@ export async function compressVideoOnClient(
     
     const newFileName = file.name.replace(/\.[^/.]+$/, '') + '.mp4';
     const compressedFile = new File([resultBlob], newFileName, { type: 'video/mp4' });
-    
-    console.log(`📦 Готово! Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
 
     try {
         await ff.deleteFile(inputName);
