@@ -57,16 +57,10 @@ export async function compressVideoOnClient(
     }
 
     // 2. Математический расчет битрейта под лимит 19 МБ
-    // Целевой объем: 19 МБ = 19 * 1024 * 1024 * 8 = 159,383,552 бит
     const TARGET_SIZE_BITS = 19 * 1024 * 1024 * 8;
-    
-    // Аудио весит: 128 kbps = 128,000 бит/сек * длительность
     const audioBits = duration * 128000;
-    
-    // Остаток бит идет строго на видео
     const videoBits = TARGET_SIZE_BITS - audioBits;
     
-    // Вычисляем видеобитрейт в секунду и переводим в кбит/с (кlучием минимум в 180k, чтобы не было каши)
     const calculatedVideoBitrateKbps = Math.max(180, Math.floor((videoBits / duration) / 1000));
     
     const videoBitrateStr = `${calculatedVideoBitrateKbps}k`;
@@ -103,7 +97,7 @@ export async function compressVideoOnClient(
     ff.on('progress', progressCallback);
 
     try {
-        // Проход 1: Анализ распределения битрейта под конкретную длительность
+        // Проход 1: Анализ распределения битрейта
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
@@ -111,10 +105,10 @@ export async function compressVideoOnClient(
             '-pass', '1',
             '-an',
             '-f', 'null',
-            'NUL'
+            '/dev/null'
         ]);
 
-        // Проход 2: Чистовое двухпроходное кодирование с сохранением оригинального разрешения
+        // Проход 2: Финальное сжатие с ограничением до 480p (если исходник выше)
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
@@ -123,8 +117,8 @@ export async function compressVideoOnClient(
             '-maxrate', maxRateStr,
             '-bufsize', bufSizeStr,
             '-pass', '2',
-            // Сохраняем исходное разрешение (144p, 360p, 480p, 720p, 1080p и т.д.), выравнивая под четные размеры без апскейла
-            '-vf', 'fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2',
+            // Золотая середина: если видео выше 480p, сжимаем до 480p. Если меньше — оставляем оригинал (с четными размерами для h264)
+            '-vf', "fps=30,scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,trunc(ih/2)*2)'",
             '-c:a', 'aac',
             '-b:a', '128k',
             '-movflags', '+faststart',

@@ -131,9 +131,9 @@ export default function NewVideoPage() {
         try {
             // ЭТАП 1: Сжатие видео на устройстве
             setStatusMessage(tr(
-                "Видео хажми кичрайтирилмоқда... Жараённи тезлаштириш учун ушбу ойнадан ташқари телефон ёки компютерингиздаги барча ойналарни ва дастурларни вақтинча ёпинг!",
-                "Video hajmi kichraytirilmoqda... Jarayonni tezlashtirish uchun ushbu oynadan tashqari telefon yoki kompyuteringizdagi barcha oynalarni va dasturlarni vaqtincha yoping!",
-                "Идет сжатие видео на устройстве... Для ускорения процесса закройте кроме этого окна все активные и неактивные вкладки и программы на устройстве!",
+                "Диққат! Видео хажми кичрайтирилмоқда... Жараённи тезлаштириш учун, ушбу ойнадан ташқари, телефон ёки компютерингиздаги барча ойна ва дастурларни вақтинча ёпинг!",
+                "Diqqat! Video hajmi kichraytirilmoqda... Jarayonni tezlashtirish uchun, ushbu oynadan tashqari, telefon yoki kompyuteringizdagi barcha oyna va dasturlarni vaqtincha yoping!",
+                "Внимание! Идет сжатие видео на устройстве... Для ускорения процесса, закройте кроме этого окна, все активные и неактивные вкладки и программы на устройстве!",
                 "Compressing video on device... To speed up the process, please close all active and inactive tabs and programs on your device other than this window!"
             ));
 
@@ -319,16 +319,16 @@ export default function NewVideoPage() {
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
                             <p className="font-semibold text-amber-400">
                                 {tr(
-                                    "Диққат! Контент 5-10 сония ичида тез юкланиши учун, Видео-тасвир 20 Мб хажмдан ошмаслиги керак.",
-                                    "Diqqat! Kontent 5-10 soniya ichida tez yuklanishi uchun, Video-tasvir 20 Mb hajmdan oshmasligi kerak.",
+                                    "Диққат! Агарда контент 5-10 сония ичида тез юкланишини хохласангиз, Видео-тасвир 20 Мб хажмдан ошмаслиги керак.",
+                                    "Diqqat! Agarda kontent 5-10 soniya ichida tez yuklanishini hohlasangiz, Video-tasvir 20 Mb hajmdan oshmasligi kerak.",
                                     "Внимание! Для быстрой загрузки контента за 5-10 секунд размер видеофайла не должен превышать 20 МБ.",
                                     "Attention! For fast content loading within 5-10 seconds, the video file size should not exceed 20 MB."
                                 )}
                             </p>
                             <p>
                                 {tr(
-                                    'Мободо видео-тасвир хажми 20 Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради. Бу жараён Сизнинг интернет тезлиги ва ускунангизнинг техник характеристикасига боғлиқ ва кичрайтириш учун, 10-15 дақиқа вақт керак бўлиши мумкин. Сабр қилиб охирлашини кутинг...',
-                                    'Mobodo video-tasvir hajmi 20 Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi. Bu jarayon Sizning internet tezligi va uskunangizning texnik xarakteristikasiga bog\'liq va kichraytirish uchun, 10-15 daqiqa vaqt kerak bo\'lishi mumkin. Sabr qilib oxirlashini kuting...',
+                                    'Мободо видео-тасвир хажми 20 Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради. Бу жараён Сизнинг интернет тезлиги ва ускунангизнинг техник характеристикасига боғлиқ ва кичрайтириш учун, 10-15 дақиқа, баъзи холларда ундан ҳам кўпроқ вақт керак бўлиши мумкин. Сабр қилиб охирлашини кутинг...',
+                                    'Mobodo video-tasvir hajmi 20 Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi. Bu jarayon Sizning internet tezligi va uskunangizning texnik xarakteristikasiga bog\'liq va kichraytirish uchun, 10-15 daqiqa, bazi hollard undan ham ko\'proq vaqt kerak bo\'lishi mumkin. Sabr qilib oxirlashini kuting...',
                                     'Если размер видеофайла больше 20 МБ, наш алгоритм автоматически уменьшит его. Этот процесс зависит от скорости вашего интернета и технических характеристик вашего устройства, и сжатие может занять 10-15 минут. Пожалуйста, наберитесь терпения и дождитесь окончания процесса...',
                                     'If the video file size is larger than 20 MB, our algorithm will automatically compress it. This process depends on your internet speed and device specifications, and compression may take 10-15 minutes. Please be patient and wait until it finishes...'
                                 )}
