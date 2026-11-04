@@ -38,22 +38,22 @@ export async function compressVideoOnClient(
 
                 const duration = video.duration || 1;
 
-                // 🧮 Расчет битрейта с запасом под 18.5 МБ
+                // 🧮 Расчет битрейта под целевой объем ~18.5 МБ
                 const targetMaxBytes = 18.5 * 1024 * 1024; 
                 const totalTargetBits = targetMaxBytes * 8;
-                const audioBitrate = 128000; // Повышаем звук до 128 kbps для чистоты
+                const audioBitrate = 128000; // 128 kbps для качественного звука
                 const totalAudioBits = audioBitrate * duration;
                 
                 const availableVideoBits = totalTargetBits - totalAudioBits;
                 const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
 
-                // Чуть поднимаем верхнюю планку (до 1.4 Mbps), чтобы уменьшить «кубики» на динамичных кадрах
-                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 300000), 1400000);
+                // Держим высокий минимальный порог, чтобы MediaRecorder не пережимал файл в кашу
+                const optimalVideoBitrate = Math.max(calculatedVideoBitrate, 800000);
 
                 console.log(`📊 Длительность: ${duration.toFixed(1)}с | Видео-битрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
 
                 const canvas = document.createElement('canvas');
-                const targetHeight = 480; // Надежные 480p
+                const targetHeight = 480; // Возвращаем надежные 480p
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = targetHeight;
@@ -172,12 +172,7 @@ export async function compressVideoOnClient(
                     }
 
                     if (video.paused && !video.ended) {
-                        if (video.readyState < 3) {
-                            requestAnimationFrame(drawFrame);
-                            return;
-                        } else {
-                            video.play().catch(() => {});
-                        }
+                        video.play().catch(() => {});
                     }
 
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
