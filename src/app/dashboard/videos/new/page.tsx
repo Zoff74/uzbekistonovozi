@@ -123,13 +123,13 @@ export default function NewVideoPage() {
         try {
             setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
 
-            // Честный прогресс сжатия от 0 до 90% на основе реального времени FFmpeg
+            // Масштабируем микропроценты сжатия до 90% диапазона шкалы
             const compressedFile = await compressVideoOnClient(
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
                         const mappedProgress = (progress / 100) * 90;
-                        setUploadProgress(Number(Math.min(90, mappedProgress).toFixed(2)));
+                        setUploadProgress(Number(Math.min(90, mappedProgress).toFixed(4)));
                     });
                 }
             );
@@ -145,7 +145,7 @@ export default function NewVideoPage() {
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
                         const uploadProgressVal = 90 + (event.loaded / event.total) * 10;
-                        setUploadProgress(Number(uploadProgressVal.toFixed(2)));
+                        setUploadProgress(Number(uploadProgressVal.toFixed(4)));
                     }
                 };
 
@@ -423,8 +423,9 @@ export default function NewVideoPage() {
                                 <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
                                     <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                                 </div>
-                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-16 text-right">
-                                    {uploadProgress.toFixed(2)}%
+                                {/* Вывод с точностью до 4 знаков (микропроценты) */}
+                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-24 text-right">
+                                    {uploadProgress.toFixed(4)}%
                                 </span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
@@ -443,7 +444,7 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{uploadProgress >= 100 ? "Сақланмоқда..." : `Бажарилмоқда: ${uploadProgress.toFixed(1)}%`}</span>
+                                        <span>{uploadProgress >= 100 ? "Сақланмоқда..." : `Бажарилмоқда: ${uploadProgress.toFixed(2)}%`}</span>
                                     </>
                                 ) : (
                                     <>
