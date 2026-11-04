@@ -293,7 +293,7 @@ export default function NewVideoPage() {
                             {tr("Видеоингиз учун видеофайл ва муқова юкланг", "Videoingiz uchun videofayl va muqova yuklang", "Загрузите видеофайл и обложку для вашего видео", "Upload video file and cover for your video")}
                         </p>
 
-                        {/* ТРЕБУЕМЫЙ ИНФОРМАЦИОННЫЙ БЛОК */}
+                        {/* Информационный блок */}
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
                             <p className="font-semibold text-amber-400">
                                 Диққат! Контент 5-10 сония ичида тез юкланиши учун, Видео-тасвир 20Мб хажмдан ошмаслиги керак.
