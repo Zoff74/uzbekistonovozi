@@ -120,26 +120,34 @@ export default function NewVideoPage() {
         setError(null);
         setUploadProgress(0);
 
-        try {
-            // ЭТАП 1: Сжатие видео на устройстве (плавно от 0% до 60%)
-            setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
+        // Единый плавный счетчик, который гарантированно движется непрерывно до 99.5%
+        let currentProgress = 0;
+        const globalTicker = setInterval(() => {
+            if (currentProgress < 99.5) {
+                // Плавное прибавление, чтобы счетчик шел живо и независимо от сетевых пауз
+                currentProgress += 0.04;
+                setUploadProgress(Number(currentProgress.toFixed(4)));
+            }
+        }, 50);
 
-            let currentProgress = 0;
+        try {
+            // ЭТАП 1: Сжатие видео на устройстве
+            setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
 
             const compressedFile = await compressVideoOnClient(
                 videoFile,
                 (progress) => {
+                    // Если реальный прогресс сжатия обгоняет таймер — подтягиваем
                     requestAnimationFrame(() => {
-                        const target = (progress / 100) * 60;
-                        if (target > currentProgress) {
-                            currentProgress = target;
-                            setUploadProgress(Number(currentProgress.toFixed(4)));
+                        const mapped = (progress / 100) * 40; // Сжатие занимает условно первые 40%
+                        if (mapped > currentProgress) {
+                            currentProgress = mapped;
                         }
                     });
                 }
             );
 
-            // ЭТАП 2: Загрузка файла на сервер через XMLHttpRequest (от 60% до 90%)
+            // ЭТАП 2: Загрузка файла на сервер через XMLHttpRequest
             setStatusMessage("Видео серверга юкланмоqda...");
 
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
@@ -149,10 +157,9 @@ export default function NewVideoPage() {
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const netProgress = 60 + (event.loaded / event.total) * 30; // 60% -> 90%
+                        const netProgress = 40 + (event.loaded / event.total) * 45; // Загрузка от 40% до 85%
                         if (netProgress > currentProgress) {
                             currentProgress = netProgress;
-                            setUploadProgress(Number(currentProgress.toFixed(4)));
                         }
                     }
                 };
@@ -200,15 +207,8 @@ export default function NewVideoPage() {
                 xhr.send(data);
             });
             
-            // ЭТАП 3: Сохранение метаданных в базу (плавно тикаем от 90% до 99.5% живым интервалом, чтобы шкала не стояла на месте)
+            // ЭТАП 3: Сохранение метаданных в базу
             setStatusMessage("Сохранение данных в базу...");
-
-            const dbTicker = setInterval(() => {
-                if (currentProgress < 99.5) {
-                    currentProgress += 0.08; // Плавное живое движение вперед
-                    setUploadProgress(Number(currentProgress.toFixed(4)));
-                }
-            }, 60);
 
             const metadataFormData = new FormData();
             metadataFormData.append("title", formData.title);
@@ -231,8 +231,6 @@ export default function NewVideoPage() {
                 body: metadataFormData,
             });
 
-            clearInterval(dbTicker); // Тормозим тикер
-
             const responseText = await response.text();
             let result;
             try {
@@ -245,7 +243,10 @@ export default function NewVideoPage() {
                 throw new Error(result.message || result.error || `Ошибка сервера: HTTP ${response.status}`);
             }
 
-            // ФИНАЛ: Добиваем ровно до 100% и открываем модалку успеха
+            // Останавливаем фоновый тикер, так как всё успешно завершилось
+            clearInterval(globalTicker);
+
+            // ФИНАЛ: Мгновенно выставляем 100% и показываем окно успеха
             setUploadProgress(100);
             setLoading(false);
             setSuccessModal(true);
@@ -256,6 +257,7 @@ export default function NewVideoPage() {
             }, 2000);
 
         } catch (err: unknown) {
+            clearInterval(globalTicker);
             const message = err instanceof Error ? err.message : tr(
                 "Хатолик юз берди",
                 "Xatolik yuz berdi",
@@ -332,7 +334,7 @@ export default function NewVideoPage() {
                             </p>
                             <p className="text-amber-300">
                                 {tr(
-                                    "Лекни бу жараён учун 10-15 дақиқа вақт керак бўлиши мумкин. Сабр қилиб кутасиз...",
+                                    "Лекин бу жараён учун 10-15 дақиқа вақт керак бўлиши мумкин. Сабр қилиб кутасиз...",
                                     "lekin bu jarayon uchun 10-15 daqiqa vaqt kerak bo'lishi mumkin. Sabr qilib kutasiz...",
                                     "Этот процесс займет 10-15 минут. Пожалуйста, дождитесь окончание процесса...",
                                     "This process will take 10-15 minutes. Please wait patiently."
