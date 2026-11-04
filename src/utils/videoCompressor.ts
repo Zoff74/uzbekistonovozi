@@ -50,71 +50,92 @@ export async function compressVideoOnClient(
         return file;
     }
 
-    const totalDuration = await getVideoDuration(file);
+    // 1. Узнаем точную длительность видео
+    const duration = await getVideoDuration(file);
+    if (!duration || duration <= 0) {
+        throw new Error("Не удалось определить длительность видеофайла");
+    }
+
+    // 2. Математический расчет битрейта под лимит 19 МБ
+    // Целевой объем: 19 МБ = 19 * 1024 * 1024 * 8 = 159,383,552 бит
+    const TARGET_SIZE_BITS = 19 * 1024 * 1024 * 8;
+    
+    // Аудио весит: 128 kbps = 128,000 бит/сек * длительность
+    const audioBits = duration * 128000;
+    
+    // Остаток бит идет строго на видео
+    const videoBits = TARGET_SIZE_BITS - audioBits;
+    
+    // Вычисляем видеобитрейт в секунду и переводим в кбит/с (кlучием минимум в 180k, чтобы не было каши)
+    const calculatedVideoBitrateKbps = Math.max(180, Math.floor((videoBits / duration) / 1000));
+    
+    const videoBitrateStr = `${calculatedVideoBitrateKbps}k`;
+    const maxRateStr = `${Math.floor(calculatedVideoBitrateKbps * 1.3)}k`;
+    const bufSizeStr = `${calculatedVideoBitrateKbps * 2}k`;
+
     const ff = await getFFmpegInstance();
 
     const inputName = 'input_source_video';
     const outputName = 'output_compressed.mp4';
 
-    await ff.writeFile(inputName, await fetchFile(file));
+    try {
+        await ff.deleteFile(inputName);
+        await ff.deleteFile(outputName);
+    } catch {}
 
-    let realPercent = 0;
-    let visualPercent = 0;
-    let isFinished = false;
+    await ff.writeFile(inputName, await fetchFile(file));
 
     if (onProgress) {
         onProgress(0);
     }
 
-    // Слушаем реальный прогресс от FFmpeg
-    ff.on('progress', ({ time }) => {
-        if (isFinished) return;
-        const currentTimeSec = time > 10000 ? time / 1000000 : time;
-        if (totalDuration > 0) {
-            let percent = (currentTimeSec / totalDuration) * 100;
-            realPercent = Math.min(99.5, Math.max(0, percent));
+    const progressCallback = ({ progress }: { progress: number }) => {
+        let percent = progress * 100;
+        if (isNaN(percent) || percent < 0) {
+            percent = 0;
         }
-    });
-
-    // Живой непрерывный цикл плавного движения шкалы
-    const tickerInterval = setInterval(() => {
-        if (isFinished) return;
-
-        // Если реальный прогресс впереди — плавно тянемся к нему
-        if (visualPercent < realPercent) {
-            visualPercent += (realPercent - visualPercent) * 0.2;
-        } else if (visualPercent < 99.4) {
-            // Если FFmpeg притормозил (например, на финальном мультиксе), 
-            // шкала ВСЕ РАВНО медленно и неотвратимо ползет дальше сама!
-            visualPercent += 0.008; 
-        }
-
+        const clamped = Math.min(99.9, Math.max(0, percent));
         if (onProgress) {
-            onProgress(Number(visualPercent.toFixed(4)));
+            onProgress(Number(clamped.toFixed(2)));
         }
-    }, 40);
+    };
+
+    ff.on('progress', progressCallback);
 
     try {
+        // Проход 1: Анализ распределения битрейта под конкретную длительность
+        await ff.exec([
+            '-i', inputName,
+            '-c:v', 'libx264',
+            '-b:v', videoBitrateStr,
+            '-pass', '1',
+            '-an',
+            '-f', 'null',
+            'NUL'
+        ]);
+
+        // Проход 2: Чистовое двухпроходное кодирование с сохранением оригинального разрешения
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
-            '-threads', '0',
-            '-b:v', '400k',
-            '-maxrate', '600k',
-            '-bufsize', '1200k',
-            '-vf', 'fps=30,scale=-2:480',
+            '-b:v', videoBitrateStr,
+            '-maxrate', maxRateStr,
+            '-bufsize', bufSizeStr,
+            '-pass', '2',
+            // Сохраняем исходное разрешение (144p, 360p, 480p, 720p, 1080p и т.д.), выравнивая под четные размеры без апскейла
+            '-vf', 'fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2',
             '-c:a', 'aac',
             '-b:a', '128k',
             '-movflags', '+faststart',
             outputName
         ]);
     } finally {
-        isFinished = true;
-        clearInterval(tickerInterval);
-        if (onProgress) {
-            onProgress(100);
-        }
+        ff.off('progress', progressCallback);
+    }
+
+    if (onProgress) {
+        onProgress(100);
     }
 
     const data = await ff.readFile(outputName);
@@ -127,6 +148,7 @@ export async function compressVideoOnClient(
     try {
         await ff.deleteFile(inputName);
         await ff.deleteFile(outputName);
+        await ff.deleteFile('ffmpeg2pass-0.log').catch(() => {});
     } catch (e) {}
 
     return compressedFile;

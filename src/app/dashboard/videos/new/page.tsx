@@ -123,8 +123,6 @@ export default function NewVideoPage() {
         let currentProgress = 0;
 
         // ПОЛНОСТЬЮ БЕСКОНЕЧНЫЙ ТИКЕР БЕЗ КАКИХ-ЛИБО ПОТОЛКОВ И ОГРАНИЧЕНИЙ:
-        // Счетчик безостановочно крутит цифры (99.9900% -> 99.9901% -> 99.9902% и т.д.)
-        // пока сервер не вернет реальный ответ или не произойдет ошибка.
         const globalTicker = setInterval(() => {
             currentProgress += 0.0001; 
             setUploadProgress(Number(currentProgress.toFixed(4)));
@@ -132,7 +130,12 @@ export default function NewVideoPage() {
 
         try {
             // ЭТАП 1: Сжатие видео на устройстве
-            setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
+            setStatusMessage(tr(
+                "Видео хажми кичрайтирилмоқда... Жараённи тезлаштириш учун ушбу ойнадан ташқари телефон ёки компютерингиздаги барча ойналарни ва дастурларни вақтинча ёпинг!",
+                "Video hajmi kichraytirilmoqda... Jarayonni tezlashtirish uchun ushbu oynadan tashqari telefon yoki kompyuteringizdagi barcha oynalarni va dasturlarni vaqtincha yoping!",
+                "Идет сжатие видео на устройстве... Для ускорения процесса закройте кроме этого окна все активные и неактивные вкладки и программы на устройстве!",
+                "Compressing video on device... To speed up the process, please close all active and inactive tabs and programs on your device other than this window!"
+            ));
 
             const compressedFile = await compressVideoOnClient(
                 videoFile,
@@ -313,7 +316,6 @@ export default function NewVideoPage() {
                             {tr("Видеоингиз учун видеофайл ва муқова юкланг", "Videoingiz uchun videofayl va muqova yuklang", "Загрузите видеофайл и обложку для вашего видео", "Upload video file and cover for your video")}
                         </p>
 
-                        {/* Информационный блок с поддержкой функции tr() */}
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
                             <p className="font-semibold text-amber-400">
                                 {tr(
@@ -325,10 +327,10 @@ export default function NewVideoPage() {
                             </p>
                             <p>
                                 {tr(
-                                    'Мободо видео-тасвир хажми 20 Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради. Бу жараён учун 10-15 дақиқа вақт керак бўлиши мумкин. Сабр қилиб кутасиз...',
-                                    'Mobodo video-tasvir hajmi 20 Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi. Bu jarayon uchun 10-15 daqiqa vaqt kerak bo\'lishi mumkin. Sabr qilib kutasiz...',
-                                    'Если размер видеофайла больше 20 МБ, наш алгоритм автоматически уменьшит его. Этот процесс может занять 10-15 минут в зависимости от мощности вашего устройства. Пожалуйста, дождитесь окончание процесса...',
-                                    'If the video file size is larger than 20 MB, our algorithm will automatically compress it. This process will take 10-15 minutes. Please wait patiently.'
+                                    'Мободо видео-тасвир хажми 20 Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради. Бу жараён Сизнинг интернет тезлиги ва ускунангизнинг техник характеристикасига боғлиқ ва кичрайтириш учун, 10-15 дақиқа вақт керак бўлиши мумкин. Сабр қилиб охирлашини кутинг...',
+                                    'Mobodo video-tasvir hajmi 20 Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi. Bu jarayon Sizning internet tezligi va uskunangizning texnik xarakteristikasiga bog\'liq va kichraytirish uchun, 10-15 daqiqa vaqt kerak bo\'lishi mumkin. Sabr qilib oxirlashini kuting...',
+                                    'Если размер видеофайла больше 20 МБ, наш алгоритм автоматически уменьшит его. Этот процесс зависит от скорости вашего интернета и технических характеристик вашего устройства, и сжатие может занять 10-15 минут. Пожалуйста, наберитесь терпения и дождитесь окончания процесса...',
+                                    'If the video file size is larger than 20 MB, our algorithm will automatically compress it. This process depends on your internet speed and device specifications, and compression may take 10-15 minutes. Please be patient and wait until it finishes...'
                                 )}
                             </p>
                         </div>
