@@ -11,11 +11,11 @@ async function getFFmpegInstance(): Promise<FFmpeg> {
 
     ffmpeg = new FFmpeg();
     
-    // Отключаем лишний спам в консоль, чтобы браузер не тормозил
     ffmpeg.on('log', ({ message }) => {
-        // Можно раскомментировать для отладки: console.log('[FFmpeg log]:', message);
+        // Логирование отключено для производительности
     });
 
+    // Возвращаем стабильный однопоточный core, который работает на Render без COOP/COEP
     const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
 
     await ffmpeg.load({
@@ -81,9 +81,7 @@ export async function compressVideoOnClient(
         await ff.deleteFile(outputName);
     } catch {}
 
-    console.log('Запись файла в память FFmpeg...');
     await ff.writeFile(inputName, await fetchFile(file));
-    console.log('Файл записан. Запуск сжатия...');
 
     if (onProgress) {
         onProgress(0);
@@ -106,7 +104,7 @@ export async function compressVideoOnClient(
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',     // Самый быстрый пресет для CPU
+            '-preset', 'ultrafast',     // Самый быстрый пресет для однопоточного WASM
             '-b:v', videoBitrateStr,
             '-maxrate', maxRateStr,
             '-bufsize', bufSizeStr,
@@ -124,7 +122,6 @@ export async function compressVideoOnClient(
         onProgress(100);
     }
 
-    console.log('Сжатие завершено. Чтение файла из памяти...');
     const data = await ff.readFile(outputName);
     const uint8Array = new Uint8Array(data as any);
     const resultBlob = new Blob([uint8Array], { type: 'video/mp4' });
