@@ -1,212 +1,149 @@
 // src/utils/videoCompressor.ts
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
+
+let ffmpeg: FFmpeg | null = null;
+
+async function getFFmpegInstance(): Promise<FFmpeg> {
+    if (ffmpeg && ffmpeg.loaded) {
+        return ffmpeg;
+    }
+
+    ffmpeg = new FFmpeg();
+    
+    ffmpeg.on('log', () => {
+        // Логирование отключено для максимальной производительности
+    });
+
+    // Стабильный однопоточный core, который работает везде без COOP/COEP заголовков
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+
+    await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+
+    return ffmpeg;
+}
+
+async function getVideoDuration(file: File): Promise<number> {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        const url = URL.createObjectURL(file);
+        video.onloadedmetadata = () => {
+            URL.revokeObjectURL(url);
+            resolve(video.duration || 0);
+        };
+        video.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(0);
+        };
+        video.src = url;
+    });
+}
 
 export async function compressVideoOnClient(
     file: File,
     onProgress?: (progress: number) => void
 ): Promise<File> {
-    return new Promise((resolve, reject) => {
-        if (!file || !(file instanceof Blob)) {
-            return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
+    if (!file || !(file instanceof Blob)) {
+        throw new Error("В функцию сжатия не передан объект файла");
+    }
+
+    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Строгий лимит Telegram (< 19.5MB)
+    if (file.size <= MAX_SIZE_BYTES) {
+        console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше лимита. Пропускаем сжатие.`);
+        return file;
+    }
+
+    console.log("🧠 Старт быстрого FFmpeg WASM сжатия под лимит Telegram (<19.5Мб)...");
+
+    const duration = await getVideoDuration(file);
+    if (!duration || duration <= 0) {
+        throw new Error("Не удалось определить длительность видеофайла");
+    }
+
+    // 🧮 Точный расчет под целевые 18.5 МБ с качественным звуком
+    const targetMaxBytes = 18.5 * 1024 * 1024;
+    const totalTargetBits = targetMaxBytes * 8;
+    const audioBitrateKbps = 128; // 128 kbps для отличного звука
+    const totalAudioBits = audioBitrateKbps * 1000 * duration;
+    
+    const availableVideoBits = totalTargetBits - totalAudioBits;
+    const calculatedVideoBitrateKbps = Math.max(400, Math.floor((availableVideoBits / duration) / 1000));
+    
+    const videoBitrateStr = `${calculatedVideoBitrateKbps}k`;
+    const maxRateStr = `${Math.floor(calculatedVideoBitrateKbps * 1.3)}k`;
+    const bufSizeStr = `${calculatedVideoBitrateKbps * 2}k`;
+
+    console.log(`📊 Длительность: ${duration.toFixed(1)}с | Расчетный видео-битрейт: ${videoBitrateStr}`);
+
+    const ff = await getFFmpegInstance();
+
+    const inputName = 'input_source_video.mp4';
+    const outputName = 'output_compressed.mp4';
+
+    try {
+        await ff.deleteFile(inputName);
+        await ff.deleteFile(outputName);
+    } catch {}
+
+    await ff.writeFile(inputName, await fetchFile(file));
+
+    if (onProgress) {
+        onProgress(0);
+    }
+
+    const progressCallback = ({ progress }: { progress: number }) => {
+        let percent = progress * 100;
+        if (isNaN(percent) || percent < 0) {
+            percent = 0;
         }
-
-        const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Строгий лимит Telegram (< 19.5MB)
-
-        if (file.size <= MAX_SIZE_BYTES) {
-            console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше лимита. Пропускаем сжатие.`);
-            return resolve(file);
+        const clamped = Math.min(99.9, Math.max(0, percent));
+        if (onProgress) {
+            onProgress(Number(clamped.toFixed(2)));
         }
+    };
 
-        console.log("🧠 Старт нативного браузерного сжатия под лимит Telegram (<19.5Мб):", {
-            name: file.name,
-            sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
-        });
+    ff.on('progress', progressCallback);
 
-        const video = document.createElement('video');
-        video.preload = 'auto';
-        video.muted = false;
-        video.playsInline = true;
+    try {
+        // Однопроходное сжатие на пресете ultrafast (максимальная скорость работы WASM) в надежные 480p
+        await ff.exec([
+            '-i', inputName,
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-b:v', videoBitrateStr,
+            '-maxrate', maxRateStr,
+            '-bufsize', bufSizeStr,
+            '-vf', 'fps=30,scale=-2:480',
+            '-c:a', 'aac',
+            '-b:a', `${audioBitrateKbps}k`,
+            '-movflags', '+faststart',
+            outputName
+        ]);
+    } finally {
+        ff.off('progress', progressCallback);
+    }
 
-        const objectUrl = URL.createObjectURL(file);
-        video.src = objectUrl;
+    if (onProgress) {
+        onProgress(100);
+    }
 
-        let audioCtx: AudioContext | null = null;
+    const data = await ff.readFile(outputName);
+    const uint8Array = new Uint8Array(data as any);
+    const resultBlob = new Blob([uint8Array], { type: 'video/mp4' });
+    
+    const newFileName = file.name.replace(/\.[^/.]+$/, '') + '.mp4';
+    const compressedFile = new File([resultBlob], newFileName, { type: 'video/mp4' });
 
-        video.onloadedmetadata = async () => {
-            try {
-                video.currentTime = 0;
-                video.playbackRate = 1.0;
+    console.log(`📦 Сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
 
-                const duration = video.duration || 1;
+    try {
+        await ff.deleteFile(inputName);
+        await ff.deleteFile(outputName);
+    } catch (e) {}
 
-                // 🧮 Расчет битрейта под целевой объем ~18.5 МБ
-                const targetMaxBytes = 18.5 * 1024 * 1024; 
-                const totalTargetBits = targetMaxBytes * 8;
-                const audioBitrate = 128000; // 128 kbps для качественного звука
-                const totalAudioBits = audioBitrate * duration;
-                
-                const availableVideoBits = totalTargetBits - totalAudioBits;
-                const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
-
-                // Держим высокий минимальный порог, чтобы MediaRecorder не пережимал файл в кашу
-                const optimalVideoBitrate = Math.max(calculatedVideoBitrate, 800000);
-
-                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Видео-битрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
-
-                const canvas = document.createElement('canvas');
-                const targetHeight = 480; // Возвращаем надежные 480p
-                const scale = targetHeight / video.videoHeight;
-                canvas.width = Math.round(video.videoWidth * scale);
-                canvas.height = targetHeight;
-
-                const ctx = canvas.getContext('2d', { alpha: false });
-                if (!ctx) {
-                    URL.revokeObjectURL(objectUrl);
-                    return reject(new Error('Не удалось инициализировать Canvas 2D context'));
-                }
-
-                try {
-                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-                    audioCtx = new AudioContextClass();
-                    if (audioCtx.state === 'suspended') {
-                        await audioCtx.resume();
-                    }
-                } catch (e) {
-                    console.warn("⚠️ AudioContext не поддерживается:", e);
-                }
-
-                const dest = audioCtx ? audioCtx.createMediaStreamDestination() : null;
-                if (audioCtx && dest) {
-                    try {
-                        const sourceNode = audioCtx.createMediaElementSource(video);
-                        sourceNode.connect(dest);
-                    } catch (err) {
-                        console.warn("⚠️ Не удалось подключить аудиопоток:", err);
-                    }
-                }
-
-                const videoStream = canvas.captureStream(30);
-                const audioTracks = dest ? dest.stream.getAudioTracks() : [];
-
-                const combinedStream = new MediaStream([
-                    ...videoStream.getVideoTracks(),
-                    ...audioTracks
-                ]);
-                
-                let mimeType = 'video/webm;codecs=vp9,opus';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'video/webm;codecs=vp8,opus';
-                }
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'video/webm';
-                }
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'video/mp4';
-                }
-
-                let recorder: MediaRecorder;
-                try {
-                    recorder = new MediaRecorder(combinedStream, {
-                        mimeType: mimeType,
-                        videoBitsPerSecond: optimalVideoBitrate,
-                        audioBitsPerSecond: audioBitrate
-                    });
-                } catch (e) {
-                    recorder = new MediaRecorder(combinedStream);
-                }
-
-                const chunks: Blob[] = [];
-                recorder.ondataavailable = (e) => {
-                    if (e.data && e.data.size > 0) {
-                        chunks.push(e.data);
-                    }
-                };
-
-                recorder.onstop = () => {
-                    URL.revokeObjectURL(objectUrl);
-                    if (audioCtx && audioCtx.state !== 'closed') {
-                        audioCtx.close().catch(() => {});
-                    }
-
-                    const isWebm = mimeType.includes('webm');
-                    const ext = isWebm ? '.webm' : '.mp4';
-                    const finalMime = isWebm ? 'video/webm' : 'video/mp4';
-
-                    const resultBlob = new Blob(chunks, { type: finalMime });
-                    const newFileName = file.name.replace(/\.[^/.]+$/, '') + ext;
-                    
-                    console.log(`📦 Сжатие завершено. Итоговый размер: ${(resultBlob.size / (1024 * 1024)).toFixed(2)} MB`);
-                    resolve(new File([resultBlob], newFileName, { type: finalMime }));
-                };
-
-                recorder.onerror = (err) => {
-                    URL.revokeObjectURL(objectUrl);
-                    if (audioCtx && audioCtx.state !== 'closed') {
-                        audioCtx.close().catch(() => {});
-                    }
-                    reject(err);
-                };
-
-                recorder.start(100);
-
-                if (audioCtx && audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
-
-                try {
-                    await video.play();
-                } catch (playErr) {
-                    video.muted = true;
-                    await video.play();
-                }
-
-                let currentVisualPercent = 0;
-
-                const drawFrame = () => {
-                    const isReachedEnd = video.ended || (Number.isFinite(duration) && video.currentTime >= duration - 0.2);
-
-                    if (isReachedEnd) {
-                        if (recorder.state !== 'inactive') {
-                            recorder.stop();
-                        }
-                        return;
-                    }
-
-                    if (video.paused && !video.ended) {
-                        video.play().catch(() => {});
-                    }
-
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                    if (onProgress && Number.isFinite(duration) && duration > 0) {
-                        const realPercent = (video.currentTime / duration) * 100;
-                        
-                        if (realPercent > currentVisualPercent) {
-                            currentVisualPercent += (realPercent - currentVisualPercent) * 0.1;
-                        } else {
-                            currentVisualPercent += 0.004; 
-                        }
-
-                        const finalPercent = Math.min(Math.max(currentVisualPercent, 0), 99);
-                        onProgress(Number(finalPercent.toFixed(3)));
-                    }
-
-                    requestAnimationFrame(drawFrame);
-                };
-
-                drawFrame();
-
-            } catch (err) {
-                URL.revokeObjectURL(objectUrl);
-                if (audioCtx && audioCtx.state !== 'closed') {
-                    audioCtx.close().catch(() => {});
-                }
-                reject(err);
-            }
-        };
-
-        video.onerror = () => {
-            URL.revokeObjectURL(objectUrl);
-            reject(new Error("Ошибка загрузки видеофайла в элемент превью"));
-        };
-    });
+    return compressedFile;
 }
