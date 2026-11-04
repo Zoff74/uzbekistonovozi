@@ -56,15 +56,15 @@ export async function compressVideoOnClient(
         throw new Error("Не удалось определить длительность видеофайла");
     }
 
-    // 2. Математический расчет битрейта под лимит 19 МБ
+    // 2. Расчет оптимального битрейта под 19 МБ для однопроходного кодирования
     const TARGET_SIZE_BITS = 19 * 1024 * 1024 * 8;
     const audioBits = duration * 128000;
     const videoBits = TARGET_SIZE_BITS - audioBits;
     
-    const calculatedVideoBitrateKbps = Math.max(180, Math.floor((videoBits / duration) / 1000));
+    const calculatedVideoBitrateKbps = Math.max(200, Math.floor((videoBits / duration) / 1000));
     
     const videoBitrateStr = `${calculatedVideoBitrateKbps}k`;
-    const maxRateStr = `${Math.floor(calculatedVideoBitrateKbps * 1.3)}k`;
+    const maxRateStr = `${Math.floor(calculatedVideoBitrateKbps * 1.4)}k`;
     const bufSizeStr = `${calculatedVideoBitrateKbps * 2}k`;
 
     const ff = await getFFmpegInstance();
@@ -97,27 +97,15 @@ export async function compressVideoOnClient(
     ff.on('progress', progressCallback);
 
     try {
-        // Проход 1: Анализ распределения битрейта
+        // Однопроходное кодирование (мгновенно и без зависаний в WASM) с жестким удержанием битрейта и 480p
         await ff.exec([
             '-i', inputName,
             '-c:v', 'libx264',
-            '-b:v', videoBitrateStr,
-            '-pass', '1',
-            '-an',
-            '-f', 'null',
-            '/dev/null'
-        ]);
-
-        // Проход 2: Финальное сжатие с ограничением до 480p (если исходник выше)
-        await ff.exec([
-            '-i', inputName,
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
+            '-preset', 'veryfast',     // Оптимальный баланс скорости и качества для браузера
             '-b:v', videoBitrateStr,
             '-maxrate', maxRateStr,
             '-bufsize', bufSizeStr,
-            '-pass', '2',
-            // Золотая середина: если видео выше 480p, сжимаем до 480p. Если меньше — оставляем оригинал (с четными размерами для h264)
+            // Ограничение до 480p (золотая середина), если исходник больше
             '-vf', "fps=30,scale='if(gt(ih,480),-2,iw)':'if(gt(ih,480),480,trunc(ih/2)*2)'",
             '-c:a', 'aac',
             '-b:a', '128k',
@@ -142,7 +130,6 @@ export async function compressVideoOnClient(
     try {
         await ff.deleteFile(inputName);
         await ff.deleteFile(outputName);
-        await ff.deleteFile('ffmpeg2pass-0.log').catch(() => {});
     } catch (e) {}
 
     return compressedFile;
