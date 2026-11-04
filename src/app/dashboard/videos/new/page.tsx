@@ -120,15 +120,15 @@ export default function NewVideoPage() {
         setError(null);
         setUploadProgress(0);
 
-        // БЕСКОНЕЧНЫЙ ЖИВОЙ ТИКЕР: идет от 0% и никогда не останавливается,
-        // плавно перебирая каждую тысячную долю вплоть до 99.9999% пока ждет ответ сервера.
         let currentProgress = 0;
+
+        // ПОЛНОСТЬЮ БЕСКОНЕЧНЫЙ ТИКЕР БЕЗ КАКИХ-ЛИБО ПОТОЛКОВ И ОГРАНИЧЕНИЙ:
+        // Счетчик безостановочно крутит цифры (99.9900% -> 99.9901% -> 99.9902% и т.д.)
+        // пока сервер не вернет реальный ответ или не произойдет ошибка.
         const globalTicker = setInterval(() => {
-            if (currentProgress < 99.9999) {
-                currentProgress += 0.005; // Микро-шаг для непрерывного движения цифр
-                setUploadProgress(Number(currentProgress.toFixed(4)));
-            }
-        }, 40);
+            currentProgress += 0.0001; 
+            setUploadProgress(Number(currentProgress.toFixed(4)));
+        }, 30);
 
         try {
             // ЭТАП 1: Сжатие видео на устройстве
@@ -138,7 +138,7 @@ export default function NewVideoPage() {
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
-                        const mapped = (progress / 100) * 45; // Сжатие занимает первые 45%
+                        const mapped = (progress / 100) * 45;
                         if (mapped > currentProgress) {
                             currentProgress = mapped;
                         }
@@ -156,7 +156,7 @@ export default function NewVideoPage() {
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const netProgress = 45 + (event.loaded / event.total) * 45; // Сеть занимает от 45% до 90%
+                        const netProgress = 45 + (event.loaded / event.total) * 45;
                         if (netProgress > currentProgress) {
                             currentProgress = netProgress;
                         }
@@ -245,7 +245,7 @@ export default function NewVideoPage() {
             // Успех! Останавливаем бесконечный тикер
             clearInterval(globalTicker);
 
-            // Мгновенно выставляем 100% и показываем окно успеха
+            // Финал — мгновенно выставляем 100% и показываем модалку
             setUploadProgress(100);
             setLoading(false);
             setSuccessModal(true);
@@ -317,26 +317,18 @@ export default function NewVideoPage() {
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
                             <p className="font-semibold text-amber-400">
                                 {tr(
-                                    "Диққат! Контент 5-10 сония ичида тез юкланиши учун, Видео-тасвир 20Мб хажмдан ошмаслиги керак.",
-                                    "Diqqat! Kontent 5-10 soniya ichida tez yuklanishi uchun, Video-tasvir 20Mb hajmdan oshmasligi kerak.",
+                                    "Диққат! Контент 5-10 сония ичида тез юкланиши учун, Видео-тасвир 20 Мб хажмдан ошмаслиги керак.",
+                                    "Diqqat! Kontent 5-10 soniya ichida tez yuklanishi uchun, Video-tasvir 20 Mb hajmdan oshmasligi kerak.",
                                     "Внимание! Для быстрой загрузки контента за 5-10 секунд размер видеофайла не должен превышать 20 МБ.",
-                                    "Attention! For fast content loading within 5-10 seconds, the video file size should not exceed 20MB."
+                                    "Attention! For fast content loading within 5-10 seconds, the video file size should not exceed 20 MB."
                                 )}
                             </p>
                             <p>
                                 {tr(
-                                    'Мободо видео-тасвир хажми 20Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради.',
-                                    'Mobodo video-tasvir hajmi 20Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi.',
-                                    'Если размер видеофайла больше 20 МБ, наш алгоритм автоматически уменьшит его.',
-                                    'If the video file size is larger than 20MB, our algorithm will automatically compress it.'
-                                )}
-                            </p>
-                            <p className="text-amber-300">
-                                {tr(
-                                    "Лекин бу жараён учун 10-15 дақиқа вақт керак бўлиши мумкин. Сабр қилиб кутасиз...",
-                                    "lekin bu jarayon uchun 10-15 daqiqa vaqt kerak bo'lishi mumkin. Sabr qilib kutasiz...",
-                                    "Этот процесс займет 10-15 минут. Пожалуйста, дождитесь окончание процесса...",
-                                    "This process will take 10-15 minutes. Please wait patiently."
+                                    'Мободо видео-тасвир хажми 20 Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради. Бу жараён учун 10-15 дақиқа вақт керак бўлиши мумкин. Сабр қилиб кутасиз...',
+                                    'Mobodo video-tasvir hajmi 20 Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi. Bu jarayon uchun 10-15 daqiqa vaqt kerak bo\'lishi mumkin. Sabr qilib kutasiz...',
+                                    'Если размер видеофайла больше 20 МБ, наш алгоритм автоматически уменьшит его. Этот процесс может занять 10-15 минут в зависимости от мощности вашего устройства. Пожалуйста, дождитесь окончание процесса...',
+                                    'If the video file size is larger than 20 MB, our algorithm will automatically compress it. This process will take 10-15 minutes. Please wait patiently.'
                                 )}
                             </p>
                         </div>
