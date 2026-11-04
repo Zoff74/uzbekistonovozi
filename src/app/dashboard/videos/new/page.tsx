@@ -293,16 +293,31 @@ export default function NewVideoPage() {
                             {tr("Видеоингиз учун видеофайл ва муқова юкланг", "Videoingiz uchun videofayl va muqova yuklang", "Загрузите видеофайл и обложку для вашего видео", "Upload video file and cover for your video")}
                         </p>
 
-                        {/* Информационный блок */}
+                        {/* Информационный блок с поддержкой функции tr() */}
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
                             <p className="font-semibold text-amber-400">
-                                Диққат! Контент 5-10 сония ичида тез юкланиши учун, Видео-тасвир 20Мб хажмдан ошмаслиги керак.
+                                {tr(
+                                    "Диққат! Контент 5-10 сония ичида тез юкланиши учун, Видео-тасвир 20Мб хажмдан ошмаслиги керак.",
+                                    "Diqqat! Kontent 5-10 soniya ichida tez yuklanishi uchun, Video-tasvir 20Mb hajmdan oshmasligi kerak.",
+                                    "Внимание! Для быстрой загрузки контента за 5-10 секунд размер видеофайла не должен превышать 20 МБ.",
+                                    "Attention! For fast content loading within 5-10 seconds, the video file size should not exceed 20MB."
+                                )}
                             </p>
                             <p>
-                                Мободо видео-тасвир хажми 20Мб катта бўлса, бизнинг &quot;алгоритм&quot; уни автоматик равишда кичрайтиради.
+                                {tr(
+                                    'Мободо видео-тасвир хажми 20Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради.',
+                                    'Mobodo video-tasvir hajmi 20Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi.',
+                                    'Если размер видеофайла больше 20 МБ, наш алгоритм автоматически уменьшит его.',
+                                    'If the video file size is larger than 20MB, our algorithm will automatically compress it.'
+                                )}
                             </p>
                             <p className="text-amber-300">
-                                Бу жараён учун 10-15 дақиқа вақт керак бўлади. Сабр қилиб кутасиз.
+                                {tr(
+                                    "Бу жараён учун 10-15 дақиқа вақт керак бўлади. Сабр қилиб кутасиз.",
+                                    "Bu jarayon uchun 10-15 daqiqa vaqt kerak bo'ladi. Sabr qilib kutasiz.",
+                                    "Этот процесс займет 10-15 минут. Пожалуйста, подождите.",
+                                    "This process will take 10-15 minutes. Please wait patiently."
+                                )}
                             </p>
                         </div>
                     </div>
