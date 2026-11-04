@@ -123,7 +123,6 @@ export default function NewVideoPage() {
         try {
             setStatusMessage("Сжатие видео на устройстве... Для ускорения процесса закройте все неактивные вкладки и программы");
 
-            // Масштабируем микропроценты сжатия до 90% диапазона шкалы
             const compressedFile = await compressVideoOnClient(
                 videoFile,
                 (progress) => {
@@ -290,9 +289,22 @@ export default function NewVideoPage() {
                         <h1 className="text-lg sm:text-xl text-amber-400 mb-1">
                             {tr("Видео юклаш", "Video yuklash", "Загрузка видео", "Upload video")}
                         </h1>
-                        <p className="text-sm text-neutral-400">
+                        <p className="text-sm text-neutral-400 mb-4">
                             {tr("Видеоингиз учун видеофайл ва муқова юкланг", "Videoingiz uchun videofayl va muqova yuklang", "Загрузите видеофайл и обложку для вашего видео", "Upload video file and cover for your video")}
                         </p>
+
+                        {/* ТРЕБУЕМЫЙ ИНФОРМАЦИОННЫЙ БЛОК */}
+                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
+                            <p className="font-semibold text-amber-400">
+                                Диққат! Контент 5-10 сония ичида тез юкланиши учун, Видео-тасвир 20Мб хажмдан ошмаслиги керак.
+                            </p>
+                            <p>
+                                Мободо видео-тасвир хажми 20Мб катта бўлса, бизнинг &quot;алгоритм&quot; уни автоматик равишда кичрайтиради.
+                            </p>
+                            <p className="text-amber-300">
+                                Бу жараён учун 10-15 дақиқа вақт керак бўлади. Сабр қилиб кутасиз.
+                            </p>
+                        </div>
                     </div>
 
                     <div>
@@ -423,7 +435,6 @@ export default function NewVideoPage() {
                                 <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
                                     <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                                 </div>
-                                {/* Вывод с точностью до 4 знаков (микропроценты) */}
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-24 text-right">
                                     {uploadProgress.toFixed(4)}%
                                 </span>

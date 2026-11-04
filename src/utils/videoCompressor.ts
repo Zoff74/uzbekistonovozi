@@ -58,42 +58,41 @@ export async function compressVideoOnClient(
 
     await ff.writeFile(inputName, await fetchFile(file));
 
-    let basePercent = 0;
-    let animatedPercent = 0;
+    let realPercent = 0;
+    let visualPercent = 0;
     let isFinished = false;
 
     if (onProgress) {
         onProgress(0);
     }
 
-    // Слушаем реальный прогресс от FFmpeg и обновляем базовую точку
+    // Слушаем реальный прогресс от FFmpeg
     ff.on('progress', ({ time }) => {
+        if (isFinished) return;
         const currentTimeSec = time > 10000 ? time / 1000000 : time;
         if (totalDuration > 0) {
             let percent = (currentTimeSec / totalDuration) * 100;
-            basePercent = Math.min(99.0, Math.max(0, percent));
+            realPercent = Math.min(99.5, Math.max(0, percent));
         }
     });
 
-    // Микро-таймер для безумного вращения тысячных долей (иллюзия бешеной скорости)
-    const microInterval = setInterval(() => {
+    // Живой непрерывный цикл плавного движения шкалы
+    const tickerInterval = setInterval(() => {
         if (isFinished) return;
 
-        // Плавно подтягиваем animatedPercent к basePercent, но добавляем микро-шаг для бесконечного тиканья
-        if (animatedPercent < basePercent) {
-            animatedPercent += (basePercent - animatedPercent) * 0.2;
-        } else {
-            // Если FFmpeg притормозил на кадре, микро-хвост все равно крутит тысячные доли вперед
-            animatedPercent += 0.0035;
+        // Если реальный прогресс впереди — плавно тянемся к нему
+        if (visualPercent < realPercent) {
+            visualPercent += (realPercent - visualPercent) * 0.2;
+        } else if (visualPercent < 99.4) {
+            // Если FFmpeg притормозил (например, на финальном мультиксе), 
+            // шкала ВСЕ РАВНО медленно и неотвратимо ползет дальше сама!
+            visualPercent += 0.008; 
         }
-
-        // Не даем улететь выше 99% до реального завершения
-        animatedPercent = Math.min(99.0, animatedPercent);
 
         if (onProgress) {
-            onProgress(Number(animatedPercent.toFixed(4)));
+            onProgress(Number(visualPercent.toFixed(4)));
         }
-    }, 50); // Каждые 50мс шлем микропроценты
+    }, 40);
 
     try {
         await ff.exec([
@@ -112,7 +111,7 @@ export async function compressVideoOnClient(
         ]);
     } finally {
         isFinished = true;
-        clearInterval(microInterval);
+        clearInterval(tickerInterval);
         if (onProgress) {
             onProgress(100);
         }
