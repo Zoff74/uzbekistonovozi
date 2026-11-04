@@ -120,15 +120,15 @@ export default function NewVideoPage() {
         setError(null);
         setUploadProgress(0);
 
-        // Единый плавный счетчик, который гарантированно движется непрерывно до 99.5%
+        // БЕСКОНЕЧНЫЙ ЖИВОЙ ТИКЕР: идет от 0% и никогда не останавливается,
+        // плавно перебирая каждую тысячную долю вплоть до 99.9999% пока ждет ответ сервера.
         let currentProgress = 0;
         const globalTicker = setInterval(() => {
-            if (currentProgress < 99.5) {
-                // Плавное прибавление, чтобы счетчик шел живо и независимо от сетевых пауз
-                currentProgress += 0.04;
+            if (currentProgress < 99.9999) {
+                currentProgress += 0.005; // Микро-шаг для непрерывного движения цифр
                 setUploadProgress(Number(currentProgress.toFixed(4)));
             }
-        }, 50);
+        }, 40);
 
         try {
             // ЭТАП 1: Сжатие видео на устройстве
@@ -137,9 +137,8 @@ export default function NewVideoPage() {
             const compressedFile = await compressVideoOnClient(
                 videoFile,
                 (progress) => {
-                    // Если реальный прогресс сжатия обгоняет таймер — подтягиваем
                     requestAnimationFrame(() => {
-                        const mapped = (progress / 100) * 40; // Сжатие занимает условно первые 40%
+                        const mapped = (progress / 100) * 45; // Сжатие занимает первые 45%
                         if (mapped > currentProgress) {
                             currentProgress = mapped;
                         }
@@ -157,7 +156,7 @@ export default function NewVideoPage() {
 
                 xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const netProgress = 40 + (event.loaded / event.total) * 45; // Загрузка от 40% до 85%
+                        const netProgress = 45 + (event.loaded / event.total) * 45; // Сеть занимает от 45% до 90%
                         if (netProgress > currentProgress) {
                             currentProgress = netProgress;
                         }
@@ -243,10 +242,10 @@ export default function NewVideoPage() {
                 throw new Error(result.message || result.error || `Ошибка сервера: HTTP ${response.status}`);
             }
 
-            // Останавливаем фоновый тикер, так как всё успешно завершилось
+            // Успех! Останавливаем бесконечный тикер
             clearInterval(globalTicker);
 
-            // ФИНАЛ: Мгновенно выставляем 100% и показываем окно успеха
+            // Мгновенно выставляем 100% и показываем окно успеха
             setUploadProgress(100);
             setLoading(false);
             setSuccessModal(true);
