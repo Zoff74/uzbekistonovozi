@@ -19,7 +19,7 @@ export async function compressVideoWithWebCodecs(
 
     if (hasWebCodecs) {
         try {
-            console.log("🚀 Запуск нативного потокового сжатия через Mediabunny (CanvasSource + WebCodecs)...");
+            console.log("🚀 Запуск независимого фонового сжатия через Mediabunny (Sequential Stream)...");
             return await compressWithMediabunnyEngine(file, onProgress);
         } catch (e) {
             console.warn("⚠️ Mediabunny / WebCodecs не удалось выполнить, переключаемся на MediaRecorder:", e);
@@ -30,8 +30,9 @@ export async function compressVideoWithWebCodecs(
     return await compressWithMediaRecorderFallback(file, onProgress);
 }
 
-// Движок на базе Mediabunny + CanvasSource + WebCodecs
+// Фоновый движок на последовательном чтении потока (без seek-лагов)
 async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: number) => void): Promise<File> {
+    // Создаем изолированный фоновый видеоэлемент, никак не связанный с UI-плеером
     const video = document.createElement('video');
     video.preload = 'auto';
     video.muted = true;
@@ -42,7 +43,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
 
     await new Promise((resolve, reject) => {
         video.onloadedmetadata = () => resolve(true);
-        video.onerror = () => reject(new Error("Ошибка загрузки видео"));
+        video.onerror = () => reject(new Error("Ошибка загрузки фонового видео"));
     });
 
     const duration = video.duration || 1;
@@ -54,7 +55,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     const canvas = document.createElement('canvas');
     canvas.width = targetWidth;
     canvas.height = targetHeight;
-    const ctx = canvas.getContext('2d', { alpha: false });
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
 
     if (!ctx) {
         URL.revokeObjectURL(objectUrl);
@@ -68,7 +69,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     const availableVideoBits = totalTargetBits - (audioBitrate * duration);
     const finalVideoBitrate = Math.max(400000, Math.min(900000, Math.floor(availableVideoBits / duration)));
     
-    console.log(`📊 Эталонный битрейт видео: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
+    console.log(`📊 Эталонный битрейт фонового сжатия: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
 
     const target = new BufferTarget();
     const output = new Output({
@@ -78,8 +79,6 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
 
     const fps = 25;
     const frameInterval = 1 / fps;
-    const totalEstimatedFrames = Math.floor(duration * fps);
-
     const canvasSource = new CanvasSource(canvas, {
         codec: 'vp9',
         quality: new Quality({ bitrate: finalVideoBitrate }),
@@ -91,58 +90,78 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
 
     await output.start();
 
-    try {
-        let currentTime = 0;
+    // Ускоряем воспроизведение фонового буфера, чтобы сжатие шло быстрее реального времени
+    video.playbackRate = 2.0;
+
+    return new Promise((resolve, reject) => {
+        let lastProcessedTime = -1;
         let encodedFrames = 0;
+        const totalEstimatedFrames = Math.floor(duration * fps);
 
-        while (currentTime < duration) {
-            video.currentTime = currentTime;
-            
-            // Ждем завершения seek кадра
-            await new Promise((r) => {
-                const handler = () => {
-                    video.removeEventListener('seeked', handler);
-                    r(true);
-                };
-                video.addEventListener('seeked', handler);
-                // Защита от зависания seek
-                setTimeout(r, 100);
-            });
+        const processFrame = async () => {
+            try {
+                if (video.ended || video.paused || video.currentTime >= duration) {
+                    video.pause();
+                    await output.finalize();
+                    URL.revokeObjectURL(objectUrl);
+                    video.remove();
 
-            ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+                    const buffer = target.buffer;
+                    if (!buffer) {
+                        throw new Error("Буфер сжатого файла пуст");
+                    }
+                    const resultBlob = new Blob([buffer], { type: 'video/webm' });
+                    const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
 
-            const isKeyFrame = encodedFrames % 50 === 0;
-            await canvasSource.add(currentTime, frameInterval, isKeyFrame ? { keyFrame: true } : undefined);
+                    console.log(`📦 Фоновое сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
+                    if (onProgress) onProgress(100);
+                    resolve(compressedFile);
+                    return;
+                }
 
-            encodedFrames++;
-            currentTime += frameInterval;
+                const currentT = video.currentTime;
+                if (currentT - lastProcessedTime >= frameInterval) {
+                    lastProcessedTime = currentT;
 
-            if (onProgress && totalEstimatedFrames > 0) {
-                const percent = Math.min(99, (encodedFrames / totalEstimatedFrames) * 100);
-                onProgress(Number(percent.toFixed(2)));
+                    ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+                    const isKeyFrame = encodedFrames % 50 === 0;
+                    await canvasSource.add(currentT, frameInterval, isKeyFrame ? { keyFrame: true } : undefined);
+
+                    encodedFrames++;
+
+                    if (onProgress && totalEstimatedFrames > 0) {
+                        const percent = Math.min(99, (encodedFrames / totalEstimatedFrames) * 100);
+                        onProgress(Number(percent.toFixed(2)));
+                    }
+                }
+
+                // Запрос следующего кадра без блокировки главного потока
+                if ('requestVideoFrameCallback' in video) {
+                    (video as any).requestVideoFrameCallback(processFrame);
+                } else {
+                    requestAnimationFrame(processFrame);
+                }
+            } catch (err) {
+                video.pause();
+                URL.revokeObjectURL(objectUrl);
+                video.remove();
+                reject(err);
             }
-        }
+        };
 
-        await output.finalize();
-        URL.revokeObjectURL(objectUrl);
-        video.remove();
-
-        const buffer = target.buffer;
-        if (!buffer) {
-            throw new Error("Буфер сжатого файла пуст");
-        }
-        const resultBlob = new Blob([buffer], { type: 'video/webm' });
-        const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
-
-        console.log(`📦 Сжатие через Mediabunny завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
-        if (onProgress) onProgress(100);
-        return compressedFile;
-
-    } catch (err) {
-        URL.revokeObjectURL(objectUrl);
-        video.remove();
-        throw err;
-    }
+        video.play().then(() => {
+            if ('requestVideoFrameCallback' in video) {
+                (video as any).requestVideoFrameCallback(processFrame);
+            } else {
+                requestAnimationFrame(processFrame);
+            }
+        }).catch((err) => {
+            URL.revokeObjectURL(objectUrl);
+            video.remove();
+            reject(new Error("Не удалось запустить фоновое воспроизведение: " + err.message));
+        });
+    });
 }
 
 // Фоллбек через MediaRecorder
