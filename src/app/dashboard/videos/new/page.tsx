@@ -29,7 +29,6 @@ export default function NewVideoPage() {
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
 
-    // Чистый аппаратный URL оригинала с диска для нативного превью без траты ОЗУ
     useEffect(() => {
         if (!videoFile) {
             setPreviewUrl(null);
@@ -330,7 +329,7 @@ export default function NewVideoPage() {
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
                             <p className="font-semibold text-amber-400">
                                 {tr(
-                                    "Диққат! Агарда контент 5-10 сония ичида тез юкланишини хохласангиз, Видео-тасвир 20 Мб хажмдан ошмаслиги керак.",
+                                    "Диққат! Агарда контент 5-10 сония ичида тез юкланишини хохласангиз, Видео-тасвир 20 Мб хажмидан ошмаслиги керак.",
                                     "Diqqat! Agarda kontent 5-10 soniya ichida tez yuklanishini hohlasangiz, Video-tasvir 20 Mb hajmdan oshmasligi kerak.",
                                     "Внимание! Для быстрой загрузки контента за 5-10 секунд размер видеофайла не должен превышать 20 МБ.",
                                     "Attention! For fast content loading within 5-10 seconds, the video file size should not exceed 20 MB."
@@ -463,24 +462,17 @@ export default function NewVideoPage() {
 
                     {loading && (
                         <div className="space-y-4 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
-                            {/* Нативный плеер без декодирования в ОЗУ — крутит оригинал с диска */}
                             {previewUrl && (
                                 <div className="relative w-full h-52 bg-black rounded-lg overflow-hidden border border-neutral-800 flex items-center justify-center shadow-inner">
                                     <video
                                         ref={videoRef}
                                         src={previewUrl}
-                                        autoPlay
-                                        loop
-                                        muted
+                                        controls
                                         playsInline
-                                        onLoadedMetadata={() => {
-                                            if (videoRef.current) {
-                                                videoRef.current.play().catch(e => console.log("Play error:", e));
-                                            }
-                                        }}
+                                        preload="metadata"
                                         className="w-full h-full object-contain"
                                     />
-                                    <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-md text-[11px] text-amber-400 font-medium flex items-center gap-2 border border-amber-500/20">
+                                    <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-md text-[11px] text-amber-400 font-medium flex items-center gap-2 border border-amber-500/20 pointer-events-none">
                                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                                         <span>Оригинал с устройства</span>
                                     </div>

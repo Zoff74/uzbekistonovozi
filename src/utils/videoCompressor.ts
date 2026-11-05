@@ -9,9 +9,14 @@ export async function compressVideoWithWebCodecs(
         throw new Error("В функцию сжатия не передан объект файла");
     }
 
-    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Лимит Telegram (< 19.5 МБ)
+    // Жесткий лимит Telegram: ровно 19.5 МБ в байтах (20447232 байт)
+    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; 
+
+    console.log(`🔍 Проверка файла: "${file.name}" | Размер: ${file.size} байт (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
+
+    // ЕСЛИ ФАЙЛ МЕНЬШЕ ИЛИ РАВЕН 19.5 МБ — СРАЗУ ВОЗВРАЩАЕМ ОРИГИНАЛ БЕЗ СЖАТИЯ И БУФЕРИЗАЦИИ
     if (file.size <= MAX_SIZE_BYTES) {
-        console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже в норме. Пропускаем.`);
+        console.log(`✅ Файл меньше лимита Telegram (< 19.5MB). Отдаем оригинал напрямую без обработки.`);
         if (onProgress) onProgress(100);
         return file;
     }
@@ -20,10 +25,10 @@ export async function compressVideoWithWebCodecs(
 
     if (hasWebCodecs) {
         try {
-            console.log("🚀 Запуск независимого фонового сжатия через Mediabunny (Sequential Stream)...");
+            console.log("🚀 Запуск независимого фонового сжатия через Mediabunny...");
             return await compressWithMediabunnyEngine(file, onProgress);
         } catch (e) {
-            console.warn("⚠️ Mediabunny / WebCodecs не удалось выполнить, переключаемся на MediaRecorder:", e);
+            console.warn("⚠️ Mediabunny не удалось, фоллбек на MediaRecorder:", e);
         }
     }
 
@@ -68,7 +73,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     const availableVideoBits = totalTargetBits - (audioBitrate * duration);
     const finalVideoBitrate = Math.max(400000, Math.min(900000, Math.floor(availableVideoBits / duration)));
     
-    console.log(`📊 Эталонный битрейт фонового сжатия: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
+    console.log(`📊 Расчетный битрейт сжатия: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
 
     const target = new BufferTarget();
     const output = new Output({
@@ -111,7 +116,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
                     const resultBlob = new Blob([buffer], { type: 'video/webm' });
                     const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
 
-                    console.log(`📦 Фоновое сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
+                    console.log(`📦 Сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
                     if (onProgress) onProgress(100);
                     resolve(compressedFile);
                     return;
@@ -173,7 +178,7 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
 
     await new Promise((resolve, reject) => {
         video.onloadedmetadata = () => resolve(true);
-        video.onerror = () => reject(new Error("Ошибка загрузки видео для фоллбека"));
+        video.onerror = () => reject(new Error("Ошибка загрузки фонового видео для фоллбека"));
     });
 
     const duration = video.duration || 1;
