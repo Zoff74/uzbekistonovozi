@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
-//src\app\api\upload\route.ts
+
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getToken } from "next-auth/jwt";
@@ -12,6 +12,7 @@ import fs from "fs/promises";
 import { createReadStream, createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
 import { Readable } from "stream";
+import { Blob as NodeBlob } from "buffer"; // Используем встроенный Node.js Blob для стриминга с файла
 
 const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "",
@@ -96,7 +97,9 @@ export async function POST(request: NextRequest) {
         await pipeline(nodeStream, createWriteStream(inputPath));
 
         const finalStats = await fs.stat(inputPath);
-        if (finalStats.size > 20 * 1024 * 1024) {
+        // Жесткий лимит: все что строго больше 20 МБ — отбой
+        const MAX_ALLOWED_BYTES = 20 * 1024 * 1024;
+        if (finalStats.size > MAX_ALLOWED_BYTES) {
             await fs.unlink(inputPath).catch(() => {});
             return NextResponse.json({ error: "Файл превышает лимит Telegram в 20 МБ." }, { status: 400 });
         }
@@ -115,17 +118,10 @@ export async function POST(request: NextRequest) {
         telegramFormData.append("parse_mode", "HTML");
         telegramFormData.append("caption", `${prefixLabel}: ${userName}`);
 
-        const fileStream = createReadStream(inputPath);
-        const webUploadStream = new ReadableStream({
-            start(controller) {
-                fileStream.on('data', (chunk) => controller.enqueue(chunk));
-                fileStream.on('end', () => controller.close());
-                fileStream.on('error', (err) => controller.error(err));
-            }
-        });
-
-        const fileBlob = await new Response(webUploadStream).blob();
-        telegramFormData.append("document", fileBlob, originalName);
+        // Читаем файл с диска и отправляем в Телеграм без промежуточного Blob.create()
+        const fileBuffer = await fs.readFile(inputPath);
+        const nodeBlob = new NodeBlob([fileBuffer]);
+        telegramFormData.append("document", nodeBlob as any, originalName);
 
         const telegramRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
             method: 'POST',
