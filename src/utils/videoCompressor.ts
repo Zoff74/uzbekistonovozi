@@ -19,7 +19,7 @@ export async function compressVideoWithWebCodecs(
 
     if (hasWebCodecs) {
         try {
-            console.log("🚀 Запуск нативного потокового сжатия через Mediabunny (WebCodecs GPU)...");
+            console.log("🚀 Запуск нативного потокового сжатия через Mediabunny (CanvasSource + WebCodecs)...");
             return await compressWithMediabunnyEngine(file, onProgress);
         } catch (e) {
             console.warn("⚠️ Mediabunny / WebCodecs не удалось выполнить, переключаемся на MediaRecorder:", e);
@@ -54,14 +54,14 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     const canvas = document.createElement('canvas');
     canvas.width = targetWidth;
     canvas.height = targetHeight;
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const ctx = canvas.getContext('2d', { alpha: false });
 
     if (!ctx) {
         URL.revokeObjectURL(objectUrl);
         throw new Error("Не удалось создать 2D контекст холста");
     }
 
-    // Расчет битрейта под YouTube-эталон (< 19.5 МБ)
+    // Расчет битрейта под Telegram-эталон (< 19.5 МБ)
     const targetMaxBytes = 18.5 * 1024 * 1024;
     const totalTargetBits = targetMaxBytes * 8;
     const audioBitrate = 64 * 1000; 
@@ -70,7 +70,6 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     
     console.log(`📊 Эталонный битрейт видео: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
 
-    // Настраиваем Mediabunny Output через BufferTarget и WebMOutputFormat
     const target = new BufferTarget();
     const output = new Output({
         format: new WebMOutputFormat(),
@@ -78,9 +77,9 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     });
 
     const fps = 25;
+    const frameInterval = 1 / fps;
     const totalEstimatedFrames = Math.floor(duration * fps);
 
-    // Создаем CanvasSource с конфигурацией кодека VP9 и целевым битрейтом
     const canvasSource = new CanvasSource(canvas, {
         codec: 'vp9',
         quality: new Quality({ bitrate: finalVideoBitrate }),
@@ -92,63 +91,58 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
 
     await output.start();
 
-    await video.play().catch((err) => {
-        throw new Error("Не удалось запустить воспроизведение видео для сжатия: " + err.message);
-    });
-
-    return new Promise((resolve, reject) => {
-        let lastProcessedTime = -1;
+    try {
+        let currentTime = 0;
         let encodedFrames = 0;
-        const frameInterval = 1 / fps;
 
-        const renderLoop = async () => {
-            try {
-                if (video.ended || video.paused || video.currentTime >= duration) {
-                    video.pause();
-                    await output.finalize();
-                    URL.revokeObjectURL(objectUrl);
+        while (currentTime < duration) {
+            video.currentTime = currentTime;
+            
+            // Ждем завершения seek кадра
+            await new Promise((r) => {
+                const handler = () => {
+                    video.removeEventListener('seeked', handler);
+                    r(true);
+                };
+                video.addEventListener('seeked', handler);
+                // Защита от зависания seek
+                setTimeout(r, 100);
+            });
 
-                    const buffer = target.buffer;
-                    if (!buffer) {
-                        throw new Error("Буфер сжатого файла пуст");
-                    }
-                    const resultBlob = new Blob([buffer], { type: 'video/webm' });
-                    const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
+            ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
 
-                    console.log(`📦 Сжатие через Mediabunny завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
-                    if (onProgress) onProgress(100);
-                    resolve(compressedFile);
-                    return;
-                }
+            const isKeyFrame = encodedFrames % 50 === 0;
+            await canvasSource.add(currentTime, frameInterval, isKeyFrame ? { keyFrame: true } : undefined);
 
-                if (video.currentTime - lastProcessedTime >= frameInterval) {
-                    const currentT = video.currentTime;
-                    lastProcessedTime = currentT;
+            encodedFrames++;
+            currentTime += frameInterval;
 
-                    ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-                    
-                    // Передаем кадр в CanvasSource по стандарту Mediabunny
-                    const isKeyFrame = encodedFrames % 50 === 0;
-                    await canvasSource.add(currentT, frameInterval, isKeyFrame ? { keyFrame: true } : undefined);
-                    
-                    encodedFrames++;
-
-                    if (onProgress && totalEstimatedFrames > 0) {
-                        const percent = Math.min(99, (encodedFrames / totalEstimatedFrames) * 100);
-                        onProgress(Number(percent.toFixed(2)));
-                    }
-                }
-
-                requestAnimationFrame(renderLoop);
-            } catch (err) {
-                video.pause();
-                URL.revokeObjectURL(objectUrl);
-                reject(err);
+            if (onProgress && totalEstimatedFrames > 0) {
+                const percent = Math.min(99, (encodedFrames / totalEstimatedFrames) * 100);
+                onProgress(Number(percent.toFixed(2)));
             }
-        };
+        }
 
-        renderLoop();
-    });
+        await output.finalize();
+        URL.revokeObjectURL(objectUrl);
+        video.remove();
+
+        const buffer = target.buffer;
+        if (!buffer) {
+            throw new Error("Буфер сжатого файла пуст");
+        }
+        const resultBlob = new Blob([buffer], { type: 'video/webm' });
+        const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
+
+        console.log(`📦 Сжатие через Mediabunny завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
+        if (onProgress) onProgress(100);
+        return compressedFile;
+
+    } catch (err) {
+        URL.revokeObjectURL(objectUrl);
+        video.remove();
+        throw err;
+    }
 }
 
 // Фоллбек через MediaRecorder
