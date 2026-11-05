@@ -29,7 +29,7 @@ export default function NewVideoPage() {
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
 
-    // Создаем стабильный URL для превью при выборе файла
+    // Чистый аппаратный URL оригинала с диска для нативного превью без траты ОЗУ
     useEffect(() => {
         if (!videoFile) {
             setPreviewUrl(null);
@@ -424,7 +424,7 @@ export default function NewVideoPage() {
 
                     <div>
                         <label className="block text-sm font-medium text-neutral-300 mb-2">
-                            {tr("Видеофайл (MP4, MOV)", "Videofayl (MP4, MOV)", "Видеофайл (MP4, MOV)", "Video file (MP4, MOV)")} *
+                            {tr("Видеофайл (MP4, MOV, MKV)", "Videofayl (MP4, MOV, MKV)", "Видеофайл (MP4, MOV, MKV)", "Video file (MP4, MOV, MKV)")} *
                         </label>
                         <div className={`relative rounded-xl group block w-full ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
                             <label className="relative z-10 flex flex-col items-center justify-center w-full h-28 rounded-xl bg-neutral-950 cursor-pointer transition">
@@ -444,13 +444,13 @@ export default function NewVideoPage() {
                                             <p className="mb-0.5 text-xs text-neutral-300">
                                                 <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash uchun bosing", "Нажмите для выбора", "Click to select")}</span>
                                             </p>
-                                            <p className="text-[11px] text-neutral-500">MP4, MOV</p>
+                                            <p className="text-[11px] text-neutral-500">MP4, MOV, MKV</p>
                                         </>
                                     )}
                                 </div>
                                 <input 
                                     type="file" 
-                                    accept="video/*" 
+                                    accept="video/*,.mkv" 
                                     required 
                                     disabled={loading}
                                     className="hidden" 
@@ -463,7 +463,7 @@ export default function NewVideoPage() {
 
                     {loading && (
                         <div className="space-y-4 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
-                            {/* Живой видеоплеер-превью со стабильным previewUrl */}
+                            {/* Нативный плеер без декодирования в ОЗУ — крутит оригинал с диска */}
                             {previewUrl && (
                                 <div className="relative w-full h-52 bg-black rounded-lg overflow-hidden border border-neutral-800 flex items-center justify-center shadow-inner">
                                     <video
@@ -482,7 +482,7 @@ export default function NewVideoPage() {
                                     />
                                     <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-md text-[11px] text-amber-400 font-medium flex items-center gap-2 border border-amber-500/20">
                                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                        <span>Живое превью сжатия</span>
+                                        <span>Оригинал с устройства</span>
                                     </div>
                                 </div>
                             )}
@@ -499,8 +499,8 @@ export default function NewVideoPage() {
                                 <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
                                     <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                                 </div>
-                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-24 text-right">
-                                    {uploadProgress.toFixed(2)}%
+                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-28 text-right">
+                                    {uploadProgress.toFixed(4)}%
                                 </span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
@@ -519,7 +519,7 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{uploadProgress >= 100 ? "Сақланмоқда..." : `Бажарилмоқда: ${uploadProgress.toFixed(2)}%`}</span>
+                                        <span>{uploadProgress >= 100 ? "Сақланмоқда..." : `Бажарилмоқда: ${uploadProgress.toFixed(4)}%`}</span>
                                     </>
                                 ) : (
                                     <>
