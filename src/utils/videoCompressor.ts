@@ -12,6 +12,7 @@ export async function compressVideoWithWebCodecs(
     const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Лимит Telegram (< 19.5 МБ)
     if (file.size <= MAX_SIZE_BYTES) {
         console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже в норме. Пропускаем.`);
+        if (onProgress) onProgress(100);
         return file;
     }
 
@@ -32,7 +33,6 @@ export async function compressVideoWithWebCodecs(
 
 // Фоновый движок на последовательном чтении потока (без seek-лагов)
 async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: number) => void): Promise<File> {
-    // Создаем изолированный фоновый видеоэлемент, никак не связанный с UI-плеером
     const video = document.createElement('video');
     video.preload = 'auto';
     video.muted = true;
@@ -62,7 +62,6 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
         throw new Error("Не удалось создать 2D контекст холста");
     }
 
-    // Расчет битрейта под Telegram-эталон (< 19.5 МБ)
     const targetMaxBytes = 18.5 * 1024 * 1024;
     const totalTargetBits = targetMaxBytes * 8;
     const audioBitrate = 64 * 1000; 
@@ -90,7 +89,6 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
 
     await output.start();
 
-    // Ускоряем воспроизведение фонового буфера, чтобы сжатие шло быстрее реального времени
     video.playbackRate = 2.0;
 
     return new Promise((resolve, reject) => {
@@ -136,7 +134,6 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
                     }
                 }
 
-                // Запрос следующего кадра без блокировки главного потока
                 if ('requestVideoFrameCallback' in video) {
                     (video as any).requestVideoFrameCallback(processFrame);
                 } else {
