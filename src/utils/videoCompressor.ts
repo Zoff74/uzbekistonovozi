@@ -21,30 +21,31 @@ export async function compressVideoWithWebCodecs(
     if (hasWebCodecs) {
         try {
             const targetHeight = 480;
+            const targetWidth = 854;
             const isSupported = await VideoEncoder.isConfigSupported({
                 codec: 'vp09.00.10.08',
-                width: targetHeight,
+                width: targetWidth,
                 height: targetHeight,
-                bitrate: 1500000, // Проверяем с хорошим запасом качества
-                framerate: 30,
+                bitrate: 450000, // Проверка по эталонному профилю YouTube
+                framerate: 25,
                 hardwareAcceleration: 'prefer-hardware',
             }).catch(() => ({ supported: false }));
 
             if (isSupported.supported) {
-                console.log("🚀 Запуск аппаратного сжатия высокого качества через WebCodecs API (GPU)...");
+                console.log("🚀 Запуск аппаратного сжатия по YouTube-эталону (WebCodecs GPU)...");
                 return await compressWithWebCodecsEngine(file, onProgress);
             }
         } catch (e) {
-            console.warn("⚠️ WebCodecs не удалось инициализировать, переключаемся на универсальный метод:", e);
+            console.warn("⚠️ WebCodecs не удалось инициализировать, переключаемся на MediaRecorder:", e);
         }
     }
 
-    // ФОЛЛБЕК ДЛЯ СТАРЫХ УСТРОЙСТВ (MediaRecorder + Canvas)
-    console.log("🔄 Запуск универсального сжатия через MediaRecorder...");
+    // ФОЛЛБЕК ДЛЯ СТАРЫХ УСТРОЙСТВ
+    console.log("🔄 Запуск универсального сжатия по эталону через MediaRecorder...");
     return await compressWithMediaRecorderFallback(file, onProgress);
 }
 
-// Движок 1: WebCodecs с умным расчетом битрейта под максимальные 19 МБ
+// Движок 1: WebCodecs с эталонными параметрами (854x480, 25fps, ~450 kbps)
 async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: number) => void): Promise<File> {
     const video = document.createElement('video');
     video.preload = 'auto';
@@ -60,9 +61,11 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
     });
 
     const duration = video.duration || 1;
-    const targetHeight = 480; // Оптимально для баланса скорости и четкости
+    const targetHeight = 480; 
     const scale = targetHeight / video.videoHeight;
-    const targetWidth = Math.round((video.videoWidth * scale) / 2) * 2;
+    // Строго выдерживаем пропорции YouTube-эталона (854x480)
+    const calculatedWidth = Math.round((video.videoWidth * scale) / 2) * 2;
+    const targetWidth = calculatedWidth > 854 ? 854 : calculatedWidth;
 
     const canvas = document.createElement('canvas');
     canvas.width = targetWidth;
@@ -74,15 +77,15 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
         throw new Error("Не удалось создать 2D контекст холста");
     }
 
-    // ВЫЖИМАЕМ МАКСИМУМ КАЧЕСТВА ПОД ЛИМИТ TELEGRAM (19 МБ)
-    const targetMaxBytes = 19.0 * 1024 * 1024; // Целимся ровно в 19 МБ
+    // РАСЧЕТ ПО ЭТАЛОНУ: ~450 kbps видео + ~64 kbps звук под лимит 18.5 МБ
+    const targetMaxBytes = 18.5 * 1024 * 1024;
     const totalTargetBits = targetMaxBytes * 8;
-    const audioBitrate = 128 * 1000; // 128 kbps на чистый звук
+    const audioBitrate = 64 * 1000; 
     const availableVideoBits = totalTargetBits - (audioBitrate * duration);
     
-    // Динамический битрейт: не ниже 800 Кбит/с, но стремится забрать весь остаток до 19 МБ
-    const finalVideoBitrate = Math.max(800000, Math.floor(availableVideoBits / duration));
-    console.log(`📊 Расчетный битрейт видео: ${(finalVideoBitrate / 1000).toFixed(0)} kbps для длительности ${duration.toFixed(1)}с`);
+    // Держим планку эталона (минимум 400 Кбит/с, максимум до 900 Кбит/с для коротких роликов)
+    const finalVideoBitrate = Math.max(400000, Math.min(900000, Math.floor(availableVideoBits / duration)));
+    console.log(`📊 Эталонный битрейт видео: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
 
     const muxer = new Muxer({
         target: new ArrayBufferTarget(),
@@ -90,12 +93,13 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
             codec: 'V_VP9',
             width: targetWidth,
             height: targetHeight,
-            frameRate: 30,
+            frameRate: 25,
         },
     });
 
     let encodedVideoChunks = 0;
-    const totalEstimatedFrames = Math.floor(duration * 30);
+    const fps = 25; // Фиксируем 25 кадров в секунду как в эталоне
+    const totalEstimatedFrames = Math.floor(duration * fps);
 
     const videoEncoder = new VideoEncoder({
         output: (chunk, metadata) => {
@@ -114,11 +118,10 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
         width: targetWidth,
         height: targetHeight,
         bitrate: finalVideoBitrate,
-        framerate: 30,
+        framerate: fps,
         hardwareAcceleration: 'prefer-hardware',
     });
 
-    const fps = 30;
     const interval = 1 / fps;
     let currentTime = 0;
 
@@ -128,14 +131,14 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
         video.currentTime = currentTime;
         await new Promise((r) => {
             video.onseeked = r;
-            setTimeout(r, 60); // Уменьшенный таймаут для ускорения перебора кадров
+            setTimeout(r, 40);
         });
 
         ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
         const timestampMicroseconds = Math.round(currentTime * 1_000_000);
         const frame = new VideoFrame(canvas, { timestamp: timestampMicroseconds });
         
-        const keyFrame = encodedVideoChunks % 60 === 0;
+        const keyFrame = encodedVideoChunks % 50 === 0; // Ключевой кадр каждые 2 секунды (50 кадров при 25fps)
         videoEncoder.encode(frame, { keyFrame });
         frame.close();
 
@@ -150,13 +153,13 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
     const resultBlob = new Blob([buffer], { type: 'video/webm' });
     const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
 
-    console.log(`📦 Сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
+    console.log(`📦 Сжатие по YouTube-эталону завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
 
     if (onProgress) onProgress(100);
     return compressedFile;
 }
 
-// Движок 2: Улучшенный MediaRecorder с высоким битрейтом под лимит
+// Движок 2: Улучшенный MediaRecorder под эталонные параметры
 async function compressWithMediaRecorderFallback(file: File, onProgress?: (progress: number) => void): Promise<File> {
     const video = document.createElement('video');
     video.preload = 'auto';
@@ -174,7 +177,7 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
     const duration = video.duration || 1;
     const targetHeight = 480;
     const scale = targetHeight / video.videoHeight;
-    const targetWidth = Math.round((video.videoWidth * scale) / 2) * 2;
+    const targetWidth = Math.min(854, Math.round((video.videoWidth * scale) / 2) * 2);
 
     const canvas = document.createElement('canvas');
     canvas.width = targetWidth;
@@ -186,16 +189,15 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
         throw new Error("Не удалось создать контекст холста для фоллбека");
     }
 
-    const stream = canvas.captureStream(30);
+    const stream = canvas.captureStream(25); // 25 FPS под эталон
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
         ? 'video/webm;codecs=vp9'
         : MediaRecorder.isTypeSupported('video/webm')
             ? 'video/webm'
             : 'video/mp4';
 
-    // Расчет битрейта для MediaRecorder с упором на качество до 19 МБ
-    const targetMaxBytes = 19.0 * 1024 * 1024;
-    const calculatedBitrate = Math.max(900000, Math.floor((targetMaxBytes * 8) / duration));
+    const targetMaxBytes = 18.5 * 1024 * 1024;
+    const calculatedBitrate = Math.max(450000, Math.floor((targetMaxBytes * 8) / duration));
 
     const mediaRecorder = new MediaRecorder(stream, {
         mimeType,
