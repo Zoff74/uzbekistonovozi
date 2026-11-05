@@ -445,7 +445,25 @@ export default function NewVideoPage() {
                     </div>
 
                     {loading && (
-                        <div className="space-y-3 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
+                        <div className="space-y-4 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
+                            {/* Живой видеоплеер-превью во время сжатия */}
+                            {videoFile && (
+                                <div className="relative w-full h-52 bg-black rounded-lg overflow-hidden border border-neutral-800 flex items-center justify-center shadow-inner">
+                                    <video
+                                        src={URL.createObjectURL(videoFile)}
+                                        autoPlay
+                                        loop
+                                        muted
+                                        playsInline
+                                        className="w-full h-full object-contain"
+                                    />
+                                    <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-md text-[11px] text-amber-400 font-medium flex items-center gap-2 border border-amber-500/20">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                        <span>Живое превью сжатия</span>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex items-start gap-2 text-xs text-neutral-400">
                                 <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={15} />
                                 <div className="space-y-1 text-neutral-300 leading-relaxed">
@@ -459,7 +477,7 @@ export default function NewVideoPage() {
                                     <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
                                 </div>
                                 <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-24 text-right">
-                                    {uploadProgress.toFixed(4)}%
+                                    {uploadProgress.toFixed(2)}%
                                 </span>
                             </div>
                             <p className="text-[11px] text-neutral-400 text-center pt-1">
