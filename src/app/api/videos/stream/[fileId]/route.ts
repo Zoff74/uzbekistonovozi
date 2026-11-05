@@ -1,3 +1,4 @@
+//src\app\api\videos\stream\[fileId]\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 

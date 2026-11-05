@@ -16,6 +16,7 @@ export default function NewVideoPage() {
     const [error, setError] = useState<string | null>(null);
 
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         title: "",
@@ -27,6 +28,20 @@ export default function NewVideoPage() {
     const [videoDuration, setVideoDuration] = useState<string>("0:00");
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
+
+    // Создаем стабильный URL для превью при выборе файла
+    useEffect(() => {
+        if (!videoFile) {
+            setPreviewUrl(null);
+            return;
+        }
+        const url = URL.createObjectURL(videoFile);
+        setPreviewUrl(url);
+
+        return () => {
+            URL.revokeObjectURL(url);
+        };
+    }, [videoFile]);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -448,12 +463,12 @@ export default function NewVideoPage() {
 
                     {loading && (
                         <div className="space-y-4 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
-                            {/* Живой видеоплеер-превью с useRef */}
-                            {videoFile && (
+                            {/* Живой видеоплеер-превью со стабильным previewUrl */}
+                            {previewUrl && (
                                 <div className="relative w-full h-52 bg-black rounded-lg overflow-hidden border border-neutral-800 flex items-center justify-center shadow-inner">
                                     <video
                                         ref={videoRef}
-                                        src={URL.createObjectURL(videoFile)}
+                                        src={previewUrl}
                                         autoPlay
                                         loop
                                         muted
