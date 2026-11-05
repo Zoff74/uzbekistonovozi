@@ -21,18 +21,17 @@ export async function compressVideoWithWebCodecs(
     if (hasWebCodecs) {
         try {
             const targetHeight = 480;
-            const testBitrate = 800000;
             const isSupported = await VideoEncoder.isConfigSupported({
                 codec: 'vp09.00.10.08',
                 width: targetHeight,
                 height: targetHeight,
-                bitrate: testBitrate,
+                bitrate: 1500000, // Проверяем с хорошим запасом качества
                 framerate: 30,
                 hardwareAcceleration: 'prefer-hardware',
             }).catch(() => ({ supported: false }));
 
             if (isSupported.supported) {
-                console.log("🚀 Запуск аппаратного сжатия через WebCodecs API (GPU)...");
+                console.log("🚀 Запуск аппаратного сжатия высокого качества через WebCodecs API (GPU)...");
                 return await compressWithWebCodecsEngine(file, onProgress);
             }
         } catch (e) {
@@ -40,12 +39,12 @@ export async function compressVideoWithWebCodecs(
         }
     }
 
-    // ФОЛЛБЕК ДЛЯ СТАРЫХ УСТРОЙСТВ И БРАУЗЕРОВ (MediaRecorder + Canvas)
-    console.log("🔄 Запуск универсального сжатия через MediaRecorder (поддерживается на вашем устройстве)...");
+    // ФОЛЛБЕК ДЛЯ СТАРЫХ УСТРОЙСТВ (MediaRecorder + Canvas)
+    console.log("🔄 Запуск универсального сжатия через MediaRecorder...");
     return await compressWithMediaRecorderFallback(file, onProgress);
 }
 
-// Движок 1: WebCodecs (современные браузеры с поддержкой GPU)
+// Движок 1: WebCodecs с умным расчетом битрейта под максимальные 19 МБ
 async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: number) => void): Promise<File> {
     const video = document.createElement('video');
     video.preload = 'auto';
@@ -61,7 +60,7 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
     });
 
     const duration = video.duration || 1;
-    const targetHeight = 480;
+    const targetHeight = 480; // Оптимально для баланса скорости и четкости
     const scale = targetHeight / video.videoHeight;
     const targetWidth = Math.round((video.videoWidth * scale) / 2) * 2;
 
@@ -75,11 +74,15 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
         throw new Error("Не удалось создать 2D контекст холста");
     }
 
-    const targetMaxBytes = 18.5 * 1024 * 1024;
+    // ВЫЖИМАЕМ МАКСИМУМ КАЧЕСТВА ПОД ЛИМИТ TELEGRAM (19 МБ)
+    const targetMaxBytes = 19.0 * 1024 * 1024; // Целимся ровно в 19 МБ
     const totalTargetBits = targetMaxBytes * 8;
-    const audioBitrate = 128 * 1000;
+    const audioBitrate = 128 * 1000; // 128 kbps на чистый звук
     const availableVideoBits = totalTargetBits - (audioBitrate * duration);
-    const finalVideoBitrate = Math.max(600000, Math.floor(availableVideoBits / duration));
+    
+    // Динамический битрейт: не ниже 800 Кбит/с, но стремится забрать весь остаток до 19 МБ
+    const finalVideoBitrate = Math.max(800000, Math.floor(availableVideoBits / duration));
+    console.log(`📊 Расчетный битрейт видео: ${(finalVideoBitrate / 1000).toFixed(0)} kbps для длительности ${duration.toFixed(1)}с`);
 
     const muxer = new Muxer({
         target: new ArrayBufferTarget(),
@@ -125,7 +128,7 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
         video.currentTime = currentTime;
         await new Promise((r) => {
             video.onseeked = r;
-            setTimeout(r, 100);
+            setTimeout(r, 60); // Уменьшенный таймаут для ускорения перебора кадров
         });
 
         ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
@@ -147,11 +150,13 @@ async function compressWithWebCodecsEngine(file: File, onProgress?: (progress: n
     const resultBlob = new Blob([buffer], { type: 'video/webm' });
     const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
 
+    console.log(`📦 Сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
+
     if (onProgress) onProgress(100);
     return compressedFile;
 }
 
-// Движок 2: Универсальный MediaRecorder (работает везде, где нет WebCodecs)
+// Движок 2: Улучшенный MediaRecorder с высоким битрейтом под лимит
 async function compressWithMediaRecorderFallback(file: File, onProgress?: (progress: number) => void): Promise<File> {
     const video = document.createElement('video');
     video.preload = 'auto';
@@ -188,9 +193,13 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
             ? 'video/webm'
             : 'video/mp4';
 
+    // Расчет битрейта для MediaRecorder с упором на качество до 19 МБ
+    const targetMaxBytes = 19.0 * 1024 * 1024;
+    const calculatedBitrate = Math.max(900000, Math.floor((targetMaxBytes * 8) / duration));
+
     const mediaRecorder = new MediaRecorder(stream, {
         mimeType,
-        videoBitsPerSecond: 800000, // 800 kbps для сжатия под лимит
+        videoBitsPerSecond: calculatedBitrate,
     });
 
     const chunks: Blob[] = [];
