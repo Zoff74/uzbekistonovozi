@@ -1,6 +1,6 @@
 "use client";
 // src/app/dashboard/videos/new/page.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
@@ -14,6 +14,8 @@ export default function NewVideoPage() {
     const [statusMessage, setStatusMessage] = useState("");
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const videoRef = useRef<HTMLVideoElement | null>(null);
 
     const [formData, setFormData] = useState({
         title: "",
@@ -446,15 +448,21 @@ export default function NewVideoPage() {
 
                     {loading && (
                         <div className="space-y-4 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
-                            {/* Живой видеоплеер-превью во время сжатия */}
+                            {/* Живой видеоплеер-превью с useRef */}
                             {videoFile && (
                                 <div className="relative w-full h-52 bg-black rounded-lg overflow-hidden border border-neutral-800 flex items-center justify-center shadow-inner">
                                     <video
+                                        ref={videoRef}
                                         src={URL.createObjectURL(videoFile)}
                                         autoPlay
                                         loop
                                         muted
                                         playsInline
+                                        onLoadedMetadata={() => {
+                                            if (videoRef.current) {
+                                                videoRef.current.play().catch(e => console.log("Play error:", e));
+                                            }
+                                        }}
                                         className="w-full h-full object-contain"
                                     />
                                     <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-md text-[11px] text-amber-400 font-medium flex items-center gap-2 border border-amber-500/20">
