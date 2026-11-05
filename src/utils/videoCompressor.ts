@@ -1,49 +1,7 @@
 // src/utils/videoCompressor.ts
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { Muxer, ArrayBufferTarget } from 'webm-muxer';
 
-let ffmpeg: FFmpeg | null = null;
-
-async function getFFmpegInstance(): Promise<FFmpeg> {
-    if (ffmpeg && ffmpeg.loaded) {
-        return ffmpeg;
-    }
-
-    ffmpeg = new FFmpeg();
-    
-    ffmpeg.on('log', () => {
-        // Логирование отключено для максимальной производительности
-    });
-
-    // Стабильный однопоточный core, который работает везде без COOP/COEP заголовков
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-
-    await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
-
-    return ffmpeg;
-}
-
-async function getVideoDuration(file: File): Promise<number> {
-    return new Promise((resolve) => {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        const url = URL.createObjectURL(file);
-        video.onloadedmetadata = () => {
-            URL.revokeObjectURL(url);
-            resolve(video.duration || 0);
-        };
-        video.onerror = () => {
-            URL.revokeObjectURL(url);
-            resolve(0);
-        };
-        video.src = url;
-    });
-}
-
-export async function compressVideoOnClient(
+export async function compressVideoWithWebCodecs(
     file: File,
     onProgress?: (progress: number) => void
 ): Promise<File> {
@@ -51,100 +9,142 @@ export async function compressVideoOnClient(
         throw new Error("В функцию сжатия не передан объект файла");
     }
 
-    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Строгий лимит Telegram (< 19.5MB)
+    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Лимит Telegram (< 19.5 МБ)
     if (file.size <= MAX_SIZE_BYTES) {
-        console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше лимита. Пропускаем сжатие.`);
+        console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже в норме. Пропускаем.`);
         return file;
     }
 
-    console.log("🧠 Старт быстрого FFmpeg WASM сжатия под лимит Telegram (<19.5Мб)...");
+    console.log("🚀 Запуск аппаратного сжатия через WebCodecs API (GPU)...");
 
-    const duration = await getVideoDuration(file);
-    if (!duration || duration <= 0) {
-        throw new Error("Не удалось определить длительность видеофайла");
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+
+    const objectUrl = URL.createObjectURL(file);
+    video.src = objectUrl;
+
+    await new Promise((resolve, reject) => {
+        video.onloadedmetadata = () => resolve(true);
+        video.onerror = () => reject(new Error("Ошибка загрузки видео для WebCodecs"));
+    });
+
+    const duration = video.duration || 1;
+    const targetHeight = 480; // Надежные 480p для ПК и мобилок
+    const scale = targetHeight / video.videoHeight;
+    const targetWidth = Math.round((video.videoWidth * scale) / 2) * 2; // Должно делиться на 2 для кодека
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+    if (!ctx) {
+        URL.revokeObjectURL(objectUrl);
+        throw new Error("Не удалось создать 2D контекст холста");
     }
 
-    // 🧮 Точный расчет под целевые 18.5 МБ с качественным звуком
+    // Расчет битрейта под целевые ~18.5 МБ
     const targetMaxBytes = 18.5 * 1024 * 1024;
     const totalTargetBits = targetMaxBytes * 8;
-    const audioBitrateKbps = 128; // 128 kbps для отличного звука
-    const totalAudioBits = audioBitrateKbps * 1000 * duration;
-    
-    const availableVideoBits = totalTargetBits - totalAudioBits;
-    const calculatedVideoBitrateKbps = Math.max(400, Math.floor((availableVideoBits / duration) / 1000));
-    
-    const videoBitrateStr = `${calculatedVideoBitrateKbps}k`;
-    const maxRateStr = `${Math.floor(calculatedVideoBitrateKbps * 1.3)}k`;
-    const bufSizeStr = `${calculatedVideoBitrateKbps * 2}k`;
+    const audioBitrate = 128 * 1000;
+    const availableVideoBits = totalTargetBits - (audioBitrate * duration);
+    const calculatedVideoBitrate = Math.max(600000, Math.floor(availableVideoBits / duration));
 
-    console.log(`📊 Длительность: ${duration.toFixed(1)}с | Расчетный видео-битрейт: ${videoBitrateStr}`);
+    // Инициализация WebM Мьюксера без лишних параметров типов
+    const muxer = new Muxer({
+        target: new ArrayBufferTarget(),
+        video: {
+            codec: 'V_VP9',
+            width: targetWidth,
+            height: targetHeight,
+            frameRate: 30,
+        },
+    });
 
-    const ff = await getFFmpegInstance();
+    let encodedVideoChunks = 0;
+    const totalEstimatedFrames = Math.floor(duration * 30);
 
-    const inputName = 'input_source_video.mp4';
-    const outputName = 'output_compressed.mp4';
+    // Настройка аппаратного кодера VideoEncoder
+    const videoEncoder = new VideoEncoder({
+        output: (chunk, metadata) => {
+            muxer.addVideoChunk(chunk, metadata);
+            encodedVideoChunks++;
+            if (onProgress && totalEstimatedFrames > 0) {
+                const percent = Math.min(99, (encodedVideoChunks / totalEstimatedFrames) * 100);
+                onProgress(Number(percent.toFixed(2)));
+            }
+        },
+        error: (e) => console.error("❌ Ошибка VideoEncoder:", e),
+    });
 
-    try {
-        await ff.deleteFile(inputName);
-        await ff.deleteFile(outputName);
-    } catch {}
+    const isSupported = await VideoEncoder.isConfigSupported({
+        codec: 'vp09.00.10.08', // VP9 профиль
+        width: targetWidth,
+        height: targetHeight,
+        bitrate: calculatedVideoBitrate,
+        framerate: 30,
+        hardwareAcceleration: 'prefer-hardware', // Приоритет GPU
+    });
 
-    await ff.writeFile(inputName, await fetchFile(file));
-
-    if (onProgress) {
-        onProgress(0);
+    if (!isSupported.supported) {
+        URL.revokeObjectURL(objectUrl);
+        throw new Error("Аппаратный кодек VP9 не поддерживается вашим браузером");
     }
 
-    const progressCallback = ({ progress }: { progress: number }) => {
-        let percent = progress * 100;
-        if (isNaN(percent) || percent < 0) {
-            percent = 0;
-        }
-        const clamped = Math.min(99.9, Math.max(0, percent));
-        if (onProgress) {
-            onProgress(Number(clamped.toFixed(2)));
-        }
-    };
+    videoEncoder.configure({
+        codec: 'vp09.00.10.08',
+        width: targetWidth,
+        height: targetHeight,
+        bitrate: calculatedVideoBitrate,
+        framerate: 30,
+        hardwareAcceleration: 'prefer-hardware',
+    });
 
-    ff.on('progress', progressCallback);
+    // Построчный обход видео и скармливание кадров кодеру
+    const fps = 30;
+    const interval = 1 / fps;
+    let currentTime = 0;
 
-    try {
-        // Ультра-быстрый проход: снижаем до 360p и 24fps, чтобы процессор не задыхался
-        await ff.exec([
-            '-i', inputName,
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-tune', 'fastdecode',
-            '-b:v', videoBitrateStr,
-            '-maxrate', maxRateStr,
-            '-bufsize', bufSizeStr,
-            '-vf', 'fps=24,scale=-2:360',
-            '-c:a', 'aac',
-            '-b:a', `${audioBitrateKbps}k`,
-            '-movflags', '+faststart',
-            outputName
-        ]);
-    } finally {
-        ff.off('progress', progressCallback);
+    video.currentTime = 0;
+
+    while (currentTime < duration) {
+        video.currentTime = currentTime;
+        await new Promise((r) => {
+            video.onseeked = r;
+            setTimeout(r, 100); // Защита от зависания seek
+        });
+
+        ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+        
+        const timestampMicroseconds = Math.round(currentTime * 1_000_000);
+        const frame = new VideoFrame(canvas, { timestamp: timestampMicroseconds });
+        
+        // Ключевой кадр каждые 2 секунды (60 кадров) для стабильности
+        const keyFrame = encodedVideoChunks % 60 === 0;
+        
+        videoEncoder.encode(frame, { keyFrame });
+        frame.close();
+
+        currentTime += interval;
     }
+
+    await videoEncoder.flush();
+    muxer.finalize();
+
+    URL.revokeObjectURL(objectUrl);
+
+    const buffer = muxer.target.buffer;
+    const resultBlob = new Blob([buffer], { type: 'video/webm' });
+    const newFileName = file.name.replace(/\.[^/.]+$/, '') + '.webm';
+    const compressedFile = new File([resultBlob], newFileName, { type: 'video/webm' });
+
+    console.log(`📦 WebCodecs сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
 
     if (onProgress) {
         onProgress(100);
     }
-
-    const data = await ff.readFile(outputName);
-    const uint8Array = new Uint8Array(data as any);
-    const resultBlob = new Blob([uint8Array], { type: 'video/mp4' });
-    
-    const newFileName = file.name.replace(/\.[^/.]+$/, '') + '.mp4';
-    const compressedFile = new File([resultBlob], newFileName, { type: 'video/mp4' });
-
-    console.log(`📦 Сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
-
-    try {
-        await ff.deleteFile(inputName);
-        await ff.deleteFile(outputName);
-    } catch (e) {}
 
     return compressedFile;
 }

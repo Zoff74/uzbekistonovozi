@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
-import { compressVideoOnClient } from "@/utils/videoCompressor";
+import { compressVideoWithWebCodecs } from "@/utils/videoCompressor";
 
 export default function NewVideoPage() {
     const router = useRouter();
@@ -122,14 +122,12 @@ export default function NewVideoPage() {
 
         let currentProgress = 0;
 
-        // ПОЛНОСТЬЮ БЕСКОНЕЧНЫЙ ТИКЕР БЕЗ КАКИХ-ЛИБО ПОТОЛКОВ И ОГРАНИЧЕНИЙ:
         const globalTicker = setInterval(() => {
             currentProgress += 0.0001; 
             setUploadProgress(Number(currentProgress.toFixed(4)));
         }, 30);
 
         try {
-            // ЭТАП 1: Сжатие видео на устройстве
             setStatusMessage(tr(
                 "Диққат! Видео хажми кичрайтирилмоқда... Жараённи тезлаштириш учун, ушбу ойнадан ташқари, телефон ёки компютерингиздаги барча ойна ва дастурларни вақтинча ёпинг!",
                 "Diqqat! Video hajmi kichraytirilmoqda... Jarayonni tezlashtirish uchun, ushbu oynadan tashqari, telefon yoki kompyuteringizdagi barcha oyna va dasturlarni vaqtincha yoping!",
@@ -137,7 +135,7 @@ export default function NewVideoPage() {
                 "Compressing video on device... To speed up the process, please close all active and inactive tabs and programs on your device other than this window!"
             ));
 
-            const compressedFile = await compressVideoOnClient(
+            const compressedFile = await compressVideoWithWebCodecs(
                 videoFile,
                 (progress) => {
                     requestAnimationFrame(() => {
@@ -149,7 +147,6 @@ export default function NewVideoPage() {
                 }
             );
 
-            // ЭТАП 2: Загрузка файла на сервер через XMLHttpRequest
             setStatusMessage("Видео серверга юкланмоqda...");
 
             const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
@@ -209,7 +206,6 @@ export default function NewVideoPage() {
                 xhr.send(data);
             });
             
-            // ЭТАП 3: Сохранение метаданных в базу
             setStatusMessage("Сохранение данных в базу...");
 
             const metadataFormData = new FormData();
@@ -245,10 +241,8 @@ export default function NewVideoPage() {
                 throw new Error(result.message || result.error || `Ошибка сервера: HTTP ${response.status}`);
             }
 
-            // Успех! Останавливаем бесконечный тикер
             clearInterval(globalTicker);
 
-            // Финал — мгновенно выставляем 100% и показываем модалку
             setUploadProgress(100);
             setLoading(false);
             setSuccessModal(true);
