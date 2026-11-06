@@ -1,9 +1,8 @@
 // БЛОК - "VideoCard" src/components/VideoCard.tsx
 "use client";
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Edit, Trash2, Play, AlertCircle } from "lucide-react";
+import { Edit, Trash2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
 
@@ -35,6 +34,16 @@ interface VideoCardProps {
 const FAKE_SEQUENCE = [1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
 const INTERVAL_MS = 15 * 60 * 1000; // 15 минут
 
+// Функция для извлечения имени канала и ID поста из ссылки (например, https://t.me/durov/296 -> durov/296)
+const getTelegramEmbedPath = (url: string) => {
+    if (!url) return null;
+    const match = url.match(/t\.me\/([a-zA-Z0-9_]+)\/(\d+)/);
+    if (match) {
+        return `${match[1]}/${match[2]}`;
+    }
+    return null;
+};
+
 export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const router = useRouter();
     const { data: session } = useSession();
@@ -45,13 +54,12 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
     const videoId = video._id.toString();
 
-    // Цены из .env для видео
     const videoInitial = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_INITIAL || 15000);
     const videoDaily = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_DAILY || 1500);
     const videoMonthly = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_MONTHLY || 45000);
 
-    // Главный источник ссылки — telegramUrl
     const telegramVideoUrl = video.telegramUrl || video.videoUrl || video.fileUrl || "";
+    const embedPostPath = getTelegramEmbedPath(telegramVideoUrl);
 
     const currentUserId = (session?.user as any)?.id;
     const currentUserRole = (session?.user as any)?.role;
@@ -98,6 +106,19 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
         return () => clearInterval(timer);
     }, [stepIndex, videoId]);
+
+    // Подгружаем официальный скрипт виджета Telegram динамически в документ
+    useEffect(() => {
+        if (!embedPostPath) return;
+        const scriptId = "telegram-widget-script";
+        if (!document.getElementById(scriptId)) {
+            const script = document.createElement("script");
+            script.id = scriptId;
+            script.src = "https://telegram.org/js/telegram-widget.js?22";
+            script.async = true;
+            document.body.appendChild(script);
+        }
+    }, [embedPostPath]);
 
     if (isRemoved) {
         return null;
@@ -161,10 +182,9 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
-                {/* ПРЕВЬЮ С ПРЯМОЙ ССЫЛКОЙ НА TELEGRAM В НОВОЙ ВКЛАДКЕ */}
-                <div className="relative w-full sm:w-48 aspect-video sm:aspect-square rounded-2xl object-cover border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
+                {/* ОФИЦИАЛЬНЫЙ ТЕЛЕГРАМ ВИДЖЕТ ИЛИ ЗАГЛУШКА */}
+                <div className="relative w-full sm:w-80 aspect-video rounded-2xl border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
                     
-                    {/* Плашка блюра и блокировки, если видео просрочено и пользователь не владелец/админ */}
                     {video.isExpired && !canManage ? (
                         <div className="absolute inset-0 z-20 backdrop-blur-md bg-neutral-950/80 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
                             <AlertCircle className="w-8 h-8 text-amber-400 mb-2" />
@@ -174,27 +194,30 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                         </div>
                     ) : null}
 
-                    <a
-                        href={telegramVideoUrl || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => {
-                            if (!telegramVideoUrl) {
-                                e.preventDefault();
-                                alert(tr("Telegram видео ҳаволаси топилмади", "Telegram video havolasi topilmadi", "Ссылка не найдена", "Link not found"));
-                            }
-                        }}
-                        className="relative w-full h-full cursor-pointer group block"
-                    >
-                        <img
-                            src={video.cover || "/default-cover.webp"}
-                            alt={video.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-amber-400">
-                            <Play size={36} fill="currentColor" />
+                    {embedPostPath ? (
+                        <div className="w-full h-full overflow-y-auto flex items-center justify-center">
+                            <script
+                                async
+                                src="https://telegram.org/js/telegram-widget.js?22"
+                                data-telegram-post={embedPostPath}
+                                data-width="100%"
+                                data-dark="1"
+                            ></script>
                         </div>
-                    </a>
+                    ) : (
+                        <a
+                            href={telegramVideoUrl || "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="relative w-full h-full cursor-pointer group block"
+                        >
+                            <img
+                                src={video.cover || "/default-cover.webp"}
+                                alt={video.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                            />
+                        </a>
+                    )}
                 </div>
 
                 <div className="min-w-0 flex-1">
