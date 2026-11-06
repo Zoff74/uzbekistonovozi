@@ -83,6 +83,8 @@
 │   │   │   └── videos
 │   │   │       ├── [id]
 │   │   │       │   └── route.ts
+│   │   │       ├── extract
+│   │   │       │   └── route.ts
 │   │   │       ├── stream
 │   │   │       │   └── [fileId]
 │   │   │       │       └── route.ts

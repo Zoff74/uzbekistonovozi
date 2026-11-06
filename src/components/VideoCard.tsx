@@ -2,7 +2,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Edit, Trash2, AlertCircle } from "lucide-react";
+import { Edit, Trash2, AlertCircle, Play } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
 
@@ -34,16 +34,6 @@ interface VideoCardProps {
 const FAKE_SEQUENCE = [1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
 const INTERVAL_MS = 15 * 60 * 1000; // 15 минут
 
-// Функция для извлечения имени канала и ID поста из ссылки (например, https://t.me/durov/296 -> durov/296)
-const getTelegramEmbedPath = (url: string) => {
-    if (!url) return null;
-    const match = url.match(/t\.me\/([a-zA-Z0-9_]+)\/(\d+)/);
-    if (match) {
-        return `${match[1]}/${match[2]}`;
-    }
-    return null;
-};
-
 export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const router = useRouter();
     const { data: session } = useSession();
@@ -52,14 +42,19 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const [showTariffs, setShowTariffs] = useState(false);
     const [isRemoved, setIsRemoved] = useState(false);
 
+    // Состояния для прямого проигрывания видео
+    const [directVideoUrl, setDirectVideoUrl] = useState<string | null>(null);
+    const [isLoadingVideo, setIsLoadingVideo] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+
     const videoId = video._id.toString();
 
+    // Цены из .env для видео
     const videoInitial = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_INITIAL || 15000);
     const videoDaily = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_DAILY || 1500);
     const videoMonthly = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_MONTHLY || 45000);
 
     const telegramVideoUrl = video.telegramUrl || video.videoUrl || video.fileUrl || "";
-    const embedPostPath = getTelegramEmbedPath(telegramVideoUrl);
 
     const currentUserId = (session?.user as any)?.id;
     const currentUserRole = (session?.user as any)?.role;
@@ -107,18 +102,35 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
         return () => clearInterval(timer);
     }, [stepIndex, videoId]);
 
-    // Подгружаем официальный скрипт виджета Telegram динамически в документ
-    useEffect(() => {
-        if (!embedPostPath) return;
-        const scriptId = "telegram-widget-script";
-        if (!document.getElementById(scriptId)) {
-            const script = document.createElement("script");
-            script.id = scriptId;
-            script.src = "https://telegram.org/js/telegram-widget.js?22";
-            script.async = true;
-            document.body.appendChild(script);
+    // Функция загрузки прямой ссылки при клике на Play
+    const handlePlayClick = async () => {
+        if (directVideoUrl) {
+            setIsPlaying(true);
+            return;
         }
-    }, [embedPostPath]);
+
+        if (!telegramVideoUrl) {
+            alert(tr("Telegram видео ҳаволаси топилмади", "Telegram video havolasi topilmadi", "Ссылка не найдена", "Link not found"));
+            return;
+        }
+
+        try {
+            setIsLoadingVideo(true);
+            const res = await fetch(`/api/videos/extract?url=${encodeURIComponent(telegramVideoUrl)}`);
+            const data = await res.json();
+
+            if (res.ok && data.videoUrl) {
+                setDirectVideoUrl(data.videoUrl);
+                setIsPlaying(true);
+            } else {
+                alert(tr("Видео файлини олиб бўлмади", "Video faylini olib bo'lmadi", "Не удалось получить видео файл", "Failed to retrieve video file"));
+            }
+        } catch {
+            alert(tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred"));
+        } finally {
+            setIsLoadingVideo(false);
+        }
+    };
 
     if (isRemoved) {
         return null;
@@ -182,7 +194,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
-                {/* ОФИЦИАЛЬНЫЙ ТЕЛЕГРАМ ВИДЖЕТ ИЛИ ЗАГЛУШКА */}
+                {/* ПРЕВЬЮ / ВСТРОЕННЫЙ HTML5 ПЛЕЕР */}
                 <div className="relative w-full sm:w-80 aspect-video rounded-2xl border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
                     
                     {video.isExpired && !canManage ? (
@@ -194,21 +206,16 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                         </div>
                     ) : null}
 
-                    {embedPostPath ? (
-                        <div className="w-full h-full overflow-y-auto flex items-center justify-center">
-                            <script
-                                async
-                                src="https://telegram.org/js/telegram-widget.js?22"
-                                data-telegram-post={embedPostPath}
-                                data-width="100%"
-                                data-dark="1"
-                            ></script>
-                        </div>
+                    {isPlaying && directVideoUrl ? (
+                        <video
+                            src={directVideoUrl}
+                            controls
+                            autoPlay
+                            className="w-full h-full object-contain bg-black"
+                        />
                     ) : (
-                        <a
-                            href={telegramVideoUrl || "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        <div 
+                            onClick={handlePlayClick}
                             className="relative w-full h-full cursor-pointer group block"
                         >
                             <img
@@ -216,19 +223,21 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                                 alt={video.title}
                                 className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                             />
-                        </a>
+                            <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 transition flex items-center justify-center text-amber-400">
+                                {isLoadingVideo ? (
+                                    <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                    <Play size={48} fill="currentColor" />
+                                )}
+                            </div>
+                        </div>
                     )}
                 </div>
 
                 <div className="min-w-0 flex-1">
-                    <a
-                        href={telegramVideoUrl || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition block"
-                    >
+                    <h3 className="font-bold text-lg sm:text-xl text-white break-words">
                         {video.title}
-                    </a>
+                    </h3>
 
                     <div className={video.isExpired && !canManage ? "filter blur-[6px] select-none pointer-events-none opacity-60 mt-1" : "mt-1"}>
                         <p className="text-base text-neutral-200 break-words font-medium">
