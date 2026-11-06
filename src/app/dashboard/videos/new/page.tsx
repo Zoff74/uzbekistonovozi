@@ -1,46 +1,26 @@
 "use client";
-// src/app/dashboard/videos/new/page.tsx
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, Upload, Loader2, Link as LinkIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
-import { compressVideoOnClient } from "@/utils/videoCompressor";
 
 export default function NewVideoPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState<number>(0);
-    const [statusMessage, setStatusMessage] = useState("");
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    const videoRef = useRef<HTMLVideoElement | null>(null);
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         title: "",
         singer: "",
         genre: "",
+        duration: "3:45",
+        telegramUrl: "",
     });
 
-    const [videoFile, setVideoFile] = useState<File | null>(null);
-    const [videoDuration, setVideoDuration] = useState<string>("0:00");
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!videoFile) {
-            setPreviewUrl(null);
-            return;
-        }
-        const url = URL.createObjectURL(videoFile);
-        setPreviewUrl(url);
-
-        return () => {
-            URL.revokeObjectURL(url);
-        };
-    }, [videoFile]);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -70,171 +50,28 @@ export default function NewVideoPage() {
         reader.readAsDataURL(file);
     };
 
-    const extractVideoDuration = (file: File): Promise<string> => {
-        return new Promise((resolve) => {
-            if (!file) {
-                resolve("0:00");
-                return;
-            }
-
-            try {
-                const videoElement = document.createElement("video");
-                videoElement.preload = "metadata";
-
-                const objectUrl = URL.createObjectURL(file);
-
-                videoElement.onloadedmetadata = () => {
-                    URL.revokeObjectURL(objectUrl);
-                    const totalSeconds = Math.floor(videoElement.duration);
-                    if (isNaN(totalSeconds) || !isFinite(totalSeconds)) {
-                        resolve("0:00");
-                        return;
-                    }
-                    const minutes = Math.floor(totalSeconds / 60);
-                    const seconds = totalSeconds % 60;
-                    const formattedDuration = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
-                    resolve(formattedDuration);
-                };
-
-                videoElement.onerror = () => {
-                    URL.revokeObjectURL(objectUrl);
-                    resolve("0:00");
-                };
-
-                videoElement.src = objectUrl;
-            } catch (err) {
-                console.error("Ошибка извлечения длительности видео:", err);
-                resolve("0:00");
-            }
-        });
-    };
-
-    const handleVideoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        
-        setVideoFile(file);
-        setError(null);
-
-        const duration = await extractVideoDuration(file);
-        setVideoDuration(duration);
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!videoFile) {
+        if (!formData.telegramUrl.trim()) {
             setError(tr(
-                "Илтимос, видеофайлни танланг",
-                "Iltimos, videofaylni tanlang",
-                "Пожалуйста, выберите видеофайл",
-                "Please select a video file"
+                "Илтимос, Telegram видео ҳаволасини киритинг",
+                "Iltimos, Telegram video havolasini kiriting",
+                "Пожалуйста, введите ссылку на видео из Telegram",
+                "Please enter the Telegram video link"
             ));
             return;
         }
 
         setLoading(true);
         setError(null);
-        setUploadProgress(0);
-
-        let currentProgress = 0;
-
-        const globalTicker = setInterval(() => {
-            currentProgress += 0.0001; 
-            setUploadProgress(Number(currentProgress.toFixed(4)));
-        }, 30);
 
         try {
-            setStatusMessage(tr(
-                "Диққат! Видео хажми кичрайтирилмоқда... Жараённи тезлаштириш учун, ушбу ойнадан ташқари, телефон ёки компютерингиздаги барча ойна ва дастурларни вақтинча ёпинг!",
-                "Diqqat! Video hajmi kichraytirilmoqda... Jarayonni tezlashtirish uchun, ushbu oynadan tashqari, telefon yoki kompyuteringizdagi barcha oyna va dasturlarni vaqtincha yoping!",
-                "Внимание! Идет сжатие видео на устройстве... Для ускорения процесса, закройте кроме этого окна, все активные и неактивные вкладки и программы на устройстве!",
-                "Compressing video on device... To speed up the process, please close all active and inactive tabs and programs on your device other than this window!"
-            ));
-
-           const compressedFile = await compressVideoOnClient(
-    videoFile,
-    (progress) => {
-        requestAnimationFrame(() => {
-            const mapped = (progress / 100) * 45;
-            if (mapped > currentProgress) {
-                currentProgress = mapped;
-            }
-        });
-    }
-);
-
-            setStatusMessage("Видео серверга юкланмоqda...");
-
-            const uploadedVideo = await new Promise<{ fileId: string; url: string; messageId?: number }>((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open("POST", "/api/upload");
-                xhr.timeout = 0;
-
-                xhr.upload.onprogress = (event) => {
-                    if (event.lengthComputable) {
-                        const netProgress = 45 + (event.loaded / event.total) * 45;
-                        if (netProgress > currentProgress) {
-                            currentProgress = netProgress;
-                        }
-                    }
-                };
-
-                xhr.onload = () => {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            const res = JSON.parse(xhr.responseText);
-                            if (res.success && res.fileId) {
-                                resolve({ fileId: res.fileId, url: res.url, messageId: res.messageId });
-                            } else {
-                                reject(new Error(res.error || "Ошибка загрузки или сжатия видео на сервере"));
-                            }
-                        } catch {
-                            reject(new Error(`Ошибка парсинга ответа: ${xhr.responseText || 'пустой ответ'}`));
-                        }
-                    } else {
-                        let detailedError = `HTTP ${xhr.status} (${xhr.statusText || 'Неизвестная ошибка'})`;
-                        try {
-                            if (xhr.responseText) {
-                                const errRes = JSON.parse(xhr.responseText);
-                                detailedError = errRes.error || errRes.message || xhr.responseText;
-                            }
-                        } catch {
-                            if (xhr.responseText) {
-                                detailedError = xhr.responseText;
-                            }
-                        }
-                        reject(new Error(detailedError));
-                    }
-                };
-
-                xhr.onerror = () => {
-                    reject(new Error("Сетевой сбой (Обрыв соединения с сервером)"));
-                };
-
-                xhr.ontimeout = () => {
-                    reject(new Error("Превышено время ожидания ответа от сервера"));
-                };
-
-                const data = new FormData();
-                data.append("file", compressedFile);
-                data.append("type", "video");
-
-                xhr.send(data);
-            });
-            
-            setStatusMessage("Сохранение данных в базу...");
-
             const metadataFormData = new FormData();
             metadataFormData.append("title", formData.title);
             metadataFormData.append("singer", formData.singer);
             metadataFormData.append("genre", formData.genre);
-            metadataFormData.append("duration", videoDuration);
-            metadataFormData.append("videoFileId", uploadedVideo.fileId);
-            metadataFormData.append("videoUrl", uploadedVideo.url);
-            
-            if (uploadedVideo.messageId) {
-                metadataFormData.append("telegramMessageId", uploadedVideo.messageId.toString());
-            }
+            metadataFormData.append("duration", formData.duration);
+            metadataFormData.append("telegramUrl", formData.telegramUrl);
             
             if (coverFile) {
                 metadataFormData.append("cover", coverFile);
@@ -250,26 +87,22 @@ export default function NewVideoPage() {
             try {
                 result = responseText ? JSON.parse(responseText) : {};
             } catch {
-                throw new Error(`Ошибка сервера (HTTP ${response.status}): ${responseText || 'Пустой ответ'}`);
+                throw new Error(`Сервер хатоси (HTTP ${response.status}): ${responseText || 'Бўш жавоб'}`);
             }
 
             if (!response.ok || !result.success) {
-                throw new Error(result.message || result.error || `Ошибка сервера: HTTP ${response.status}`);
+                throw new Error(result.message || result.error || `Сервер хатоси: HTTP ${response.status}`);
             }
 
-            clearInterval(globalTicker);
-
-            setUploadProgress(100);
             setLoading(false);
             setSuccessModal(true);
 
             setTimeout(() => {
                 router.push("/dashboard");
                 router.refresh();
-            }, 2000);
+            }, 1500);
 
         } catch (err: unknown) {
-            clearInterval(globalTicker);
             const message = err instanceof Error ? err.message : tr(
                 "Хатолик юз берди",
                 "Xatolik yuz berdi",
@@ -320,30 +153,16 @@ export default function NewVideoPage() {
                 <form onSubmit={handleSubmit} className="space-y-6 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 md:p-10 shadow-xl">
                     <div>
                         <h1 className="text-lg sm:text-xl text-amber-400 mb-1">
-                            {tr("Видео юклаш", "Video yuklash", "Загрузка видео", "Upload video")}
+                            {tr("Telegram видео ҳаволасини қўшиш", "Telegram video havolasini qo'shish", "Добавить ссылку на видео из Telegram", "Add Telegram video link")}
                         </h1>
                         <p className="text-sm text-neutral-400 mb-4">
-                            {tr("Видеоингиз учун видеофайл ва муқова юкланг", "Videoingiz uchun videofayl va muqova yuklang", "Загрузите видеофайл и обложку для вашего видео", "Upload video file and cover for your video")}
+                            {tr(
+                                "Видеофайлингизни ўзингизнинг Telegram каналингизга юкланг ва у ердан пост ҳаволасини олиб шу ерга қўйинг.",
+                                "Videofaylingizni o'zingizning Telegram kanalingizga yuklang va u yerdan post havolasini olib shu yerga qo'ying.",
+                                "Загрузите видеофайл в свой Telegram-канал, скопируйте ссылку на пост и вставьте её сюда.",
+                                "Upload your video file to your Telegram channel, copy the post link, and paste it here."
+                            )}
                         </p>
-
-                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
-                            <p className="font-semibold text-amber-400">
-                                {tr(
-                                    "Диққат! Агарда контент 5-10 сония ичида юкланишини хохласангиз, Видео-тасвир 20 Мб хажмидан ошмаслиги керак.",
-                                    "Diqqat! Agarda kontent 5-10 soniya ichida yuklanishini hohlasangiz, Video-tasvir 20 Mb hajmdan oshmasligi kerak.",
-                                    "Внимание! Для быстрой загрузки контента за 5-10 секунд размер видеофайла не должен превышать 20 МБ.",
-                                    "Attention! For fast content loading within 5-10 seconds, the video file size should not exceed 20 MB."
-                                )}
-                            </p>
-                            <p>
-                                {tr(
-                                    'Мободо видео-тасвир хажми 20 Мб катта бўлса, бизнинг "алгоритм" уни автоматик равишда кичрайтиради. Бу жараён Сизнинг интернет тезлиги ва ускунангизнинг техник характеристикасига боғлиқ ва кичрайтириш учун, 10-15 дақиқа, баъзи холларда ундан ҳам кўпроқ вақт керак бўлиши мумкин. Сабр қилиб охирлашини кутинг...',
-                                    'Mobodo video-tasvir hajmi 20 Mb katta bo\'lsa, bizning "algoritm" uni avtomatik ravishda kichraytiradi. Bu jarayon Sizning internet tezligi va uskunangizning texnik xarakteristikasiga bog\'liq va kichraytirish uchun, 10-15 daqiqa, bazi hollard undan ham ko\'proq vaqt kerak bo\'lishi mumkin. Sabr qilib oxirlashini kuting...',
-                                    'Если размер видеофайла больше 20 МБ, наш алгоритм автоматически уменьшит его. Этот процесс зависит от скорости вашего интернета и технических характеристик вашего устройства, и сжатие может занять 10-15 минут. Пожалуйста, наберитесь терпения и дождитесь окончания процесса...',
-                                    'If the video file size is larger than 20 MB, our algorithm will automatically compress it. This process depends on your internet speed and device specifications, and compression may take 10-15 minutes. Please be patient and wait until it finishes...'
-                                )}
-                            </p>
-                        </div>
                     </div>
 
                     <div>
@@ -378,19 +197,56 @@ export default function NewVideoPage() {
                         />
                     </div>
 
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-neutral-300 mb-2">
+                                {tr("Жанр", "Janr", "Жанр", "Genre")}
+                            </label>
+                            <input
+                                type="text"
+                                name="genre"
+                                disabled={loading}
+                                placeholder={tr("Масалан: Live, Clip", "Masalan: Live, Clip", "Например: Live, Clip", "Example: Live, Clip")}
+                                value={formData.genre}
+                                onChange={handleChange}
+                                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition disabled:opacity-50"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-neutral-300 mb-2">
+                                {tr("Давомийлиги", "Davomiyligi", "Длительность", "Duration")}
+                            </label>
+                            <input
+                                type="text"
+                                name="duration"
+                                disabled={loading}
+                                placeholder="3:45"
+                                value={formData.duration}
+                                onChange={handleChange}
+                                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition disabled:opacity-50"
+                            />
+                        </div>
+                    </div>
+
                     <div>
                         <label className="block text-sm font-medium text-neutral-300 mb-2">
-                            {tr("Жанр", "Janr", "Жанр", "Genre")}
+                            {tr("Telegram видео ҳаволаси (URL)", "Telegram video havolasi (URL)", "Ссылка на видео из Telegram (URL)", "Telegram video link (URL)")} *
                         </label>
-                        <input
-                            type="text"
-                            name="genre"
-                            disabled={loading}
-                            placeholder={tr("Масалан: Live, Clip", "Masalan: Live, Clip", "Например: Live, Clip", "Example: Live, Clip")}
-                            value={formData.genre}
-                            onChange={handleChange}
-                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition disabled:opacity-50"
-                        />
+                        <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-neutral-500">
+                                <LinkIcon size={18} />
+                            </div>
+                            <input
+                                type="url"
+                                name="telegramUrl"
+                                required
+                                disabled={loading}
+                                placeholder="https://t.me/your_channel/123"
+                                value={formData.telegramUrl}
+                                onChange={handleChange}
+                                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm placeholder-neutral-600 focus:outline-none focus:border-amber-400 transition disabled:opacity-50 font-mono"
+                            />
+                        </div>
                     </div>
 
                     <div>
@@ -421,86 +277,6 @@ export default function NewVideoPage() {
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-neutral-300 mb-2">
-                            {tr("Видеофайл (MP4, MOV, MKV)", "Videofayl (MP4, MOV, MKV)", "Видеофайл (MP4, MOV, MKV)", "Video file (MP4, MOV, MKV)")} *
-                        </label>
-                        <div className={`relative rounded-xl group block w-full ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
-                            <label className="relative z-10 flex flex-col items-center justify-center w-full h-28 rounded-xl bg-neutral-950 cursor-pointer transition">
-                                <div className="flex flex-col items-center justify-center pt-4 pb-4 px-4 text-center">
-                                    <VideoIcon className="w-6 h-6 mb-1.5 text-amber-400" />
-                                    {videoFile ? (
-                                        <div className="space-y-1">
-                                            <p className="text-xs text-amber-400 font-medium truncate max-w-xs">
-                                                {videoFile.name} <span className="text-neutral-400">({(videoFile.size / (1024 * 1024)).toFixed(1)} MB)</span>
-                                            </p>
-                                            <p className="text-[11px] text-emerald-400">
-                                                {tr("Давомийлиги:", "Davomiyligi:", "Длительность:", "Duration:")} {videoDuration}
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <p className="mb-0.5 text-xs text-neutral-300">
-                                                <span className="font-semibold">{tr("Танлаш учун босинг", "Tanlash uchun bosing", "Нажмите для выбора", "Click to select")}</span>
-                                            </p>
-                                            <p className="text-[11px] text-neutral-500">MP4, MOV, MKV</p>
-                                        </>
-                                    )}
-                                </div>
-                                <input 
-                                    type="file" 
-                                    accept="video/*,.mkv" 
-                                    required 
-                                    disabled={loading}
-                                    className="hidden" 
-                                    onChange={handleVideoChange} 
-                                />
-                            </label>
-                            <GradientBorder />
-                        </div>
-                    </div>
-
-                    {loading && (
-                        <div className="space-y-4 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
-                            {previewUrl && (
-                                <div className="relative w-full h-52 bg-black rounded-lg overflow-hidden border border-neutral-800 flex items-center justify-center shadow-inner">
-                                    <video
-                                        ref={videoRef}
-                                        src={previewUrl}
-                                        controls
-                                        playsInline
-                                        preload="metadata"
-                                        className="w-full h-full object-contain"
-                                    />
-                                    <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-md text-[11px] text-amber-400 font-medium flex items-center gap-2 border border-amber-500/20 pointer-events-none">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                        <span>Оригинал с устройства</span>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex items-start gap-2 text-xs text-neutral-400">
-                                <Loader2 className="animate-spin shrink-0 text-amber-400 mt-0.5" size={15} />
-                                <div className="space-y-1 text-neutral-300 leading-relaxed">
-                                    <p className="text-amber-400 font-medium">
-                                        {statusMessage}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 pt-1">
-                                <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
-                                    <div className="bg-amber-500 h-full transition-all duration-300 ease-out rounded-full" style={{ width: `${uploadProgress}%` }}></div>
-                                </div>
-                                <span className="font-mono text-amber-400 font-bold text-xs shrink-0 w-28 text-right">
-                                    {uploadProgress.toFixed(4)}%
-                                </span>
-                            </div>
-                            <p className="text-[11px] text-neutral-400 text-center pt-1">
-                                {tr("Жараён тугамагунча ёки хатолик ҳақида маълумот келмагунча саҳифани ёпманг", "Jarayon tugamaguncha yoki xatolik haqida ma'lumot kelmaguncha sahifani yopmang", "Не закрывайте страницу до завершения процесса", "Do not close the page until the process completes")}
-                            </p>
-                        </div>
-                    )}
-
                     <div className="pt-2 flex justify-end">
                         <div className={`relative rounded-xl inline-block group w-full ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
                             <button
@@ -511,12 +287,12 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{uploadProgress >= 100 ? "Сақланмоқда..." : `Бажарилмоқда: ${uploadProgress.toFixed(4)}%`}</span>
+                                        <span>{tr("Сақланмоқда...", "Saqlanmoqda...", "Сохранение...", "Saving...")}</span>
                                     </>
                                 ) : (
                                     <>
                                         <Upload size={16} />
-                                        <span>{tr("Видеони юклаш", "Videoni yuklash", "Опубликовать видео", "Publish video")}</span>
+                                        <span>{tr("Видеони қўшиш", "Videoni qo'shish", "Опубликовать видео", "Publish video")}</span>
                                     </>
                                 )}
                             </button>
@@ -525,6 +301,7 @@ export default function NewVideoPage() {
                     </div>
                 </form>
             </div>
+
             {successModal && (
                 <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
@@ -532,16 +309,11 @@ export default function NewVideoPage() {
                             <CheckCircle2 size={36} />
                         </div>
                         <h2 className="text-xl font-bold text-white">
-                            {tr("Муваффақиятли юкланди!", "Muvaffaqiyatli yuklandi!", "Успешно загружено!", "Successfully uploaded!")}
+                            {tr("Муваффақиятли қўшилди!", "Muvaffaqiyatli qo'shildi!", "Успешно добавлено!", "Successfully added!")}
                         </h2>
                         <p className="text-neutral-400 text-sm">
                             {tr("Сабр қилинг. Орқага қайтамиз...", "Sabr qiling. Orqaga qaytamiz...", "Подождите. Возвращаемся назад...", "Please wait. Returning back...")}
                         </p>
-                        <div className="pt-2">
-                            <div className="w-full bg-neutral-800 h-1.5 rounded-full overflow-hidden">
-                                <div className="bg-amber-500 h-full animate-[pulse_1s_infinite]"></div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             )}

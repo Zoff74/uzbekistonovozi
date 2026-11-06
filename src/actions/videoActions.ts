@@ -1,5 +1,6 @@
-'use server';
 // src/actions/videoActions.ts
+'use server';
+
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import User from "@/models/User";
@@ -15,8 +16,7 @@ interface CreateVideoInput {
     singer: string;
     genre?: string;
     duration?: string;
-    videoUrl: string;
-    videoFileId?: string;
+    telegramUrl: string; // 👈 Основное поле для ссылки из Telegram
     cover: string;
     coverFileId?: string;
     authorId: string;
@@ -26,7 +26,7 @@ export async function createVideoAction(data: CreateVideoInput) {
     try {
         await dbConnect();
 
-        if (!data.title || !data.videoUrl || !data.authorId) {
+        if (!data.title || !data.telegramUrl || !data.authorId) {
             return { success: false, errorCode: "FIELD_REQUIRED" };
         }
 
@@ -56,8 +56,8 @@ export async function createVideoAction(data: CreateVideoInput) {
             singer: data.singer || "Номаълум ижрочи",
             genre: data.genre || "Clip",
             duration: data.duration || "0:00",
-            videoUrl: data.videoUrl,
-            videoFileId: data.videoFileId || "",
+            telegramUrl: data.telegramUrl, // 👈 Сохраняем Telegram ссылку
+            videoUrl: data.telegramUrl,   // Для обратной совместимости
             cover: data.cover || "/default-cover.webp",
             coverFileId: data.coverFileId || "",
             authorId: data.authorId,
@@ -92,8 +92,7 @@ interface UpdateVideoInput {
     singer?: string;
     genre?: string;
     duration?: string;
-    videoUrl?: string;
-    videoFileId?: string;
+    telegramUrl?: string; // 👈 Поддержка обновления ссылки
     cover?: string;
     coverFileId?: string;
 }
@@ -106,7 +105,6 @@ export async function updateVideoAction(data: UpdateVideoInput) {
             return { success: false, errorCode: "VIDEO_ID_REQUIRED" };
         }
 
-        // Явное приведение модели к типу any обходит конфликты перегрузок TypeScript в Mongoose
         const VideoModel: any = Video;
 
         const video = await VideoModel.findById(data.videoId);
@@ -123,22 +121,15 @@ export async function updateVideoAction(data: UpdateVideoInput) {
             }
         }
 
-        // Если загружен новый видеофайл и был старый — стираем старый
-        if (data.videoFileId && video.videoFileId && data.videoFileId !== video.videoFileId) {
-            try {
-                // Логика удаления старого видеофайла при необходимости
-            } catch (err) {
-                console.warn("Не удалось удалить старый видеофайл:", err);
-            }
-        }
-
         const updateFields: any = {};
         if (data.title !== undefined) updateFields.title = data.title;
         if (data.singer !== undefined) updateFields.singer = data.singer;
         if (data.genre !== undefined) updateFields.genre = data.genre;
         if (data.duration !== undefined) updateFields.duration = data.duration;
-        if (data.videoUrl !== undefined) updateFields.videoUrl = data.videoUrl;
-        if (data.videoFileId !== undefined) updateFields.videoFileId = data.videoFileId;
+        if (data.telegramUrl !== undefined) {
+            updateFields.telegramUrl = data.telegramUrl;
+            updateFields.videoUrl = data.telegramUrl; // Синхронизируем для совместимости
+        }
         if (data.cover !== undefined) updateFields.cover = data.cover;
         if (data.coverFileId !== undefined) updateFields.coverFileId = data.coverFileId;
 

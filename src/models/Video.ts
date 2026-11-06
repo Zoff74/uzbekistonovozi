@@ -5,9 +5,8 @@ export interface IVideo extends Document {
   title: string;
   singer: string;         
   duration?: string;
-  videoUrl: string; 
-  videoFileId?: string;
-  telegramMessageId?: number; // 👈 Добавлено поле для ID сообщения в Telegram
+  telegramUrl: string; // Основное поле для внешней ссылки на видео из Telegram
+  videoUrl?: string;   // Для обратной совместимости
   cover: string;    
   coverFileId?: string;
   views: number;       
@@ -27,9 +26,8 @@ const VideoSchema = new Schema<IVideo>({
   singer: { type: String, required: true, trim: true },
   duration: { type: String, required: false, default: "0:00" },
   
+  telegramUrl: { type: String, required: true, trim: true },
   videoUrl: { type: String, required: false, default: "" },
-  videoFileId: { type: String, required: false, default: "" },
-  telegramMessageId: { type: Number, required: false }, // 👈 Сохраняем ID сообщения из Telegram-чата
   
   cover: { type: String, required: true, default: "/default-cover.webp" },
   coverFileId: { type: String, required: false },

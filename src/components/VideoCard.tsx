@@ -1,10 +1,9 @@
-"use client";
-
 // БЛОК - "VideoCard" src/components/VideoCard.tsx
-import { useState, useEffect, useRef } from "react";
+"use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Edit, Trash2, Play, Pause, Loader2, AlertCircle } from "lucide-react";
+import { Edit, Trash2, Play, AlertCircle, ExternalLink } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
 
@@ -25,10 +24,9 @@ interface VideoCardProps {
         authorId?: string | { _id: string; toString(): string };
         author?: string | { _id: string; toString(): string };
         userId?: string | { _id: string; toString(): string };
+        telegramUrl?: string;
         videoUrl?: string;
         fileUrl?: string;
-        fileId?: string;
-        videoFileId?: string;
     };
     onDelete?: (id: string) => void;
     isOwner?: boolean;
@@ -44,11 +42,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const [isDeleting, setIsDeleting] = useState(false);
     const [showTariffs, setShowTariffs] = useState(false);
     const [isRemoved, setIsRemoved] = useState(false);
-    
-    const [isPlayingVideo, setIsPlayingVideo] = useState(false);
-    const [isLoadingVideo, setIsLoadingVideo] = useState(false);
-    const [videoError, setVideoError] = useState(false);
-    const videoRef = useRef<HTMLVideoElement>(null);
+    const [isOpenTelegram, setIsOpenTelegram] = useState(false);
 
     const videoId = video._id.toString();
 
@@ -57,19 +51,8 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const videoDaily = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_DAILY || 1500);
     const videoMonthly = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_MONTHLY || 45000);
 
-    const rawFileId = video.videoFileId || video.fileId;
-    let computedFileId = rawFileId;
-
-    if (!computedFileId) {
-        const targetUrl = video.videoUrl || video.fileUrl || "";
-        if (targetUrl.includes("/api/videos/stream/")) {
-            computedFileId = targetUrl.split("/api/videos/stream/")[1]?.split("?")[0];
-        }
-    }
-
-    const videoSrc = computedFileId 
-        ? `/api/videos/stream/${computedFileId}` 
-        : (video.videoUrl || video.fileUrl || "");
+    // Главный источник ссылки — telegramUrl
+    const telegramVideoUrl = video.telegramUrl || video.videoUrl || video.fileUrl || "";
 
     const currentUserId = (session?.user as any)?.id;
     const currentUserRole = (session?.user as any)?.role;
@@ -134,20 +117,12 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
     const minutesLeft = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
 
-    const handlePlayVideo = () => {
-        if (!videoSrc) {
-            alert(tr("Видео файл топилмади", "Video fayl topilmadi", "Видео файл не найден", "Video file not found"));
+    const handleOpenTelegram = () => {
+        if (!telegramVideoUrl) {
+            alert(tr("Telegram видео ҳаволаси топилмади", "Telegram video havolasi topilmadi", "Ссылка на видео из Telegram не найдена", "Telegram video link not found"));
             return;
         }
-
-        if (isPlayingVideo) {
-            setIsPlayingVideo(false);
-            if (videoRef.current) videoRef.current.pause();
-        } else {
-            setIsPlayingVideo(true);
-            setIsLoadingVideo(true);
-            setVideoError(false);
-        }
+        setIsOpenTelegram(!isOpenTelegram);
     };
 
     const GradientBorder = () => (
@@ -190,17 +165,32 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700 relative">
             
             {video.isExpired && !canManage && (
-                <div className="absolute top-3 right-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] px-2.5 py-1 rounded-lg font-medium">
-                    {tr("Тўлов кутилмоқда (Автор маълумоти яширилган)", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}
+                <div className="absolute top-3 right-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] px-2.5 py-1 rounded-lg font-medium z-20">
+                    {tr("Тўлов кутилмоқда", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}
                 </div>
             )}
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
+                {/* БЛОК ПРЕВЬЮ ИЛИ ССЫЛКИ С БЛЮРОМ ПРИ ПРОСРОЧКЕ */}
                 <div className="relative w-full sm:w-48 aspect-video sm:aspect-square rounded-2xl object-cover border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
-                    {!isPlayingVideo ? (
+                    
+                    {/* Плашка блюра и блокировки, если видео просрочено и пользователь не владелец/админ */}
+                    {video.isExpired && !canManage ? (
+                        <div className="absolute inset-0 z-20 backdrop-blur-md bg-neutral-950/80 flex flex-col items-center justify-center p-4 text-center">
+                            <AlertCircle className="w-8 h-8 text-amber-400 mb-2 animate-bounce" />
+                            <p className="text-amber-400 font-bold text-xs">
+                                {tr("Видео вақтинча ёпилган", "Video vaqtincha yopilgan", "Видео временно заблокировано", "Video temporarily blocked")}
+                            </p>
+                            <p className="text-neutral-400 text-[10px] mt-1">
+                                {tr("Тўлов муддати ўтган", "To'lov muddati o'tgan", "Срок оплаты истек", "Payment overdue")}
+                            </p>
+                        </div>
+                    ) : null}
+
+                    {!isOpenTelegram ? (
                         <div 
-                            onClick={handlePlayVideo}
+                            onClick={handleOpenTelegram}
                             className="relative w-full h-full cursor-pointer group"
                         >
                             <img
@@ -213,56 +203,38 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                             </div>
                         </div>
                     ) : (
-                        <div className="relative w-full h-full flex items-center justify-center">
-                            {isLoadingVideo && !videoError && (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10 gap-1.5">
-                                    <Loader2 className="w-6 h-6 text-[#39FF14] animate-spin" />
-                                    <span className="text-[#39FF14] text-[10px] font-semibold tracking-wider uppercase animate-pulse">
-                                        {tr("Юкланмоқда...", "Yuklanmoqda...", "Загрузка...", "Loading...")}
-                                    </span>
-                                </div>
-                            )}
-
-                            {videoError && (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10 p-2 text-center">
-                                    <AlertCircle className="w-6 h-6 text-red-500 mb-1" />
-                                    <span className="text-red-400 text-[11px]">
-                                        {tr("Хатолик / Файл катта", "Xatolik / Fayl katta", "Ошибка / Файл велик", "Error / File too big")}
-                                    </span>
-                                </div>
-                            )}
-
-                            <video
-                                ref={videoRef}
-                                controls
-                                autoPlay
-                                playsInline
-                                preload="auto"
-                                onLoadedData={() => setIsLoadingVideo(false)}
-                                onCanPlay={() => setIsLoadingVideo(false)}
-                                onWaiting={() => setIsLoadingVideo(true)}
-                                onPlaying={() => setIsLoadingVideo(false)}
-                                onError={() => {
-                                    setIsLoadingVideo(false);
-                                    setVideoError(true);
-                                }}
-                                className="w-full h-full object-contain"
+                        <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center gap-3 z-10 bg-neutral-950">
+                            <p className="text-xs text-neutral-300">
+                                {tr("Бу видео Telegram орқали узатилади", "Bu video Telegram orqali uzatiladi", "Видео из Telegram", "Telegram video")}
+                            </p>
+                            <a 
+                                href={telegramVideoUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl transition"
                             >
-                                <source src={videoSrc} type="video/mp4" />
-                                {tr("Браузерингиз видеони қўллаб-қувватламайди", "Brauzeringiz videoni qo'llab-quvvatlamaydi", "Ваш браузер не поддерживает видео", "Your browser does not support video")}
-                            </video>
+                                <span>{tr("Telegram'да очиш", "Telegram'da ochish", "Открыть в Telegram", "Open in Telegram")}</span>
+                                <ExternalLink size={14} />
+                            </a>
+                            <button 
+                                onClick={() => setIsOpenTelegram(false)}
+                                className="text-[11px] text-neutral-400 hover:text-white underline mt-1"
+                            >
+                                {tr("Ёпиш", "Yopish", "Закрыть", "Close")}
+                            </button>
                         </div>
                     )}
                 </div>
 
                 <div className="min-w-0 flex-1">
                     <h3 
-                        onClick={handlePlayVideo}
+                        onClick={handleOpenTelegram}
                         className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition"
                     >
                         {video.title}
                     </h3>
 
+                    {/* Блюр на информацию об авторе/исполнителе при просрочке */}
                     <div className={video.isExpired && !canManage ? "filter blur-[6px] select-none pointer-events-none opacity-60 mt-1" : "mt-1"}>
                         <p className="text-base text-neutral-200 break-words font-medium">
                             {video.singer} • <span className="text-amber-400">{video.genre}</span>
@@ -271,7 +243,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
                         <span>
-                            {tr("Муҳлислар томонидан томоша қилинган", "Muhlislar tomonidan tomosha qilingan", "Сколько раз просмотрено", "Views")}:{" "}
+                            {tr("Томоша қилинган", "Tomosha qilingan", "Просмотров", "Views")}:{" "}
                             <strong className="text-white font-semibold">{displayedViews}</strong>
                             <span className="text-neutral-500 text-xs ml-1.5">({realViews})</span>
                         </span>
@@ -290,7 +262,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                         <span className={`inline-block px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold ${
                             video.status === 'ACTIVE' && !video.isExpired ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                         }`}>
-                            {video.isExpired ? tr("Муддати тугаган (Кўриш мумкин)", "Muddati tugagan", "Срок истек (Доступен просмотр)", "Expired (View only)") : (video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired"))}
+                            {video.isExpired ? tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired") : (video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired"))}
                         </span>
                         
                         <span className="text-neutral-200 font-semibold text-xs sm:text-sm">
@@ -300,17 +272,16 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                                 </span>
                             ) : diffMs > 0 ? (
                                 <span className="text-amber-400">
-                                    ⚠️ {tr("Видео файлни ўзгартириш ёки алмаштириш учун яна", "Videofaylni o'zgartirish yoki almashtirish uchun yana", "Для внесений изменений или замены файла осталось", "Time left to replace:")} {hoursLeft} {tr("соат", "soat", "часов", "hours")} {minutesLeft} {tr("дақиқа вақт қолди", "daqiqa vaqt qoldi", "минут", "minutes")}
+                                    ⚠️ {tr("Ўзгартириш учун яна", "O'zgartirish uchun yana", "Для изменений осталось", "Time left to edit:")} {hoursLeft} {tr("соат", "soat", "часов", "hours")} {minutesLeft} {tr("дақиқа", "daqiqa", "минут", "minutes")}
                                 </span>
                             ) : (
                                 <span className="text-red-400">
-                                    {tr("Файлни ўзгартириш муддати тугаган (24 соат)", "Faylni o'zgartirish muddati tugagan", "Срок изменения файла истек", "File change time expired")}
+                                    {tr("Ўзгартириш муддати тугаган (24 соат)", "O'zgartirish muddati tugagan", "Срок изменения истек", "Edit time expired")}
                                 </span>
                             )}
                         </span>
                     </div>
 
-                    {/* Показываем блок оплаты ТОЛЬКО если 24 часа уже истекли ИЛИ контент реально просрочен */}
                     {!isAdmin && (!video.isPaidActive || video.isExpired) && !isWithinFirst24Hours && (
                         <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3 text-sm sm:text-base">
                             <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-400">
@@ -325,10 +296,10 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
                             <p className="text-neutral-200 leading-relaxed font-medium">
                                 {tr(
-                                    "Видео ҳозир ҳам сайтда трансляция қилинмоқда, лекин тўлов қилинмагани сабабли автор маълумотлари блюр (хиралаштирилган) қилинган. Тўловни амалга ошириб маълумотларни тўлиқ очинг!",
-                                    "Video hozir ham saytda translyatsiya qilinmoqda, lekin to'lov qilinmagani sababli muallif ma'lumotlari blur qilingan.",
-                                    "Видео продолжает транслироваться, но данные автора размыты из-за неоплаты. Оплатите размещение, чтобы снять блюр!",
-                                    "Video is still broadcast, but author info is blurred due to lack of payment."
+                                    "Тўлов қилинмагани сабабли видео ҳаволаси ва маълумотлари блюр қилинган. Тўловни амалга ошириб маълумотларни тўлиқ очинг!",
+                                    "To'lov qilinmagani sababli video havolasi va ma'lumotlari blur qilingan.",
+                                    "Ссылка на видео и данные размыты из-за неоплаты. Оплатите размещение, чтобы снять блюр!",
+                                    "Video link and info are blurred due to lack of payment."
                                 )}
                             </p>
 
@@ -360,8 +331,8 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                                     alert(tr(
                                         "Видеофайлга ўзгартириш киритиш муддати (24 соат) тугаган!",
                                         "Videofaylga o'zgartirish kiritish muddati (24 soat) tugagan!",
-                                        "Разрешенный срок для внесения изменений в видеофайл (24 часа) истек!",
-                                        "The time limit (24 hours) for changing the video file has expired!"
+                                        "Разрешенный срок для внесения изменений (24 часа) истек!",
+                                        "The time limit (24 hours) for changing has expired!"
                                     ));
                                     return;
                                 }

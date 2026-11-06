@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 60;
-// src/app/api/videos/route.ts
+
 import { NextResponse, NextRequest } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
@@ -44,7 +44,6 @@ export async function GET(req: NextRequest) {
         const videos = await (Video as any).find(filter).populate('authorId', 'name email image').sort({ createdAt: -1 }).lean();
 
         const now = new Date();
-        // Динамическая проверка срока действия для каждого видео
         const processedVideos = videos.map((video: any) => {
             const expiresAt = video.expiresAt ? new Date(video.expiresAt) : null;
             const isExpired = expiresAt && expiresAt < now;
@@ -53,7 +52,7 @@ export async function GET(req: NextRequest) {
                 ...video,
                 status: isExpired ? 'EXPIRED' : (video.status || 'ACTIVE'),
                 isPaidActive: isExpired ? false : (video.isPaidActive ?? true),
-                isExpired: Boolean(isExpired), // 👈 Флаг для фронтенда: нужно ли блюрить автора и закрывать скачивание
+                isExpired: Boolean(isExpired),
             };
         });
 
@@ -97,21 +96,19 @@ export async function POST(req: NextRequest) {
         const singer = formData.get("singer") as string;
         const genre = formData.get("genre") as string;
         const duration = (formData.get("duration") as string) || "0:00";
+        const telegramUrl = formData.get("telegramUrl") as string;
 
         const coverInput = formData.get("cover"); 
-        const videoFileId = formData.get("videoFileId") as string;
-        const videoUrlFromClient = formData.get("videoUrl") as string;
-        const telegramMessageIdStr = formData.get("telegramMessageId") as string;
 
-        if (!title || !singer || !videoFileId) {
-            return NextResponse.json({ success: false, message: "Заполните название, исполнителя и ID видео" }, { status: 400 });
+        if (!title || !singer || !telegramUrl) {
+            return NextResponse.json({ success: false, message: "Заполните название, исполнителя и Telegram ссылку на видео" }, { status: 400 });
         }
 
         let coverUrl = "/default-cover.webp";
         let coverFileId = "";
 
         if (coverInput instanceof File && coverInput.size > 0) {
-            console.log("[VIDEO POST COVER] Загрузка обложки клипа в ImageKit (covers/clips)...");
+            console.log("[VIDEO POST COVER] Загрузка обложки клипа в ImageKit...");
             const coverBuffer = Buffer.from(await coverInput.arrayBuffer());
             const uniqueCoverName = `${Date.now()}_${coverInput.name.replace(/\s+/g, '_')}`;
 
@@ -122,7 +119,6 @@ export async function POST(req: NextRequest) {
             });
             coverUrl = uploadResponse.url;
             coverFileId = uploadResponse.fileId || "";
-            console.log("[VIDEO POST COVER] Успешно загружено в covers/clips:", coverUrl);
         } else if (typeof coverInput === 'string' && coverInput.trim() !== '') {
             coverUrl = coverInput;
         }
@@ -167,9 +163,8 @@ export async function POST(req: NextRequest) {
             duration,
             cover: coverUrl,
             coverFileId: coverFileId,
-            videoUrl: videoUrlFromClient || `/api/videos/stream/${videoFileId}`,
-            videoFileId: videoFileId,
-            telegramMessageId: telegramMessageIdStr ? Number(telegramMessageIdStr) : undefined,
+            telegramUrl: telegramUrl,
+            videoUrl: telegramUrl,
             authorId: authorObjectId,
             author: authorObjectId,
             userId: authorObjectId,
@@ -180,7 +175,7 @@ export async function POST(req: NextRequest) {
             downloadsCount: 0,
         });
 
-        console.log("[VIDEO POST SUCCESS] Видео сохранено в БД.");
+        console.log("[VIDEO POST SUCCESS] Видео успешно сохранено в БД.");
         return NextResponse.json({ success: true, video: newVideo, isTrial }, { status: 201 });
     } catch (error: any) {
         console.error("[VIDEO POST ERROR] Ошибка:", error);
