@@ -25,7 +25,7 @@ export async function compressVideoWithWebCodecs(
 
     if (hasWebCodecs) {
         try {
-            console.log("🚀 Запуск независимого фонового сжатия через Mediabunny...");
+            console.log("🚀 Запуск быстрого фонового сжатия через Mediabunny (480p)...");
             return await compressWithMediabunnyEngine(file, onProgress);
         } catch (e) {
             console.warn("⚠️ Mediabunny не удалось, фоллбек на MediaRecorder:", e);
@@ -36,7 +36,7 @@ export async function compressVideoWithWebCodecs(
     return await compressWithMediaRecorderFallback(file, onProgress);
 }
 
-// Фоновый движок на последовательном чтении потока (без seek-лагов)
+// Фоновый движок на быстрой обработке потока в 480p
 async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: number) => void): Promise<File> {
     const video = document.createElement('video');
     video.preload = 'auto';
@@ -52,7 +52,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     });
 
     const duration = video.duration || 1;
-    const targetHeight = 480; 
+    const targetHeight = 480; // 👈 Строго 480p по умолчанию
     const scale = targetHeight / video.videoHeight;
     const calculatedWidth = Math.round((video.videoWidth * scale) / 2) * 2;
     const targetWidth = calculatedWidth > 854 ? 854 : calculatedWidth;
@@ -71,7 +71,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     const totalTargetBits = targetMaxBytes * 8;
     const audioBitrate = 64 * 1000; 
     const availableVideoBits = totalTargetBits - (audioBitrate * duration);
-    const finalVideoBitrate = Math.max(400000, Math.min(900000, Math.floor(availableVideoBits / duration)));
+    const finalVideoBitrate = Math.max(350000, Math.min(800000, Math.floor(availableVideoBits / duration)));
     
     console.log(`📊 Расчетный битрейт сжатия: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
 
@@ -81,7 +81,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
         target,
     });
 
-    const fps = 25;
+    const fps = 24; // Оптимальный баланс скорости и качества для веб-энкодера
     const frameInterval = 1 / fps;
     const canvasSource = new CanvasSource(canvas, {
         codec: 'vp9',
@@ -94,6 +94,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
 
     await output.start();
 
+    // Ускоряем воспроизведение в фоновом режиме, чтобы кодирование шло быстрее
     video.playbackRate = 2.0;
 
     return new Promise((resolve, reject) => {
@@ -128,7 +129,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
 
                     ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
 
-                    const isKeyFrame = encodedFrames % 50 === 0;
+                    const isKeyFrame = encodedFrames % 40 === 0;
                     await canvasSource.add(currentT, frameInterval, isKeyFrame ? { keyFrame: true } : undefined);
 
                     encodedFrames++;
@@ -139,11 +140,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
                     }
                 }
 
-                if ('requestVideoFrameCallback' in video) {
-                    (video as any).requestVideoFrameCallback(processFrame);
-                } else {
-                    requestAnimationFrame(processFrame);
-                }
+                requestAnimationFrame(processFrame);
             } catch (err) {
                 video.pause();
                 URL.revokeObjectURL(objectUrl);
@@ -153,11 +150,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
         };
 
         video.play().then(() => {
-            if ('requestVideoFrameCallback' in video) {
-                (video as any).requestVideoFrameCallback(processFrame);
-            } else {
-                requestAnimationFrame(processFrame);
-            }
+            requestAnimationFrame(processFrame);
         }).catch((err) => {
             URL.revokeObjectURL(objectUrl);
             video.remove();
@@ -166,7 +159,7 @@ async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: 
     });
 }
 
-// Фоллбек через MediaRecorder
+// Фоллбек через MediaRecorder в 480p
 async function compressWithMediaRecorderFallback(file: File, onProgress?: (progress: number) => void): Promise<File> {
     const video = document.createElement('video');
     video.preload = 'auto';
@@ -182,7 +175,7 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
     });
 
     const duration = video.duration || 1;
-    const targetHeight = 480;
+    const targetHeight = 480; // 👈 Строго 480p по умолчанию
     const scale = targetHeight / video.videoHeight;
     const targetWidth = Math.min(854, Math.round((video.videoWidth * scale) / 2) * 2);
 
@@ -196,7 +189,7 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
         throw new Error("Не удалось создать контекст холста для фоллбека");
     }
 
-    const stream = canvas.captureStream(25);
+    const stream = canvas.captureStream(24);
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
         ? 'video/webm;codecs=vp9'
         : MediaRecorder.isTypeSupported('video/webm')
@@ -204,7 +197,7 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
             : 'video/mp4';
 
     const targetMaxBytes = 18.5 * 1024 * 1024;
-    const calculatedBitrate = Math.max(450000, Math.floor((targetMaxBytes * 8) / duration));
+    const calculatedBitrate = Math.max(350000, Math.floor((targetMaxBytes * 8) / duration));
 
     const mediaRecorder = new MediaRecorder(stream, {
         mimeType,
@@ -231,7 +224,8 @@ async function compressWithMediaRecorderFallback(file: File, onProgress?: (progr
             reject(err);
         };
 
-        mediaRecorder.start();
+        mediaRecorder.start(1000);
+        video.playbackRate = 2.0;
         video.play().catch(reject);
 
         const draw = () => {
