@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Upload, Loader2, Video as VideoIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
-import { compressVideoWithWebCodecs } from "@/utils/videoCompressor";
+import { compressVideoOnClient } from "@/utils/videoCompressor";
 
 export default function NewVideoPage() {
     const router = useRouter();
@@ -151,17 +151,17 @@ export default function NewVideoPage() {
                 "Compressing video on device... To speed up the process, please close all active and inactive tabs and programs on your device other than this window!"
             ));
 
-            const compressedFile = await compressVideoWithWebCodecs(
-                videoFile,
-                (progress) => {
-                    requestAnimationFrame(() => {
-                        const mapped = (progress / 100) * 45;
-                        if (mapped > currentProgress) {
-                            currentProgress = mapped;
-                        }
-                    });
-                }
-            );
+           const compressedFile = await compressVideoOnClient(
+    videoFile,
+    (progress) => {
+        requestAnimationFrame(() => {
+            const mapped = (progress / 100) * 45;
+            if (mapped > currentProgress) {
+                currentProgress = mapped;
+            }
+        });
+    }
+);
 
             setStatusMessage("Видео серверга юкланмоqda...");
 

@@ -1,251 +1,225 @@
 // src/utils/videoCompressor.ts
-import { Output, WebMOutputFormat, BufferTarget, CanvasSource, Quality } from 'mediabunny';
 
-export async function compressVideoWithWebCodecs(
+export async function compressVideoOnClient(
     file: File,
     onProgress?: (progress: number) => void
 ): Promise<File> {
-    if (!file || !(file instanceof Blob)) {
-        throw new Error("В функцию сжатия не передан объект файла");
-    }
-
-    // Жесткий лимит Telegram: ровно 19.5 МБ в байтах (20447232 байт)
-    const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; 
-
-    console.log(`🔍 Проверка файла: "${file.name}" | Размер: ${file.size} байт (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
-
-    // ЕСЛИ ФАЙЛ МЕНЬШЕ ИЛИ РАВЕН 19.5 МБ — СРАЗУ ВОЗВРАЩАЕМ ОРИГИНАЛ БЕЗ СЖАТИЯ И БУФЕРИЗАЦИИ
-    if (file.size <= MAX_SIZE_BYTES) {
-        console.log(`✅ Файл меньше лимита Telegram (< 19.5MB). Отдаем оригинал напрямую без обработки.`);
-        if (onProgress) onProgress(100);
-        return file;
-    }
-
-    const hasWebCodecs = typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
-
-    if (hasWebCodecs) {
-        try {
-            console.log("🚀 Запуск быстрого фонового сжатия через Mediabunny (480p)...");
-            return await compressWithMediabunnyEngine(file, onProgress);
-        } catch (e) {
-            console.warn("⚠️ Mediabunny не удалось, фоллбек на MediaRecorder:", e);
-        }
-    }
-
-    console.log("🔄 Запуск универсального сжатия через MediaRecorder...");
-    return await compressWithMediaRecorderFallback(file, onProgress);
-}
-
-// Фоновый движок на быстрой обработке потока в 480p
-async function compressWithMediabunnyEngine(file: File, onProgress?: (progress: number) => void): Promise<File> {
-    const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true;
-    video.playsInline = true;
-
-    const objectUrl = URL.createObjectURL(file);
-    video.src = objectUrl;
-
-    await new Promise((resolve, reject) => {
-        video.onloadedmetadata = () => resolve(true);
-        video.onerror = () => reject(new Error("Ошибка загрузки фонового видео"));
-    });
-
-    const duration = video.duration || 1;
-    const targetHeight = 480; // 👈 Строго 480p по умолчанию
-    const scale = targetHeight / video.videoHeight;
-    const calculatedWidth = Math.round((video.videoWidth * scale) / 2) * 2;
-    const targetWidth = calculatedWidth > 854 ? 854 : calculatedWidth;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-
-    if (!ctx) {
-        URL.revokeObjectURL(objectUrl);
-        throw new Error("Не удалось создать 2D контекст холста");
-    }
-
-    const targetMaxBytes = 18.5 * 1024 * 1024;
-    const totalTargetBits = targetMaxBytes * 8;
-    const audioBitrate = 64 * 1000; 
-    const availableVideoBits = totalTargetBits - (audioBitrate * duration);
-    const finalVideoBitrate = Math.max(350000, Math.min(800000, Math.floor(availableVideoBits / duration)));
-    
-    console.log(`📊 Расчетный битрейт сжатия: ${(finalVideoBitrate / 1000).toFixed(0)} kbps (длительность: ${duration.toFixed(1)}с)`);
-
-    const target = new BufferTarget();
-    const output = new Output({
-        format: new WebMOutputFormat(),
-        target,
-    });
-
-    const fps = 24; // Оптимальный баланс скорости и качества для веб-энкодера
-    const frameInterval = 1 / fps;
-    const canvasSource = new CanvasSource(canvas, {
-        codec: 'vp9',
-        quality: new Quality({ bitrate: finalVideoBitrate }),
-    });
-
-    output.addVideoTrack(canvasSource, {
-        frameRate: fps,
-    });
-
-    await output.start();
-
-    // Ускоряем воспроизведение в фоновом режиме, чтобы кодирование шло быстрее
-    video.playbackRate = 2.0;
-
     return new Promise((resolve, reject) => {
-        let lastProcessedTime = -1;
-        let encodedFrames = 0;
-        const totalEstimatedFrames = Math.floor(duration * fps);
+        if (!file || !(file instanceof Blob)) {
+            return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
+        }
 
-        const processFrame = async () => {
+        // Жесткий лимит Telegram (< 20MB)
+        const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; 
+
+        // ПРАВИЛО: Если исходный файл меньше или равен лимиту, не трогаем его
+        if (file.size <= MAX_SIZE_BYTES) {
+            console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше лимита. Пропускаем сжатие.`);
+            if (onProgress) onProgress(100);
+            return resolve(file);
+        }
+
+        console.log("🧠 Старт строгого сжатия под лимит Telegram (<20Мб):", {
+            name: file.name,
+            sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
+        });
+
+        const video = document.createElement('video');
+        video.preload = 'auto';
+        video.muted = false;
+        video.playsInline = true;
+
+        const objectUrl = URL.createObjectURL(file);
+        video.src = objectUrl;
+
+        let audioCtx: AudioContext | null = null;
+
+        video.onloadedmetadata = async () => {
             try {
-                if (video.ended || video.paused || video.currentTime >= duration) {
-                    video.pause();
-                    await output.finalize();
+                video.currentTime = 0;
+                video.playbackRate = 1.0;
+
+                const duration = video.duration || 1;
+
+                // 🧮 РАСЧЕТ ПОД ЛИМИТ 18.5 МБ (с запасом до 20 Мб)
+                const targetMaxBytes = 18.5 * 1024 * 1024; 
+                const totalTargetBits = targetMaxBytes * 8;
+                const audioBitrate = 96000; // 96 kbps для качественного звука
+                const totalAudioBits = audioBitrate * duration;
+                
+                const availableVideoBits = totalTargetBits - totalAudioBits;
+                const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
+
+                // Предохранители: от 250 kbps до 900 kbps
+                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 250000), 900000);
+
+                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Битрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
+
+                const canvas = document.createElement('canvas');
+                const targetHeight = 480; // СТРОГО 480p для стабильности
+                const scale = targetHeight / video.videoHeight;
+                canvas.width = Math.min(854, Math.round((video.videoWidth * scale) / 2) * 2);
+                canvas.height = targetHeight;
+
+                const ctx = canvas.getContext('2d', { alpha: false });
+                if (!ctx) {
                     URL.revokeObjectURL(objectUrl);
-                    video.remove();
-
-                    const buffer = target.buffer;
-                    if (!buffer) {
-                        throw new Error("Буфер сжатого файла пуст");
-                    }
-                    const resultBlob = new Blob([buffer], { type: 'video/webm' });
-                    const compressedFile = new File([resultBlob], file.name.replace(/\.[^/.]+$/, '') + '.webm', { type: 'video/webm' });
-
-                    console.log(`📦 Сжатие завершено. Итоговый размер: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB`);
-                    if (onProgress) onProgress(100);
-                    resolve(compressedFile);
-                    return;
+                    return reject(new Error('Не удалось инициализировать Canvas 2D context'));
                 }
 
-                const currentT = video.currentTime;
-                if (currentT - lastProcessedTime >= frameInterval) {
-                    lastProcessedTime = currentT;
+                // Инициализируем AudioContext для захвата звука
+                try {
+                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                    audioCtx = new AudioContextClass();
+                    if (audioCtx.state === 'suspended') {
+                        await audioCtx.resume();
+                    }
+                } catch (e) {
+                    console.warn("⚠️ AudioContext не поддерживается:", e);
+                }
 
-                    ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-
-                    const isKeyFrame = encodedFrames % 40 === 0;
-                    await canvasSource.add(currentT, frameInterval, isKeyFrame ? { keyFrame: true } : undefined);
-
-                    encodedFrames++;
-
-                    if (onProgress && totalEstimatedFrames > 0) {
-                        const percent = Math.min(99, (encodedFrames / totalEstimatedFrames) * 100);
-                        onProgress(Number(percent.toFixed(2)));
+                const dest = audioCtx ? audioCtx.createMediaStreamDestination() : null;
+                let sourceNode: MediaElementAudioSourceNode | null = null;
+                
+                if (audioCtx && dest) {
+                    try {
+                        sourceNode = audioCtx.createMediaElementSource(video);
+                        sourceNode.connect(dest);
+                    } catch (err) {
+                        console.warn("⚠️ Не удалось подключить аудиопоток:", err);
                     }
                 }
 
-                requestAnimationFrame(processFrame);
+                const videoStream = canvas.captureStream(30);
+                const audioTracks = dest ? dest.stream.getAudioTracks() : [];
+
+                const combinedStream = new MediaStream([
+                    ...videoStream.getVideoTracks(),
+                    ...audioTracks
+                ]);
+                
+                let mimeType = 'video/webm;codecs=vp9,opus';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/webm;codecs=vp8,opus';
+                }
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/webm';
+                }
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/mp4';
+                }
+
+                let recorder: MediaRecorder;
+                try {
+                    recorder = new MediaRecorder(combinedStream, {
+                        mimeType: mimeType,
+                        videoBitsPerSecond: optimalVideoBitrate,
+                        audioBitsPerSecond: audioBitrate
+                    });
+                } catch (e) {
+                    console.warn("⚠️ Расширенные параметры MediaRecorder не поддержались:", e);
+                    recorder = new MediaRecorder(combinedStream);
+                }
+
+                const chunks: Blob[] = [];
+                recorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) {
+                        chunks.push(e.data);
+                    }
+                };
+
+                recorder.onstop = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    if (audioCtx && audioCtx.state !== 'closed') {
+                        audioCtx.close().catch(() => {});
+                    }
+
+                    const isWebm = mimeType.includes('webm');
+                    const ext = isWebm ? '.webm' : '.mp4';
+                    const finalMime = isWebm ? 'video/webm' : 'video/mp4';
+
+                    const resultBlob = new Blob(chunks, { type: finalMime });
+                    const newFileName = file.name.replace(/\.[^/.]+$/, '') + ext;
+                    
+                    console.log(`📦 Сжатие завершено. Итоговый размер: ${(resultBlob.size / (1024 * 1024)).toFixed(2)} MB`);
+                    resolve(new File([resultBlob], newFileName, { type: finalMime }));
+                };
+
+                recorder.onerror = (err) => {
+                    URL.revokeObjectURL(objectUrl);
+                    if (audioCtx && audioCtx.state !== 'closed') {
+                        audioCtx.close().catch(() => {});
+                    }
+                    reject(err);
+                };
+
+                recorder.start(100);
+
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+
+                try {
+                    await video.play();
+                } catch (playErr) {
+                    video.muted = true;
+                    await video.play();
+                }
+
+                let currentVisualPercent = 0;
+
+                const drawFrame = () => {
+                    const isReachedEnd = video.ended || (Number.isFinite(duration) && video.currentTime >= duration - 0.2);
+
+                    if (isReachedEnd) {
+                        console.log(`🏁 Видео дошло до конца (${video.currentTime.toFixed(1)}с / ${duration.toFixed(1)}с). Останавливаем запись.`);
+                        if (recorder.state !== 'inactive') {
+                            recorder.stop();
+                        }
+                        return;
+                    }
+
+                    if (video.paused && !video.ended) {
+                        if (video.readyState < 3) {
+                            requestAnimationFrame(drawFrame);
+                            return;
+                        } else {
+                            video.play().catch(() => {});
+                        }
+                    }
+
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    if (onProgress && Number.isFinite(duration) && duration > 0) {
+                        const realPercent = (video.currentTime / duration) * 100;
+                        
+                        if (realPercent > currentVisualPercent) {
+                            currentVisualPercent += (realPercent - currentVisualPercent) * 0.1;
+                        } else {
+                            currentVisualPercent += 0.004; 
+                        }
+
+                        const finalPercent = Math.min(Math.max(currentVisualPercent, 0), 99);
+                        onProgress(Number(finalPercent.toFixed(3)));
+                    }
+
+                    requestAnimationFrame(drawFrame);
+                };
+
+                drawFrame();
+
             } catch (err) {
-                video.pause();
                 URL.revokeObjectURL(objectUrl);
-                video.remove();
+                if (audioCtx && audioCtx.state !== 'closed') {
+                    audioCtx.close().catch(() => {});
+                }
                 reject(err);
             }
         };
 
-        video.play().then(() => {
-            requestAnimationFrame(processFrame);
-        }).catch((err) => {
+        video.onerror = () => {
             URL.revokeObjectURL(objectUrl);
-            video.remove();
-            reject(new Error("Не удалось запустить фоновое воспроизведение: " + err.message));
-        });
-    });
-}
-
-// Фоллбек через MediaRecorder в 480p
-async function compressWithMediaRecorderFallback(file: File, onProgress?: (progress: number) => void): Promise<File> {
-    const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true;
-    video.playsInline = true;
-
-    const objectUrl = URL.createObjectURL(file);
-    video.src = objectUrl;
-
-    await new Promise((resolve, reject) => {
-        video.onloadedmetadata = () => resolve(true);
-        video.onerror = () => reject(new Error("Ошибка загрузки фонового видео для фоллбека"));
-    });
-
-    const duration = video.duration || 1;
-    const targetHeight = 480; // 👈 Строго 480p по умолчанию
-    const scale = targetHeight / video.videoHeight;
-    const targetWidth = Math.min(854, Math.round((video.videoWidth * scale) / 2) * 2);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-    const ctx = canvas.getContext('2d', { alpha: false });
-
-    if (!ctx) {
-        URL.revokeObjectURL(objectUrl);
-        throw new Error("Не удалось создать контекст холста для фоллбека");
-    }
-
-    const stream = canvas.captureStream(24);
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
-        : MediaRecorder.isTypeSupported('video/webm')
-            ? 'video/webm'
-            : 'video/mp4';
-
-    const targetMaxBytes = 18.5 * 1024 * 1024;
-    const calculatedBitrate = Math.max(350000, Math.floor((targetMaxBytes * 8) / duration));
-
-    const mediaRecorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: calculatedBitrate,
-    });
-
-    const chunks: Blob[] = [];
-    mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-
-    return new Promise((resolve, reject) => {
-        mediaRecorder.onstop = () => {
-            URL.revokeObjectURL(objectUrl);
-            const blob = new Blob(chunks, { type: mimeType });
-            const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, `.${ext}`), { type: mimeType });
-            if (onProgress) onProgress(100);
-            resolve(compressedFile);
+            reject(new Error("Ошибка загрузки видеофайла в элемент превью"));
         };
-
-        mediaRecorder.onerror = (err) => {
-            URL.revokeObjectURL(objectUrl);
-            reject(err);
-        };
-
-        mediaRecorder.start(1000);
-        video.playbackRate = 2.0;
-        video.play().catch(reject);
-
-        const draw = () => {
-            if (video.ended || video.paused || video.currentTime >= duration) {
-                if (mediaRecorder.state === 'recording') {
-                    mediaRecorder.stop();
-                }
-                return;
-            }
-
-            ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-            
-            if (onProgress) {
-                const percent = Math.min(99, (video.currentTime / duration) * 100);
-                onProgress(Number(percent.toFixed(2)));
-            }
-
-            requestAnimationFrame(draw);
-        };
-
-        draw();
     });
 }
