@@ -9,17 +9,15 @@ export async function compressVideoOnClient(
             return reject(new Error("В функцию сжатия не передан объект файла (File/Blob)"));
         }
 
-        // Жесткий лимит Telegram (< 20MB)
-        const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; 
+        const MAX_SIZE_BYTES = 19.5 * 1024 * 1024; // Лимит Telegram (< 20MB)
 
-        // ПРАВИЛО: Если исходный файл меньше или равен лимиту, не трогаем его
         if (file.size <= MAX_SIZE_BYTES) {
             console.log(`✅ Размер файла ${(file.size / (1024 * 1024)).toFixed(2)} MB уже меньше лимита. Пропускаем сжатие.`);
             if (onProgress) onProgress(100);
             return resolve(file);
         }
 
-        console.log("🧠 Старт строгого сжатия под лимит Telegram (<20Мб):", {
+        console.log("🧠 Старт сжатия по стандарту YouTube 480p (<20Мб):", {
             name: file.name,
             sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
         });
@@ -39,24 +37,18 @@ export async function compressVideoOnClient(
                 video.currentTime = 0;
                 video.playbackRate = 1.0;
 
-                const duration = video.duration || 1;
+                const duration = video.duration || 314;
 
-                // 🧮 РАСЧЕТ ПОД ЛИМИТ 18.5 МБ (с запасом до 20 Мб)
-                const targetMaxBytes = 18.5 * 1024 * 1024; 
-                const totalTargetBits = targetMaxBytes * 8;
-                const audioBitrate = 96000; // 96 kbps для качественного звука
-                const totalAudioBits = audioBitrate * duration;
-                
-                const availableVideoBits = totalTargetBits - totalAudioBits;
-                const calculatedVideoBitrate = Math.floor(availableVideoBits / duration);
+                // 🎯 СТАНДАРТНЫЙ ПРОФИЛЬ YOUTUBE 480p:
+                // Видеобитрейт: 400 kbps (идеальный баланс четкости и отсутствия лагов)
+                // Аудиобитрейт: 128 kbps (чистый звук)
+                const audioBitrate = 128000; 
+                const optimalVideoBitrate = 400000; 
 
-                // Предохранители: от 250 kbps до 900 kbps
-                const optimalVideoBitrate = Math.min(Math.max(calculatedVideoBitrate, 250000), 900000);
-
-                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Битрейт: ${(optimalVideoBitrate / 1000).toFixed(0)} kbps`);
+                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Стандартный битрейт YouTube 480p: 400 kbps | Аудио: 128 kbps`);
 
                 const canvas = document.createElement('canvas');
-                const targetHeight = 480; // СТРОГО 480p для стабильности
+                const targetHeight = 480; // Строго 480p
                 const scale = targetHeight / video.videoHeight;
                 canvas.width = Math.min(854, Math.round((video.videoWidth * scale) / 2) * 2);
                 canvas.height = targetHeight;
@@ -67,7 +59,6 @@ export async function compressVideoOnClient(
                     return reject(new Error('Не удалось инициализировать Canvas 2D context'));
                 }
 
-                // Инициализируем AudioContext для захвата звука
                 try {
                     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
                     audioCtx = new AudioContextClass();
@@ -90,7 +81,7 @@ export async function compressVideoOnClient(
                     }
                 }
 
-                const videoStream = canvas.captureStream(30);
+                const videoStream = canvas.captureStream(24); // 24 кадра/сек как в эталоне YouTube
                 const audioTracks = dest ? dest.stream.getAudioTracks() : [];
 
                 const combinedStream = new MediaStream([
@@ -153,7 +144,7 @@ export async function compressVideoOnClient(
                     reject(err);
                 };
 
-                recorder.start(100);
+                recorder.start(1000);
 
                 if (audioCtx && audioCtx.state === 'suspended') {
                     await audioCtx.resume();

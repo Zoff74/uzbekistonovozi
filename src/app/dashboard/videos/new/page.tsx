@@ -329,8 +329,8 @@ export default function NewVideoPage() {
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-xs sm:text-sm text-amber-200/90 leading-relaxed space-y-2">
                             <p className="font-semibold text-amber-400">
                                 {tr(
-                                    "Диққат! Агарда контент 5-10 сония ичида тез юкланишини хохласангиз, Видео-тасвир 20 Мб хажмидан ошмаслиги керак.",
-                                    "Diqqat! Agarda kontent 5-10 soniya ichida tez yuklanishini hohlasangiz, Video-tasvir 20 Mb hajmdan oshmasligi kerak.",
+                                    "Диққат! Агарда контент 5-10 сония ичида юкланишини хохласангиз, Видео-тасвир 20 Мб хажмидан ошмаслиги керак.",
+                                    "Diqqat! Agarda kontent 5-10 soniya ichida yuklanishini hohlasangiz, Video-tasvir 20 Mb hajmdan oshmasligi kerak.",
                                     "Внимание! Для быстрой загрузки контента за 5-10 секунд размер видеофайла не должен превышать 20 МБ.",
                                     "Attention! For fast content loading within 5-10 seconds, the video file size should not exceed 20 MB."
                                 )}
