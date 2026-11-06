@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Edit, Trash2, Play, AlertCircle, X } from "lucide-react";
+import { Edit, Trash2, Play, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
 
@@ -42,7 +42,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const [isDeleting, setIsDeleting] = useState(false);
     const [showTariffs, setShowTariffs] = useState(false);
     const [isRemoved, setIsRemoved] = useState(false);
-    const [isPlayingInline, setIsPlayingInline] = useState(false);
 
     const videoId = video._id.toString();
 
@@ -51,18 +50,8 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const videoDaily = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_DAILY || 1500);
     const videoMonthly = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_MONTHLY || 45000);
 
-    // Ссылка на Telegram пост (например: https://t.me/channel_name/123)
+    // Главный источник ссылки — telegramUrl
     const telegramVideoUrl = video.telegramUrl || video.videoUrl || video.fileUrl || "";
-
-    // Превращаем стандартную ссылку t.me/channel/123 в iframe-виджет Telegram: https://t.me/channel/123?embed=1
-    const getTelegramEmbedUrl = (url: string) => {
-        if (!url) return "";
-        // Убираем возможные лишние параметры и добавляем ?embed=1
-        const cleanUrl = url.split("?")[0];
-        return `${cleanUrl}?embed=1&dark=1`;
-    };
-
-    const embedUrl = getTelegramEmbedUrl(telegramVideoUrl);
 
     const currentUserId = (session?.user as any)?.id;
     const currentUserRole = (session?.user as any)?.role;
@@ -127,14 +116,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
     const minutesLeft = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
 
-    const handleTogglePlay = () => {
-        if (!telegramVideoUrl) {
-            alert(tr("Telegram видео ҳаволаси топилмади", "Telegram video havolasi topilmadi", "Ссылка на видео из Telegram не найдена", "Telegram video link not found"));
-            return;
-        }
-        setIsPlayingInline(!isPlayingInline);
-    };
-
     const GradientBorder = () => (
         <div 
             className="absolute inset-0 rounded-xl z-0 shadow-[0_0_20px_rgba(57,255,20,0.3)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
@@ -180,59 +161,51 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
-                {/* БЛОК ПРЕВЬЮ ИЛИ ВСТРОЕННОГО TELEGRAM ПЛЕЕРА */}
+                {/* ПРЕВЬЮ С ПРЯМОЙ ССЫЛКОЙ НА TELEGRAM В НОВОЙ ВКЛАДКЕ */}
                 <div className="relative w-full sm:w-48 aspect-video sm:aspect-square rounded-2xl object-cover border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
                     
-                    {/* Блюр при просрочке */}
+                    {/* Плашка блюра и блокировки, если видео просрочено и пользователь не владелец/админ */}
                     {video.isExpired && !canManage ? (
-                        <div className="absolute inset-0 z-20 backdrop-blur-md bg-neutral-950/80 flex flex-col items-center justify-center p-4 text-center">
-                            <AlertCircle className="w-8 h-8 text-amber-400 mb-2 animate-bounce" />
+                        <div className="absolute inset-0 z-20 backdrop-blur-md bg-neutral-950/80 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
+                            <AlertCircle className="w-8 h-8 text-amber-400 mb-2" />
                             <p className="text-amber-400 font-bold text-xs">
                                 {tr("Видео вақтинча ёпилган", "Video vaqtincha yopilgan", "Видео заблокировано", "Video blocked")}
                             </p>
                         </div>
                     ) : null}
 
-                    {!isPlayingInline ? (
-                        <div 
-                            onClick={handleTogglePlay}
-                            className="relative w-full h-full cursor-pointer group"
-                        >
-                            <img
-                                src={video.cover || "/default-cover.webp"}
-                                alt={video.title}
-                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                            />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-amber-400">
-                                <Play size={36} fill="currentColor" />
-                            </div>
+                    <a
+                        href={telegramVideoUrl || "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => {
+                            if (!telegramVideoUrl) {
+                                e.preventDefault();
+                                alert(tr("Telegram видео ҳаволаси топилмади", "Telegram video havolasi topilmadi", "Ссылка не найдена", "Link not found"));
+                            }
+                        }}
+                        className="relative w-full h-full cursor-pointer group block"
+                    >
+                        <img
+                            src={video.cover || "/default-cover.webp"}
+                            alt={video.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-amber-400">
+                            <Play size={36} fill="currentColor" />
                         </div>
-                    ) : (
-                        <div className="absolute inset-0 w-full h-full bg-black z-10 flex flex-col">
-                            <button 
-                                onClick={() => setIsPlayingInline(false)}
-                                className="absolute top-2 right-2 z-30 p-1 bg-black/70 hover:bg-black text-white rounded-full transition"
-                                title="Закрыть плеер"
-                            >
-                                <X size={16} />
-                            </button>
-                            <iframe 
-                                src={embedUrl} 
-                                className="w-full h-full border-0" 
-                                allow="encrypted-media"
-                                title={video.title}
-                            />
-                        </div>
-                    )}
+                    </a>
                 </div>
 
                 <div className="min-w-0 flex-1">
-                    <h3 
-                        onClick={handleTogglePlay}
-                        className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition"
+                    <a
+                        href={telegramVideoUrl || "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition block"
                     >
                         {video.title}
-                    </h3>
+                    </a>
 
                     <div className={video.isExpired && !canManage ? "filter blur-[6px] select-none pointer-events-none opacity-60 mt-1" : "mt-1"}>
                         <p className="text-base text-neutral-200 break-words font-medium">
