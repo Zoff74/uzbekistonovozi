@@ -17,7 +17,7 @@ export async function compressVideoOnClient(
             return resolve(file);
         }
 
-        console.log("🧠 Старт сжатия по стандарту YouTube 480p (<20Мб):", {
+        console.log("🧠 Старт точного сжатия с фиксированным потоком кадров:", {
             name: file.name,
             sizeMB: (file.size / (1024 * 1024)).toFixed(2) + " MB"
         });
@@ -30,8 +30,6 @@ export async function compressVideoOnClient(
         const objectUrl = URL.createObjectURL(file);
         video.src = objectUrl;
 
-        let audioCtx: AudioContext | null = null;
-
         video.onloadedmetadata = async () => {
             try {
                 video.currentTime = 0;
@@ -39,13 +37,7 @@ export async function compressVideoOnClient(
 
                 const duration = video.duration || 314;
 
-                // 🎯 СТАНДАРТНЫЙ ПРОФИЛЬ YOUTUBE 480p:
-                // Видеобитрейт: 400 kbps (идеальный баланс четкости и отсутствия лагов)
-                // Аудиобитрейт: 128 kbps (чистый звук)
-                const audioBitrate = 128000; 
-                const optimalVideoBitrate = 400000; 
-
-                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Стандартный битрейт YouTube 480p: 400 kbps | Аудио: 128 kbps`);
+                console.log(`📊 Длительность: ${duration.toFixed(1)}с | Целевой битрейт видео: 450 kbps`);
 
                 const canvas = document.createElement('canvas');
                 const targetHeight = 480; // Строго 480p
@@ -59,36 +51,25 @@ export async function compressVideoOnClient(
                     return reject(new Error('Не удалось инициализировать Canvas 2D context'));
                 }
 
-                try {
-                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-                    audioCtx = new AudioContextClass();
-                    if (audioCtx.state === 'suspended') {
-                        await audioCtx.resume();
-                    }
-                } catch (e) {
-                    console.warn("⚠️ AudioContext не поддерживается:", e);
-                }
-
-                const dest = audioCtx ? audioCtx.createMediaStreamDestination() : null;
-                let sourceNode: MediaElementAudioSourceNode | null = null;
+                // Захватываем видео с холста на честных 24 кадрах в секунду
+                const videoStream = canvas.captureStream(24);
                 
-                if (audioCtx && dest) {
+                let combinedStream = videoStream;
+                if (typeof (video as any).captureStream === 'function') {
                     try {
-                        sourceNode = audioCtx.createMediaElementSource(video);
-                        sourceNode.connect(dest);
-                    } catch (err) {
-                        console.warn("⚠️ Не удалось подключить аудиопоток:", err);
+                        const nativeStream = (video as any).captureStream();
+                        const audioTracks = nativeStream.getAudioTracks();
+                        if (audioTracks.length > 0) {
+                            combinedStream = new MediaStream([
+                                ...videoStream.getVideoTracks(),
+                                ...audioTracks
+                            ]);
+                        }
+                    } catch (e) {
+                        console.warn("⚠️ Нативный захват аудиодорожки пропущен:", e);
                     }
                 }
 
-                const videoStream = canvas.captureStream(24); // 24 кадра/сек как в эталоне YouTube
-                const audioTracks = dest ? dest.stream.getAudioTracks() : [];
-
-                const combinedStream = new MediaStream([
-                    ...videoStream.getVideoTracks(),
-                    ...audioTracks
-                ]);
-                
                 let mimeType = 'video/webm;codecs=vp9,opus';
                 if (!MediaRecorder.isTypeSupported(mimeType)) {
                     mimeType = 'video/webm;codecs=vp8,opus';
@@ -102,13 +83,13 @@ export async function compressVideoOnClient(
 
                 let recorder: MediaRecorder;
                 try {
+                    // Ставим уверенные 450 kbps для видео, чтобы файл весил ~17-18 МБ
                     recorder = new MediaRecorder(combinedStream, {
                         mimeType: mimeType,
-                        videoBitsPerSecond: optimalVideoBitrate,
-                        audioBitsPerSecond: audioBitrate
+                        videoBitsPerSecond: 450000 
                     });
                 } catch (e) {
-                    console.warn("⚠️ Расширенные параметры MediaRecorder не поддержались:", e);
+                    console.warn("⚠️ Установка битрейта видео не поддержалась:", e);
                     recorder = new MediaRecorder(combinedStream);
                 }
 
@@ -121,9 +102,6 @@ export async function compressVideoOnClient(
 
                 recorder.onstop = () => {
                     URL.revokeObjectURL(objectUrl);
-                    if (audioCtx && audioCtx.state !== 'closed') {
-                        audioCtx.close().catch(() => {});
-                    }
 
                     const isWebm = mimeType.includes('webm');
                     const ext = isWebm ? '.webm' : '.mp4';
@@ -138,17 +116,10 @@ export async function compressVideoOnClient(
 
                 recorder.onerror = (err) => {
                     URL.revokeObjectURL(objectUrl);
-                    if (audioCtx && audioCtx.state !== 'closed') {
-                        audioCtx.close().catch(() => {});
-                    }
                     reject(err);
                 };
 
                 recorder.start(1000);
-
-                if (audioCtx && audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
 
                 try {
                     await video.play();
@@ -159,24 +130,18 @@ export async function compressVideoOnClient(
 
                 let currentVisualPercent = 0;
 
-                const drawFrame = () => {
-                    const isReachedEnd = video.ended || (Number.isFinite(duration) && video.currentTime >= duration - 0.2);
+                // Заменяем requestAnimationFrame на четкий интервал, чтобы браузер не душил частоту кадров
+                const intervalTime = 1000 / 24; // Строго 24 кадра в секунду
+                const timer = setInterval(() => {
+                    const isReachedEnd = video.ended || video.paused || (Number.isFinite(duration) && video.currentTime >= duration - 0.2);
 
-                    if (isReachedEnd) {
+                    if (isReachedEnd || video.currentTime >= duration) {
+                        clearInterval(timer);
                         console.log(`🏁 Видео дошло до конца (${video.currentTime.toFixed(1)}с / ${duration.toFixed(1)}с). Останавливаем запись.`);
                         if (recorder.state !== 'inactive') {
                             recorder.stop();
                         }
                         return;
-                    }
-
-                    if (video.paused && !video.ended) {
-                        if (video.readyState < 3) {
-                            requestAnimationFrame(drawFrame);
-                            return;
-                        } else {
-                            video.play().catch(() => {});
-                        }
                     }
 
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -193,17 +158,10 @@ export async function compressVideoOnClient(
                         const finalPercent = Math.min(Math.max(currentVisualPercent, 0), 99);
                         onProgress(Number(finalPercent.toFixed(3)));
                     }
-
-                    requestAnimationFrame(drawFrame);
-                };
-
-                drawFrame();
+                }, intervalTime);
 
             } catch (err) {
                 URL.revokeObjectURL(objectUrl);
-                if (audioCtx && audioCtx.state !== 'closed') {
-                    audioCtx.close().catch(() => {});
-                }
                 reject(err);
             }
         };
