@@ -1,3 +1,4 @@
+// src/app/dashboard/videos/new/page.tsx
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -15,7 +16,6 @@ export default function NewVideoPage() {
         title: "",
         singer: "",
         genre: "",
-        duration: "3:45",
         telegramUrl: "",
     });
 
@@ -70,7 +70,7 @@ export default function NewVideoPage() {
             metadataFormData.append("title", formData.title);
             metadataFormData.append("singer", formData.singer);
             metadataFormData.append("genre", formData.genre);
-            metadataFormData.append("duration", formData.duration);
+            metadataFormData.append("duration", "3:45"); // Дефолтное значение на бэке, раз уж юзеру не нужно его вводить
             metadataFormData.append("telegramUrl", formData.telegramUrl);
             
             if (coverFile) {
@@ -197,35 +197,19 @@ export default function NewVideoPage() {
                         />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-neutral-300 mb-2">
-                                {tr("Жанр", "Janr", "Жанр", "Genre")}
-                            </label>
-                            <input
-                                type="text"
-                                name="genre"
-                                disabled={loading}
-                                placeholder={tr("Масалан: Live, Clip", "Masalan: Live, Clip", "Например: Live, Clip", "Example: Live, Clip")}
-                                value={formData.genre}
-                                onChange={handleChange}
-                                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition disabled:opacity-50"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-neutral-300 mb-2">
-                                {tr("Давомийлиги", "Davomiyligi", "Длительность", "Duration")}
-                            </label>
-                            <input
-                                type="text"
-                                name="duration"
-                                disabled={loading}
-                                placeholder="3:45"
-                                value={formData.duration}
-                                onChange={handleChange}
-                                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition disabled:opacity-50"
-                            />
-                        </div>
+                    <div>
+                        <label className="block text-sm font-medium text-neutral-300 mb-2">
+                            {tr("Жанр", "Janr", "Жанр", "Genre")}
+                        </label>
+                        <input
+                            type="text"
+                            name="genre"
+                            disabled={loading}
+                            placeholder={tr("Масалан: Live, Clip", "Masalan: Live, Clip", "Например: Live, Clip", "Example: Live, Clip")}
+                            value={formData.genre}
+                            onChange={handleChange}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition disabled:opacity-50"
+                        />
                     </div>
 
                     <div>
