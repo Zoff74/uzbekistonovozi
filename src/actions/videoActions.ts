@@ -21,15 +21,23 @@ interface CreateVideoInput {
     videoFile?: File; // Обязательный файл видео с формы
 }
 
-export async function createVideoAction(data: CreateVideoInput) {
+export async function createVideoAction(formData: FormData) {
     try {
         await dbConnect();
 
-        if (!data.title || !data.authorId || !data.videoFile) {
+        const title = formData.get("title") as string;
+        const singer = formData.get("singer") as string;
+        const genre = formData.get("genre") as string;
+        const duration = formData.get("duration") as string;
+        const cover = formData.get("cover") as string;
+        const authorId = formData.get("authorId") as string;
+        const videoFile = formData.get("videoFile") as File;
+
+        if (!title || !authorId || !videoFile) {
             return { success: false, errorCode: "FIELD_REQUIRED" };
         }
 
-        const user = await User.findById(data.authorId);
+        const user = await User.findById(authorId);
         if (!user) {
             return { success: false, errorCode: "USER_NOT_FOUND" };
         }
@@ -41,11 +49,11 @@ export async function createVideoAction(data: CreateVideoInput) {
             return { success: false, errorCode: "BOT_TOKEN_NOT_CONFIGURED" };
         }
 
-        // Автоматически отправляем видео в твой канал через Telegram Bot API
+        // Загружаем видео в Telegram-канал
         const telegramFormData = new FormData();
         telegramFormData.append('chat_id', `@${channelUsername}`);
-        telegramFormData.append('video', data.videoFile);
-        telegramFormData.append('caption', `${data.singer} - ${data.title}`);
+        telegramFormData.append('video', videoFile);
+        telegramFormData.append('caption', `${singer} - ${title}`);
         telegramFormData.append('supports_streaming', 'true');
 
         const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendVideo`, {
@@ -60,14 +68,13 @@ export async function createVideoAction(data: CreateVideoInput) {
             return { success: false, errorCode: "TELEGRAM_UPLOAD_FAILED" };
         }
 
-        // Получаем ID сообщения и формируем ту самую ссылку
         const messageId = tgData.result.message_id;
         const generatedTelegramUrl = `https://t.me/${channelUsername}/${messageId}`;
 
         const isAdmin = user.role === 'admin';
         const rawUnlimitedIds = process.env.UNLIMITED_USER_IDS || "";
         const unlimitedIds = rawUnlimitedIds.split(",").map(id => id.trim()).filter(Boolean);
-        const hasUnlimited = unlimitedIds.includes(data.authorId.toString());
+        const hasUnlimited = unlimitedIds.includes(authorId.toString());
 
         let expiresAt = new Date();
         let isPaidActive = false;
@@ -81,18 +88,17 @@ export async function createVideoAction(data: CreateVideoInput) {
         }
 
         const newVideo = new Video({
-            title: data.title,
-            singer: data.singer || "Номаълум ижрочи",
-            genre: data.genre || "Clip",
-            duration: data.duration || "3:45",
-            telegramUrl: generatedTelegramUrl, // Автоматическая ссылка на пост в твоем канале
+            title,
+            singer: singer || "Номаълум ижрочи",
+            genre: genre || "Clip",
+            duration: duration || "3:45",
+            telegramUrl: generatedTelegramUrl,
             videoUrl: generatedTelegramUrl,   
-            cover: data.cover || "/default-cover.webp",
-            coverFileId: data.coverFileId || "",
-            authorId: data.authorId,
+            cover: cover || "/default-cover.webp",
+            authorId,
             status: 'ACTIVE',
-            expiresAt: expiresAt, 
-            isPaidActive: isPaidActive,
+            expiresAt, 
+            isPaidActive,
             views: 0,
             downloadsCount: 0,
         });

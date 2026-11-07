@@ -72,21 +72,24 @@ export default function NewVideoPage() {
         setError(null);
 
         try {
-            // Укажи реальный authorId текущего пользователя (или бери из сессии/авторизации)
-            const authorId = "657123456789abcdef123456"; 
+            // Создаем FormData для передачи файлов и текста в Server Action
+            const data = new FormData();
+            data.append("title", formData.title);
+            data.append("singer", formData.singer);
+            data.append("genre", formData.genre);
+            data.append("duration", "3:45");
+            data.append("cover", coverPreview || "/default-cover.webp");
+            data.append("authorId", "657123456789abcdef123456"); // Замени на реальный ID автора/админа
+            data.append("videoFile", videoFile); // 👈 Передаем сам файл
+            if (coverFile) {
+                data.append("coverFile", coverFile);
+            }
 
-            const result = await createVideoAction({
-                title: formData.title,
-                singer: formData.singer,
-                genre: formData.genre,
-                duration: "3:45",
-                cover: coverPreview || "/default-cover.webp",
-                authorId: authorId,
-                videoFile: videoFile,
-            });
+            // Вызываем Server Action, передавая FormData
+            const result = await createVideoAction(data);
 
-            if (!result.success) {
-                throw new Error(result.errorCode || "Server error");
+            if (!result || !result.success) {
+                throw new Error(result?.errorCode || "Server error");
             }
 
             setLoading(false);
@@ -98,12 +101,7 @@ export default function NewVideoPage() {
             }, 1500);
 
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : tr(
-                "Хатолик юз берди",
-                "Xatolik yuz berdi",
-                "Произошла ошибка",
-                "An error occurred"
-            );
+            const message = err instanceof Error ? err.message : "Произошла ошибка";
             setError(message);
             setLoading(false);
         }
