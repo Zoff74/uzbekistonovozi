@@ -39,22 +39,43 @@ export async function POST(request: NextRequest) {
 
         const originalName = file.name || "media.mp4";
 
-        // Потоково сохраняем файл во временную директорию диска, экономя оперативную память
         const tempDir = os.tmpdir();
         inputPath = path.join(tempDir, `upload_${Date.now()}_${originalName.replace(/[^a-zA-Z0-9.-]/g, "_")}`);
         
         const nodeStream = Readable.fromWeb(file.stream() as any);
         await pipeline(nodeStream, createWriteStream(inputPath));
 
-        console.log(`🚀 Подключение к Telegram MTProto для загрузки "${originalName}" (${(file.size / (1024 * 1024)).toFixed(2)} MB)...`);
+        console.log(`🚀 Инициализация Telegram клиента для загрузки "${originalName}" (${(file.size / (1024 * 1024)).toFixed(2)} MB)...`);
 
-        client = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
+        // Создаем клиент с увеличенным количеством попыток переподключения
+        // Создаем клиент с принудительным использованием защищенного порта 443 (TLS) для стабильности
+        client = new TelegramClient(stringSession, apiId, apiHash, {
+            connectionRetries: 15,
+            timeout: 120,
+            useWSS: false,
+        });
+
         await client.connect();
 
-        // Загружаем файл с диска чанками через GramJS
+        // Принудительно задаем защищенную дату/порт DC, если требуется
+        // @ts-ignore
+        if (client.session && typeof client.session.setDC === 'function') {
+            // DC 2 обычно используется по умолчанию для большинства аккаунтов (порт 443)
+            client.session.setDC(2, "149.154.167.50", 443);
+        }
+
+        await client.connect();
+
+        // Проверяем, действительно ли клиент авторизован
+        if (!await client.isUserAuthorized()) {
+            throw new Error("Telegram сессия не авторизована или истекла. Требуется обновить TELEGRAM_STRING_SESSION.");
+        }
+
+        console.log("📤 Соединение установлено. Начинаем загрузку файла в Telegram чат/канал...");
+
         const uploadedFile = await client.uploadFile({
             file: inputPath as any,
-            workers: 4,
+            workers: 2, // Снижаем до 2 воркеров для стабильности на Render
         });
 
         const resultMessage = await client.sendMessage(storageChatId, {
@@ -62,7 +83,6 @@ export async function POST(request: NextRequest) {
             message: `🎥 Media: ${userName} (${originalName})`,
         });
 
-        // Очищаем временный файл и отключаем клиент
         await fs.unlink(inputPath).catch(() => {});
         await client.disconnect();
 
@@ -80,8 +100,10 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         if (inputPath) await fs.unlink(inputPath).catch(() => {});
-        if (client) await client.disconnect().catch(() => {});
-        console.error("🔥 MTProto Stream Upload Error:", error);
-        return NextResponse.json({ error: error.message || "Ошибка загрузки через MTProto" }, { status: 500 });
+        if (client) {
+            try { await client.disconnect(); } catch {}
+        }
+        console.error("🔥 MTProto Connection/Upload Error:", error);
+        return NextResponse.json({ error: error.message || "Ошибка соединения с Telegram MTProto" }, { status: 500 });
     }
 }
