@@ -244,7 +244,7 @@ export default function TrackCard({ track, onDelete }: TrackCardProps) {
                                 </span>
                             ) : (
                                 <span className="text-red-400">
-                                    {tr("Файлни ўзгартириш муддати тугаган (24 соат)", "Faylni o'zgartirish muddati tugagan", "Срок изменения файла истек", "File change time expired")}
+                                    {tr("Файлга ўзгартиришлар киритиш муддати тугаган (24 соат)", "Faylga o'zgartirishlar kiritish muddati tugagan", "Срок изменения файла истек", "File change time expired")}
                                 </span>
                             )}
                         </span>

@@ -1,12 +1,22 @@
 import { NextResponse, NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { TelegramClient } from "telegram";
+import { StringSession } from "telegram/sessions";
+import { CustomFile } from "telegram/client/uploads";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
 
+const apiId = Number(process.env.TELEGRAM_API_ID || 0);
+const apiHash = process.env.TELEGRAM_API_HASH || "";
+const stringSession = new StringSession(process.env.TELEGRAM_STRING_SESSION || "");
+const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID || "-1004477716545";
+
 export async function POST(request: NextRequest) {
+    let client: TelegramClient | null = null;
+
     try {
         const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
         if (!token || !token.sub) {
@@ -14,75 +24,53 @@ export async function POST(request: NextRequest) {
         }
 
         const userName = token.name || token.sub;
-        const contentType = request.headers.get("content-type") || "";
+        const formData = await request.formData();
+        const file = formData.get("file") as File | null;
 
-        if (!contentType.includes("multipart/form-data")) {
-            return NextResponse.json({ error: "Ожидается multipart/form-data" }, { status: 400 });
+        if (!file) {
+            return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
         }
 
-        const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-        const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID;
+        const originalName = file.name || "media.mp4";
+        const buffer = Buffer.from(await file.arrayBuffer());
 
-        if (!BOT_TOKEN || !storageChatId) {
-            return NextResponse.json({ error: "Не настроен Telegram Storage" }, { status: 500 });
-        }
+        console.log(`🚀 Загрузка файла "${originalName}" (${(buffer.length / (1024 * 1024)).toFixed(2)} MB) через GramJS MTProto...`);
 
-        // Получаем нативный входящий поток запроса Node.js, минуя ограничения Next.js
+        // Подключаемся к Telegram MTProto
+        client = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
+        await client.connect();
+
+        // Превращаем буфер в CustomFile для GramJS без записи на диск
+        const customFile = new CustomFile(originalName, buffer.length, "" as any, buffer as any);
+
+        const uploadedFile = await client.uploadFile({
+            file: customFile,
+            workers: 4,
+        });
+
+        // Отправляем в storage-канал от имени вашего аккаунта
+        const resultMessage = await client.sendMessage(storageChatId, {
+            file: uploadedFile,
+            message: `🎥 Media: ${userName} (${originalName})`,
+        });
+
+        await client.disconnect();
+
+        const messageId = resultMessage.id;
         // @ts-ignore
-        const nodeReqStream = request.body;
+        const fileId = resultMessage.media?.document?.id?.toString() || messageId.toString();
 
-        if (!nodeReqStream) {
-            return NextResponse.json({ error: "Пустое тело запроса" }, { status: 400 });
-        }
-
-        console.log("🚀 Запуск прямого стриминга в Telegram...");
-
-        // Отправляем поток в Telegram без буферизации
-        const telegramRes = await fetch(
-            `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo?chat_id=${storageChatId}&supports_streaming=true&caption=${encodeURIComponent(`🎥 Video: ${userName}`)}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': contentType,
-                },
-                // @ts-ignore
-                body: nodeReqStream,
-                // @ts-ignore
-                duplex: 'half',
-            }
-        );
-
-        const responseText = await telegramRes.text();
-        console.log("📥 Ответ от Telegram:", telegramRes.status);
-
-        let telegramResult;
-        try {
-            telegramResult = JSON.parse(responseText);
-        } catch (e) {
-            console.error("❌ Ошибка парсинга ответа Telegram:", responseText);
-            return NextResponse.json({ error: "Ошибка ответа от Telegram API" }, { status: 500 });
-        }
-
-        if (!telegramRes.ok || !telegramResult.ok) {
-            return NextResponse.json({ error: telegramResult?.description || "Ошибка Telegram API" }, { status: 500 });
-        }
-
-        const uploadedFile = telegramResult.result.video || telegramResult.result.document;
-
-        if (uploadedFile && uploadedFile.file_id) {
-            return NextResponse.json({
-                success: true,
-                fileId: uploadedFile.file_id,
-                messageId: telegramResult.result.message_id,
-                url: `/api/videos/stream/${uploadedFile.file_id}`,
-                name: uploadedFile.file_name || "video.mp4",
-            });
-        }
-
-        return NextResponse.json({ error: "Не удалось получить file_id" }, { status: 500 });
+        return NextResponse.json({
+            success: true,
+            fileId: fileId,
+            messageId: messageId,
+            url: `/api/videos/stream/${fileId}`,
+            name: originalName,
+        });
 
     } catch (error: any) {
-        console.error("🔥 Ошибка стриминга:", error?.message || error);
-        return NextResponse.json({ error: error.message || "Ошибка сервера при проксировании" }, { status: 500 });
+        if (client) await client.disconnect().catch(() => {});
+        console.error("🔥 MTProto Simple Upload Error:", error);
+        return NextResponse.json({ error: error.message || "Ошибка загрузки через MTProto" }, { status: 500 });
     }
 }
