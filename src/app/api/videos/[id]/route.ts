@@ -1,4 +1,3 @@
-//src\app\api\videos\[id]\route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { dbConnect } from "@/lib/mongoose";
@@ -9,6 +8,7 @@ import { tr } from "@/utils/translate";
 import { deleteVideoFromTelegramStorage } from "@/actions/telegram.action";
 import ImageKit from "@imagekit/nodejs";
 
+//src\app\api\videos\[id]\route.ts
 export const dynamic = 'force-dynamic';
 
 const imagekit = new ImageKit({

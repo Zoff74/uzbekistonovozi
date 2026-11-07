@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const nextConfig = {
     experimental: {
         serverActions: {
-            bodySizeLimit: '150mb',
+            bodySizeLimit: '2048mb', // Увеличиваем лимит до 2Гб
         },
         optimizeCss: true,
         optimizePackageImports: [

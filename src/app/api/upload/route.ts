@@ -1,15 +1,10 @@
 import { NextResponse, NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
-import ImageKit from "@imagekit/nodejs";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
-
-const imagekit = new ImageKit({
-    privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "",
-});
 
 export async function POST(request: NextRequest) {
     try {
@@ -32,21 +27,41 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Не настроен Telegram Storage" }, { status: 500 });
         }
 
-        // Проксируем входящий поток от клиента прямо в Telegram через Web Streams (без записи на диск)
-        // Для этого используем boundary из входящего запроса клиента или передаем стрим
-        const telegramRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo?chat_id=${storageChatId}&supports_streaming=true&caption=${encodeURIComponent(`🎥 Video: ${userName}`)}`, {
-            method: 'POST',
-            headers: {
-                // Передаем тот же content-type с boundary, который прислал браузер
-                'Content-Type': contentType,
-            },
-            // @ts-ignore
-            body: request.body,
-            // @ts-ignore
-            duplex: 'half',
-        });
+        // Получаем нативный входящий поток запроса Node.js, минуя ограничения Next.js
+        // @ts-ignore
+        const nodeReqStream = request.body;
 
-        const telegramResult = await telegramRes.json();
+        if (!nodeReqStream) {
+            return NextResponse.json({ error: "Пустое тело запроса" }, { status: 400 });
+        }
+
+        console.log("🚀 Запуск прямого стриминга в Telegram...");
+
+        // Отправляем поток в Telegram без буферизации
+        const telegramRes = await fetch(
+            `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo?chat_id=${storageChatId}&supports_streaming=true&caption=${encodeURIComponent(`🎥 Video: ${userName}`)}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': contentType,
+                },
+                // @ts-ignore
+                body: nodeReqStream,
+                // @ts-ignore
+                duplex: 'half',
+            }
+        );
+
+        const responseText = await telegramRes.text();
+        console.log("📥 Ответ от Telegram:", telegramRes.status);
+
+        let telegramResult;
+        try {
+            telegramResult = JSON.parse(responseText);
+        } catch (e) {
+            console.error("❌ Ошибка парсинга ответа Telegram:", responseText);
+            return NextResponse.json({ error: "Ошибка ответа от Telegram API" }, { status: 500 });
+        }
 
         if (!telegramRes.ok || !telegramResult.ok) {
             return NextResponse.json({ error: telegramResult?.description || "Ошибка Telegram API" }, { status: 500 });
@@ -67,7 +82,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Не удалось получить file_id" }, { status: 500 });
 
     } catch (error: any) {
-        console.error("🔥 Upload Error:", error);
-        return NextResponse.json({ error: error.message || "Ошибка сервера" }, { status: 500 });
+        console.error("🔥 Ошибка стриминга:", error?.message || error);
+        return NextResponse.json({ error: error.message || "Ошибка сервера при проксировании" }, { status: 500 });
     }
 }

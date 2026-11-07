@@ -1,5 +1,4 @@
 "use client";
-//src\app\dashboard\videos\new\page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -12,7 +11,7 @@ export default function NewVideoPage() {
     const router = useRouter();
     const { data: session } = useSession();
     const [loading, setLoading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadProgress, setUploadProgress] = useState<string>("0.0000");
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -83,7 +82,7 @@ export default function NewVideoPage() {
         }
 
         setLoading(true);
-        setUploadProgress(0);
+        setUploadProgress("0.0000");
         setError(null);
 
         const uploadFormData = new FormData();
@@ -96,7 +95,7 @@ export default function NewVideoPage() {
 
         xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
-                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                const percentComplete = ((event.loaded / event.total) * 100).toFixed(4);
                 setUploadProgress(percentComplete);
             }
         };
@@ -291,13 +290,13 @@ export default function NewVideoPage() {
                     {loading && (
                         <div className="space-y-2 bg-neutral-950 border border-neutral-800 p-4 rounded-xl">
                             <div className="flex justify-between text-xs text-neutral-300">
-                                <span>{tr("Телеграмга юкланмоқда...", "Telegramga yuklanmoqda...", "Загрузка в Telegram...", "Uploading to Telegram...")}</span>
+                                <span>{tr("Юкланмоқда...", "Yuklanmoqda...", "Идет Загрузка...", "Uploading...")}</span>
                                 <span className="font-bold text-amber-400">{uploadProgress}%</span>
                             </div>
                             <div className="w-full bg-neutral-900 rounded-full h-3 overflow-hidden border border-neutral-800">
                                 <div
                                     className="bg-amber-400 h-full transition-all duration-300"
-                                    style={{ width: `${uploadProgress}%` }}
+                                    style={{ width: `${Number(uploadProgress)}%` }}
                                 />
                             </div>
                         </div>
