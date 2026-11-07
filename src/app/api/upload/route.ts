@@ -2,7 +2,12 @@ import { NextResponse, NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
-import { CustomFile } from "telegram/client/uploads";
+import path from "path";
+import os from "os";
+import fs from "fs/promises";
+import { createWriteStream } from "fs";
+import { pipeline } from "stream/promises";
+import { Readable } from "stream";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -15,6 +20,7 @@ const stringSession = new StringSession(process.env.TELEGRAM_STRING_SESSION || "
 const storageChatId = process.env.TELEGRAM_STORAGE_CHAT_ID || "-1004477716545";
 
 export async function POST(request: NextRequest) {
+    let inputPath = "";
     let client: TelegramClient | null = null;
 
     try {
@@ -32,28 +38,32 @@ export async function POST(request: NextRequest) {
         }
 
         const originalName = file.name || "media.mp4";
-        const buffer = Buffer.from(await file.arrayBuffer());
 
-        console.log(`🚀 Загрузка файла "${originalName}" (${(buffer.length / (1024 * 1024)).toFixed(2)} MB) через GramJS MTProto...`);
+        // Потоково сохраняем файл во временную директорию диска, экономя оперативную память
+        const tempDir = os.tmpdir();
+        inputPath = path.join(tempDir, `upload_${Date.now()}_${originalName.replace(/[^a-zA-Z0-9.-]/g, "_")}`);
+        
+        const nodeStream = Readable.fromWeb(file.stream() as any);
+        await pipeline(nodeStream, createWriteStream(inputPath));
 
-        // Подключаемся к Telegram MTProto
+        console.log(`🚀 Подключение к Telegram MTProto для загрузки "${originalName}" (${(file.size / (1024 * 1024)).toFixed(2)} MB)...`);
+
         client = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
         await client.connect();
 
-        // Превращаем буфер в CustomFile для GramJS без записи на диск
-        const customFile = new CustomFile(originalName, buffer.length, "" as any, buffer as any);
-
+        // Загружаем файл с диска чанками через GramJS
         const uploadedFile = await client.uploadFile({
-            file: customFile,
+            file: inputPath as any,
             workers: 4,
         });
 
-        // Отправляем в storage-канал от имени вашего аккаунта
         const resultMessage = await client.sendMessage(storageChatId, {
             file: uploadedFile,
             message: `🎥 Media: ${userName} (${originalName})`,
         });
 
+        // Очищаем временный файл и отключаем клиент
+        await fs.unlink(inputPath).catch(() => {});
         await client.disconnect();
 
         const messageId = resultMessage.id;
@@ -69,8 +79,9 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error: any) {
+        if (inputPath) await fs.unlink(inputPath).catch(() => {});
         if (client) await client.disconnect().catch(() => {});
-        console.error("🔥 MTProto Simple Upload Error:", error);
+        console.error("🔥 MTProto Stream Upload Error:", error);
         return NextResponse.json({ error: error.message || "Ошибка загрузки через MTProto" }, { status: 500 });
     }
 }
