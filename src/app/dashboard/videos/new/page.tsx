@@ -1,10 +1,11 @@
-// src/app/dashboard/videos/new/page.tsx
 "use client";
+// src/app/dashboard/videos/new/page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Upload, Loader2, Link as LinkIcon, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, Upload, Loader2, Film, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
+import { createVideoAction } from "@/actions/videoActions";
 
 export default function NewVideoPage() {
     const router = useRouter();
@@ -16,9 +17,9 @@ export default function NewVideoPage() {
         title: "",
         singer: "",
         genre: "",
-        telegramUrl: "",
     });
 
+    const [videoFile, setVideoFile] = useState<File | null>(null);
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
 
@@ -37,6 +38,11 @@ export default function NewVideoPage() {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
+    const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) setVideoFile(file);
+    };
+
     const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -52,12 +58,12 @@ export default function NewVideoPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.telegramUrl.trim()) {
+        if (!videoFile) {
             setError(tr(
-                "Илтимос, Telegram видео ҳаволасини киритинг",
-                "Iltimos, Telegram video havolasini kiriting",
-                "Пожалуйста, введите ссылку на видео из Telegram",
-                "Please enter the Telegram video link"
+                "Илтимос, видеофайлро танланг",
+                "Iltimos, videofaylni tanlang",
+                "Пожалуйста, выберите видеофайл",
+                "Please select a video file"
             ));
             return;
         }
@@ -66,32 +72,21 @@ export default function NewVideoPage() {
         setError(null);
 
         try {
-            const metadataFormData = new FormData();
-            metadataFormData.append("title", formData.title);
-            metadataFormData.append("singer", formData.singer);
-            metadataFormData.append("genre", formData.genre);
-            metadataFormData.append("duration", "3:45"); // Дефолтное значение на бэке, раз уж юзеру не нужно его вводить
-            metadataFormData.append("telegramUrl", formData.telegramUrl);
-            
-            if (coverFile) {
-                metadataFormData.append("cover", coverFile);
-            }
+            // Укажи реальный authorId текущего пользователя (или бери из сессии/авторизации)
+            const authorId = "657123456789abcdef123456"; 
 
-            const response = await fetch("/api/videos", {
-                method: "POST",
-                body: metadataFormData,
+            const result = await createVideoAction({
+                title: formData.title,
+                singer: formData.singer,
+                genre: formData.genre,
+                duration: "3:45",
+                cover: coverPreview || "/default-cover.webp",
+                authorId: authorId,
+                videoFile: videoFile,
             });
 
-            const responseText = await response.text();
-            let result;
-            try {
-                result = responseText ? JSON.parse(responseText) : {};
-            } catch {
-                throw new Error(`Сервер хатоси (HTTP ${response.status}): ${responseText || 'Бўш жавоб'}`);
-            }
-
-            if (!response.ok || !result.success) {
-                throw new Error(result.message || result.error || `Сервер хатоси: HTTP ${response.status}`);
+            if (!result.success) {
+                throw new Error(result.errorCode || "Server error");
             }
 
             setLoading(false);
@@ -153,14 +148,14 @@ export default function NewVideoPage() {
                 <form onSubmit={handleSubmit} className="space-y-6 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 md:p-10 shadow-xl">
                     <div>
                         <h1 className="text-lg sm:text-xl text-amber-400 mb-1">
-                            {tr("Telegram видео ҳаволасини қўшиш", "Telegram video havolasini qo'shish", "Добавить ссылку на видео из Telegram", "Add Telegram video link")}
+                            {tr("Янги видео клип қўшиш", "Yangi video klip qo'shish", "Добавить новый видеоклип", "Add new video clip")}
                         </h1>
                         <p className="text-sm text-neutral-400 mb-4">
                             {tr(
-                                "Видеофайлингизни ўзингизнинг Telegram каналингизга юкланг ва у ердан пост ҳаволасини олиб шу ерга қўйинг.",
-                                "Videofaylingizni o'zingizning Telegram kanalingizga yuklang va u yerdan post havolasini olib shu yerga qo'ying.",
-                                "Загрузите видеофайл в свой Telegram-канал, скопируйте ссылку на пост и вставьте её сюда.",
-                                "Upload your video file to your Telegram channel, copy the post link, and paste it here."
+                                "Видеофайлро компютерингиздан танланг. У автоматик тарзда Telegram каналимизга юкланади.",
+                                "Videofaylni kompyuteringizdan tanlang. U avtomatik ravishda Telegram kanalimizga yuklanadi.",
+                                "Выберите видеофайл с компьютера. Он автоматически загрузится в наш Telegram-канал.",
+                                "Select a video file from your computer. It will automatically upload to our Telegram channel."
                             )}
                         </p>
                     </div>
@@ -212,24 +207,34 @@ export default function NewVideoPage() {
                         />
                     </div>
 
+                    {/* Поле выбора видеофайла */}
                     <div>
                         <label className="block text-sm font-medium text-neutral-300 mb-2">
-                            {tr("Telegram видео ҳаволаси (URL)", "Telegram video havolasi (URL)", "Ссылка на видео из Telegram (URL)", "Telegram video link (URL)")} *
+                            {tr("Видеофайл (.mp4)", "Videofayl (.mp4)", "Видеофайл (.mp4)", "Video file (.mp4)")} *
                         </label>
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-neutral-500">
-                                <LinkIcon size={18} />
+                        <div className="flex items-center gap-4 bg-neutral-950 border border-neutral-800 rounded-xl p-4">
+                            <div className="w-10 h-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center text-amber-400 shrink-0">
+                                <Film size={20} />
                             </div>
-                            <input
-                                type="url"
-                                name="telegramUrl"
-                                required
-                                disabled={loading}
-                                placeholder="https://t.me/your_channel/123"
-                                value={formData.telegramUrl}
-                                onChange={handleChange}
-                                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm placeholder-neutral-600 focus:outline-none focus:border-amber-400 transition disabled:opacity-50 font-mono"
-                            />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm text-white truncate">
+                                    {videoFile ? videoFile.name : tr("Файл танланмаган", "Fayl tanlanmagan", "Файл не выбран", "No file selected")}
+                                </p>
+                                <p className="text-xs text-neutral-500">
+                                    {videoFile ? `${(videoFile.size / (1024 * 1024)).toFixed(2)} MB` : tr("Ҳажми чекланмаган (2 ГБ гача)", "Hajmi cheklanmagan (2 GB gacha)", "Без ограничений (до 2 ГБ)", "Up to 2 GB")}
+                                </p>
+                            </div>
+                            <label className={`cursor-pointer bg-neutral-900 hover:bg-neutral-800 text-amber-400 text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-block shrink-0 ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+                                <span>{tr("Видео танлаш", "Video tanlash", "Выбрать видео", "Select video")}</span>
+                                <input
+                                    type="file"
+                                    accept="video/mp4,video/*"
+                                    required
+                                    disabled={loading}
+                                    className="hidden"
+                                    onChange={handleVideoChange}
+                                />
+                            </label>
                         </div>
                     </div>
 
@@ -271,7 +276,7 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{tr("Сақланмоқда...", "Saqlanmoqda...", "Сохранение...", "Saving...")}</span>
+                                        <span>{tr("Телеграмга юкланмоқда...", "Telegramga yuklanmoqda...", "Загрузка в Telegram...", "Uploading...")}</span>
                                     </>
                                 ) : (
                                     <>
@@ -296,7 +301,7 @@ export default function NewVideoPage() {
                             {tr("Муваффақиятли қўшилди!", "Muvaffaqiyatli qo'shildi!", "Успешно добавлено!", "Successfully added!")}
                         </h2>
                         <p className="text-neutral-400 text-sm">
-                            {tr("Сабр қилинг. Орқага қайтамиз...", "Sabr qiling. Orqaga qaytamiz...", "Подождите. Возвращаемся назад...", "Please wait. Returning back...")}
+                            {tr("Видео каналга юкланди ва сақланди...", "Video kanalga yuklandi va saqlandi...", "Видео загружено в канал и сохранено...", "Video uploaded to channel...")}
                         </p>
                     </div>
                 </div>

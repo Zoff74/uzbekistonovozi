@@ -1,6 +1,5 @@
-// src/actions/videoActions.ts
 'use server';
-
+//src\actions\videoActions.ts
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import User from "@/models/User";
@@ -16,17 +15,17 @@ interface CreateVideoInput {
     singer: string;
     genre?: string;
     duration?: string;
-    telegramUrl: string; // 👈 Основное поле для ссылки из Telegram
     cover: string;
     coverFileId?: string;
     authorId: string;
+    videoFile?: File; // Обязательный файл видео с формы
 }
 
 export async function createVideoAction(data: CreateVideoInput) {
     try {
         await dbConnect();
 
-        if (!data.title || !data.telegramUrl || !data.authorId) {
+        if (!data.title || !data.authorId || !data.videoFile) {
             return { success: false, errorCode: "FIELD_REQUIRED" };
         }
 
@@ -34,6 +33,36 @@ export async function createVideoAction(data: CreateVideoInput) {
         if (!user) {
             return { success: false, errorCode: "USER_NOT_FOUND" };
         }
+
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        const channelUsername = "uzbekistonovozi_video";
+
+        if (!botToken) {
+            return { success: false, errorCode: "BOT_TOKEN_NOT_CONFIGURED" };
+        }
+
+        // Автоматически отправляем видео в твой канал через Telegram Bot API
+        const telegramFormData = new FormData();
+        telegramFormData.append('chat_id', `@${channelUsername}`);
+        telegramFormData.append('video', data.videoFile);
+        telegramFormData.append('caption', `${data.singer} - ${data.title}`);
+        telegramFormData.append('supports_streaming', 'true');
+
+        const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendVideo`, {
+            method: 'POST',
+            body: telegramFormData,
+        });
+
+        const tgData = await tgRes.json();
+
+        if (!tgData.ok || !tgData.result?.message_id) {
+            console.error("Telegram upload error:", tgData);
+            return { success: false, errorCode: "TELEGRAM_UPLOAD_FAILED" };
+        }
+
+        // Получаем ID сообщения и формируем ту самую ссылку
+        const messageId = tgData.result.message_id;
+        const generatedTelegramUrl = `https://t.me/${channelUsername}/${messageId}`;
 
         const isAdmin = user.role === 'admin';
         const rawUnlimitedIds = process.env.UNLIMITED_USER_IDS || "";
@@ -55,9 +84,9 @@ export async function createVideoAction(data: CreateVideoInput) {
             title: data.title,
             singer: data.singer || "Номаълум ижрочи",
             genre: data.genre || "Clip",
-            duration: data.duration || "0:00",
-            telegramUrl: data.telegramUrl, // 👈 Сохраняем Telegram ссылку
-            videoUrl: data.telegramUrl,   // Для обратной совместимости
+            duration: data.duration || "3:45",
+            telegramUrl: generatedTelegramUrl, // Автоматическая ссылка на пост в твоем канале
+            videoUrl: generatedTelegramUrl,   
             cover: data.cover || "/default-cover.webp",
             coverFileId: data.coverFileId || "",
             authorId: data.authorId,
@@ -92,7 +121,7 @@ interface UpdateVideoInput {
     singer?: string;
     genre?: string;
     duration?: string;
-    telegramUrl?: string; // 👈 Поддержка обновления ссылки
+    telegramUrl?: string;
     cover?: string;
     coverFileId?: string;
 }
@@ -112,7 +141,6 @@ export async function updateVideoAction(data: UpdateVideoInput) {
             return { success: false, errorCode: "VIDEO_NOT_FOUND" };
         }
 
-        // Если загружена новая обложка и у клипа была старая в ImageKit — стираем старую
         if (data.coverFileId && video.coverFileId && data.coverFileId !== video.coverFileId) {
             try {
                 await imagekit.files.delete(video.coverFileId);
@@ -128,7 +156,7 @@ export async function updateVideoAction(data: UpdateVideoInput) {
         if (data.duration !== undefined) updateFields.duration = data.duration;
         if (data.telegramUrl !== undefined) {
             updateFields.telegramUrl = data.telegramUrl;
-            updateFields.videoUrl = data.telegramUrl; // Синхронизируем для совместимости
+            updateFields.videoUrl = data.telegramUrl;
         }
         if (data.cover !== undefined) updateFields.cover = data.cover;
         if (data.coverFileId !== undefined) updateFields.coverFileId = data.coverFileId;
