@@ -216,7 +216,7 @@ export default function EditVideoPage() {
     setUploadProgress(0);
     setError(null);
     const dataForm = new FormData();
-    dataForm.append("file", file);
+    dataForm.append("video", file);
     dataForm.append("type", "video");
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload", true);

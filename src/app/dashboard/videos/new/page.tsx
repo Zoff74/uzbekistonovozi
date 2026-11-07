@@ -12,6 +12,7 @@ export default function NewVideoPage() {
     const router = useRouter();
     const { data: session } = useSession();
     const [loading, setLoading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +71,6 @@ export default function NewVideoPage() {
             return;
         }
 
-        // Берем id напрямую из session.user, так как он затипизирован в проекте
         const authorId = session?.user?.id;
         if (!authorId) {
             setError(tr(
@@ -83,54 +83,80 @@ export default function NewVideoPage() {
         }
 
         setLoading(true);
+        setUploadProgress(0);
         setError(null);
 
-        try {
-            const uploadFormData = new FormData();
-            uploadFormData.append("file", videoFile);
-            uploadFormData.append("type", "video");
+        const uploadFormData = new FormData();
+        uploadFormData.append("video", videoFile);
+        uploadFormData.append("type", "video");
 
-            const uploadRes = await fetch("/api/upload", {
-                method: "POST",
-                body: uploadFormData,
-            });
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/upload", true);
+        xhr.timeout = 0; // Бесконечный таймаут для больших видео до 2 ГБ
 
-            const uploadData = await uploadRes.json();
-
-            if (!uploadRes.ok || !uploadData.success) {
-                throw new Error(uploadData.error || "Ошибка загрузки файла в Telegram");
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                setUploadProgress(percentComplete);
             }
+        };
 
-            const channelUsername = "uzbekistonovozi_video";
-            const generatedTelegramUrl = `https://t.me/${channelUsername}/${uploadData.messageId}`;
+        xhr.onload = async () => {
+            if (xhr.status === 200) {
+                try {
+                    const uploadData = JSON.parse(xhr.responseText);
+                    if (!uploadData.success || !uploadData.messageId) {
+                        throw new Error(uploadData.error || "Ошибка загрузки файла в Telegram");
+                    }
 
-            const result = await createVideoAction({
-                title: formData.title,
-                singer: formData.singer,
-                genre: formData.genre,
-                duration: "3:45",
-                cover: coverPreview || "/default-cover.webp",
-                telegramUrl: generatedTelegramUrl,
-                authorId: authorId,
-            } as any);
+                    const channelUsername = "uzbekistonovozi_video";
+                    const generatedTelegramUrl = `https://t.me/${channelUsername}/${uploadData.messageId}`;
 
-            if (!result || !result.success) {
-                throw new Error(result?.errorCode || "Server error");
+                    const result = await createVideoAction({
+                        title: formData.title,
+                        singer: formData.singer,
+                        genre: formData.genre,
+                        duration: "3:45",
+                        cover: coverPreview || "/default-cover.webp",
+                        telegramUrl: generatedTelegramUrl,
+                        authorId: authorId,
+                        fileId: uploadData.fileId,
+                    } as any);
+
+                    if (!result || !result.success) {
+                        throw new Error(result?.errorCode || "Server error");
+                    }
+
+                    setLoading(false);
+                    setSuccessModal(true);
+
+                    setTimeout(() => {
+                        router.push("/dashboard");
+                        router.refresh();
+                    }, 1500);
+
+                } catch (err: unknown) {
+                    const message = err instanceof Error ? err.message : "Произошла ошибка";
+                    setError(message);
+                    setLoading(false);
+                }
+            } else {
+                try {
+                    const errRes = JSON.parse(xhr.responseText);
+                    setError(errRes.error || "Ошибка загрузки видео");
+                } catch {
+                    setError("Ошибка загрузки видео на сервер");
+                }
+                setLoading(false);
             }
+        };
 
+        xhr.onerror = () => {
+            setError("Произошла сетевая ошибка при загрузке");
             setLoading(false);
-            setSuccessModal(true);
+        };
 
-            setTimeout(() => {
-                router.push("/dashboard");
-                router.refresh();
-            }, 1500);
-
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : "Произошла ошибка";
-            setError(message);
-            setLoading(false);
-        }
+        xhr.send(uploadFormData);
     };
 
     const GradientBorder = () => (
@@ -261,6 +287,22 @@ export default function NewVideoPage() {
                         </div>
                     </div>
 
+                    {/* ВИЗУАЛЬНЫЙ ПРОГРЕСС-БАР ЗАГРУЗКИ */}
+                    {loading && (
+                        <div className="space-y-2 bg-neutral-950 border border-neutral-800 p-4 rounded-xl">
+                            <div className="flex justify-between text-xs text-neutral-300">
+                                <span>{tr("Телеграмга юкланмоқда...", "Telegramga yuklanmoqda...", "Загрузка в Telegram...", "Uploading to Telegram...")}</span>
+                                <span className="font-bold text-amber-400">{uploadProgress}%</span>
+                            </div>
+                            <div className="w-full bg-neutral-900 rounded-full h-3 overflow-hidden border border-neutral-800">
+                                <div
+                                    className="bg-amber-400 h-full transition-all duration-300"
+                                    style={{ width: `${uploadProgress}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
                     <div>
                         <label className="block text-sm font-medium text-neutral-300 mb-2">
                             {tr("Видео муқоваси (расм)", "Video muqovasi (rasm)", "Обложка видео (изображение)", "Video cover (image)")}
@@ -299,7 +341,7 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{tr("Телеграмга юкланмоқда...", "Telegramga yuklanmoqda...", "Загрузка в Telegram...", "Uploading...")}</span>
+                                        <span>{tr(`Юкланмоқда: ${uploadProgress}%`, `Yuklanmoqda: ${uploadProgress}%`, `Загрузка: ${uploadProgress}%`, `Uploading: ${uploadProgress}%`)}</span>
                                     </>
                                 ) : (
                                     <>
