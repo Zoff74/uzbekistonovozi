@@ -13,6 +13,8 @@ export default function EditTrackPage() {
 
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string>("0.0000");
+  const [displayProgress, setDisplayProgress] = useState<number>(0); // 👈 Плавный прогресс для анимации
   const [saving, setSaving] = useState(false);
   const [freezing, setFreezing] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -37,6 +39,24 @@ export default function EditTrackPage() {
 
   const [canReplaceAudio, setCanReplaceAudio] = useState(true);
   const [timeLeftText, setTimeLeftText] = useState("");
+
+  // Плавное догоняние реального прогресса для аудио
+  useEffect(() => {
+    if (!uploadingAudio) {
+      setDisplayProgress(0);
+      return;
+    }
+
+    const target = parseFloat(uploadProgress);
+    if (displayProgress >= target) return;
+
+    const timer = setTimeout(() => {
+      const nextVal = displayProgress + (target - displayProgress) * 0.15;
+      setDisplayProgress(nextVal > target ? target : nextVal);
+    }, 25);
+
+    return () => clearTimeout(timer);
+  }, [uploadProgress, displayProgress, uploadingAudio]);
 
   useEffect(() => {
     if (!id) return;
@@ -160,51 +180,87 @@ export default function EditTrackPage() {
     }
   };
 
-  // Исправленная функция загрузки через универсальный /api/upload с правильными типами ('cover' или 'audio')
+  // Исправленная функция загрузки файлов с поддержкой XMLHttpRequest и плавного прогресса
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, fieldName: 'cover' | 'audioUrl') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (fieldName === 'cover') setUploadingCover(true);
-    if (fieldName === 'audioUrl') setUploadingAudio(true);
+    if (fieldName === 'audioUrl') {
+      setUploadingAudio(true);
+      setUploadProgress("0.0000");
+      setDisplayProgress(0);
+    }
     setError(null);
 
-    try {
-      const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
-      uploadFormData.append("type", fieldName === 'cover' ? 'cover' : 'audio');
+    const uploadFormData = new FormData();
+    uploadFormData.append("file", file);
+    uploadFormData.append("type", fieldName === 'cover' ? 'cover' : 'audio');
 
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: uploadFormData,
-      });
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload", true);
+    xhr.timeout = 0;
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || tr("Файлни юклаб бўлмади", "Faylni yuklab bo'lmadi", "Не удалось загрузить файл", "Failed to upload file"));
-      }
+    if (fieldName === 'audioUrl') {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percentComplete = ((event.loaded / event.total) * 100).toFixed(4);
+          setUploadProgress(percentComplete);
+        }
+      };
+    }
 
-      if (fieldName === 'cover') {
-        setFormData((prev) => ({
-          ...prev,
-          cover: data.url,
-          coverFileId: data.fileId || "",
-        }));
+    xhr.onload = async () => {
+      if (xhr.status === 200) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (!data.success) {
+            throw new Error(data.error || tr("Файлни юклаб бўлмади", "Faylni yuklab bo'lmadi", "Не удалось загрузить файл", "Failed to upload file"));
+          }
+
+          if (fieldName === 'cover') {
+            setFormData((prev) => ({
+              ...prev,
+              cover: data.url,
+              coverFileId: data.fileId || "",
+            }));
+          } else {
+            setDisplayProgress(100);
+            setFormData((prev) => ({
+              ...prev,
+              audioUrl: data.url,
+              audioFileId: data.fileId || "",
+            }));
+          }
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : tr("Файлни юклашда хатолик", "Faylni yuklashda xatolik", "Ошибка загрузки файла", "Error uploading file");
+          setError(errorMessage);
+        } finally {
+          if (fieldName === 'cover') setUploadingCover(false);
+          if (fieldName === 'audioUrl') setUploadingAudio(false);
+          e.target.value = "";
+        }
       } else {
-        setFormData((prev) => ({
-          ...prev,
-          audioUrl: data.url,
-          audioFileId: data.fileId || "",
-        }));
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          setError(errData.error || tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred"));
+        } catch {
+          setError(tr("Файлни юклашда хатолик", "Faylni yuklashda xatolik", "Ошибка загрузки файла", "Error uploading file"));
+        }
+        if (fieldName === 'cover') setUploadingCover(false);
+        if (fieldName === 'audioUrl') setUploadingAudio(false);
+        e.target.value = "";
       }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : tr("Файлни юклашда хатолик", "Faylni yuklashda xatolik", "Ошибка загрузки файла", "Error uploading file");
-      setError(errorMessage);
-    } finally {
+    };
+
+    xhr.onerror = () => {
+      setError(tr("Сетевая ошибка при загрузке", "Tarmoq xatosi", "Сетевая ошибка при загрузке", "Network error during upload"));
       if (fieldName === 'cover') setUploadingCover(false);
       if (fieldName === 'audioUrl') setUploadingAudio(false);
       e.target.value = "";
-    }
+    };
+
+    xhr.send(uploadFormData);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -412,7 +468,7 @@ export default function EditTrackPage() {
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
               <div className="flex items-center justify-between">
                 <label className="block text-sm font-medium text-neutral-300">
-                  {uploadingAudio ? tr("Аудиофайл юкланмоқда...", "Audiofayl yuklanmoqda...", "Аудиофайл загружается...", "Uploading audio file...") : tr("Аудиофайл (Янги трекка алмаштириш)", "Audiofayl (Yangi trekka almashtirish)", "Аудиофайл (Заменить новым треком)", "Audio file (Replace with new track)")}
+                  {uploadingAudio ? tr(`Аудиофайл юкланмоқда: ${displayProgress.toFixed(4)}%`, `Audiofayl yuklanmoqda: ${displayProgress.toFixed(4)}%`, `Аудиофайл загружается: ${displayProgress.toFixed(4)}%`, `Uploading audio: ${displayProgress.toFixed(4)}%`) : tr("Аудиофайл (Янги трекка алмаштириш)", "Audiofayl (Yangi trekka almashtirish)", "Аудиофайл (Заменить новым треком)", "Audio file (Replace with new track)")}
                 </label>
 
                 {formData.audioUrl && formData.audioFileId && (
@@ -437,6 +493,18 @@ export default function EditTrackPage() {
                   </div>
                 )}
               </div>
+
+              {/* ПЛАВНЫЙ ПРОГРЕСС-БАР ЗАГРУЗКИ АУДИО */}
+              {uploadingAudio && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="w-full bg-neutral-900 rounded-full h-2.5 overflow-hidden border border-neutral-800">
+                    <div
+                      className="bg-amber-400 h-full transition-all duration-75"
+                      style={{ width: `${displayProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {canReplaceAudio ? (
                 <div className="relative rounded-xl">

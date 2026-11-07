@@ -12,6 +12,7 @@ export default function NewVideoPage() {
     const { data: session } = useSession();
     const [loading, setLoading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<string>("0.0000");
+    const [displayProgress, setDisplayProgress] = useState<number>(0); // 👈 Плавное значение для анимации
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +25,24 @@ export default function NewVideoPage() {
     const [videoFile, setVideoFile] = useState<File | null>(null);
     const [coverFile, setCoverFile] = useState<File | null>(null);
     const [coverPreview, setCoverPreview] = useState<string | null>(null);
+
+    // Плавное догоняние реального прогресса для непрерывной анимации цифр
+    useEffect(() => {
+        if (!loading) {
+            setDisplayProgress(0);
+            return;
+        }
+
+        const target = parseFloat(uploadProgress);
+        if (displayProgress >= target) return;
+
+        const timer = setTimeout(() => {
+            const nextVal = displayProgress + (target - displayProgress) * 0.15;
+            setDisplayProgress(nextVal > target ? target : nextVal);
+        }, 25); // Обновляем каждые 25 миллисекунд для идеальной плавности
+
+        return () => clearTimeout(timer);
+    }, [uploadProgress, displayProgress, loading]);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -83,10 +102,11 @@ export default function NewVideoPage() {
 
         setLoading(true);
         setUploadProgress("0.0000");
+        setDisplayProgress(0);
         setError(null);
 
         const uploadFormData = new FormData();
-        uploadFormData.append("video", videoFile);
+        uploadFormData.append("file", videoFile);
         uploadFormData.append("type", "video");
 
         const xhr = new XMLHttpRequest();
@@ -126,6 +146,7 @@ export default function NewVideoPage() {
                         throw new Error(result?.errorCode || "Server error");
                     }
 
+                    setDisplayProgress(100);
                     setLoading(false);
                     setSuccessModal(true);
 
@@ -286,17 +307,17 @@ export default function NewVideoPage() {
                         </div>
                     </div>
 
-                    {/* ВИЗУАЛЬНЫЙ ПРОГРЕСС-БАР ЗАГРУЗКИ */}
+                    {/* ВИЗУАЛЬНЫЙ ПЛАВНЫЙ ПРОГРЕСС-БАР ЗАГРУЗКИ */}
                     {loading && (
                         <div className="space-y-2 bg-neutral-950 border border-neutral-800 p-4 rounded-xl">
                             <div className="flex justify-between text-xs text-neutral-300">
                                 <span>{tr("Юкланмоқда...", "Yuklanmoqda...", "Идет Загрузка...", "Uploading...")}</span>
-                                <span className="font-bold text-amber-400">{uploadProgress}%</span>
+                                <span className="font-bold text-amber-400">{displayProgress.toFixed(4)}%</span>
                             </div>
                             <div className="w-full bg-neutral-900 rounded-full h-3 overflow-hidden border border-neutral-800">
                                 <div
-                                    className="bg-amber-400 h-full transition-all duration-300"
-                                    style={{ width: `${Number(uploadProgress)}%` }}
+                                    className="bg-amber-400 h-full transition-all duration-75"
+                                    style={{ width: `${displayProgress}%` }}
                                 />
                             </div>
                         </div>
@@ -340,7 +361,7 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{tr(`Юкланмоқда: ${uploadProgress}%`, `Yuklanmoqda: ${uploadProgress}%`, `Загрузка: ${uploadProgress}%`, `Uploading: ${uploadProgress}%`)}</span>
+                                        <span>{tr(`Юкланмоқда: ${displayProgress.toFixed(4)}%`, `Yuklanmoqda: ${displayProgress.toFixed(4)}%`, `Загрузка: ${displayProgress.toFixed(4)}%`, `Uploading: ${displayProgress.toFixed(4)}%`)}</span>
                                     </>
                                 ) : (
                                     <>
