@@ -1,14 +1,16 @@
 "use client";
-// src/app/dashboard/videos/new/page.tsx
+//src\app\dashboard\videos\new\page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { ArrowLeft, Upload, Loader2, Film, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { createVideoAction } from "@/actions/videoActions";
 
 export default function NewVideoPage() {
     const router = useRouter();
+    const { data: session } = useSession();
     const [loading, setLoading] = useState(false);
     const [successModal, setSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -68,25 +70,49 @@ export default function NewVideoPage() {
             return;
         }
 
+        // Берем id напрямую из session.user, так как он затипизирован в проекте
+        const authorId = session?.user?.id;
+        if (!authorId) {
+            setError(tr(
+                "Фойдаланувчи авторизациядан ўтмаган",
+                "Foydalanuvchi avtorizatsiyadan o'tmagan",
+                "Пользователь не авторизован",
+                "User not authorized"
+            ));
+            return;
+        }
+
         setLoading(true);
         setError(null);
 
         try {
-            // Создаем FormData для передачи файлов и текста в Server Action
-            const data = new FormData();
-            data.append("title", formData.title);
-            data.append("singer", formData.singer);
-            data.append("genre", formData.genre);
-            data.append("duration", "3:45");
-            data.append("cover", coverPreview || "/default-cover.webp");
-            data.append("authorId", "657123456789abcdef123456"); // Замени на реальный ID автора/админа
-            data.append("videoFile", videoFile); // 👈 Передаем сам файл
-            if (coverFile) {
-                data.append("coverFile", coverFile);
+            const uploadFormData = new FormData();
+            uploadFormData.append("file", videoFile);
+            uploadFormData.append("type", "video");
+
+            const uploadRes = await fetch("/api/upload", {
+                method: "POST",
+                body: uploadFormData,
+            });
+
+            const uploadData = await uploadRes.json();
+
+            if (!uploadRes.ok || !uploadData.success) {
+                throw new Error(uploadData.error || "Ошибка загрузки файла в Telegram");
             }
 
-            // Вызываем Server Action, передавая FormData
-            const result = await createVideoAction(data);
+            const channelUsername = "uzbekistonovozi_video";
+            const generatedTelegramUrl = `https://t.me/${channelUsername}/${uploadData.messageId}`;
+
+            const result = await createVideoAction({
+                title: formData.title,
+                singer: formData.singer,
+                genre: formData.genre,
+                duration: "3:45",
+                cover: coverPreview || "/default-cover.webp",
+                telegramUrl: generatedTelegramUrl,
+                authorId: authorId,
+            } as any);
 
             if (!result || !result.success) {
                 throw new Error(result?.errorCode || "Server error");
@@ -205,7 +231,6 @@ export default function NewVideoPage() {
                         />
                     </div>
 
-                    {/* Поле выбора видеофайла */}
                     <div>
                         <label className="block text-sm font-medium text-neutral-300 mb-2">
                             {tr("Видеофайл (.mp4)", "Videofayl (.mp4)", "Видеофайл (.mp4)", "Video file (.mp4)")} *

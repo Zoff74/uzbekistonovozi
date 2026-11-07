@@ -1,7 +1,7 @@
-//src\app\api\videos\stream\[fileId]\route.ts
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+//src\app\api\videos\stream\[fileId]\route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;

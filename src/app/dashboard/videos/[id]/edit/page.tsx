@@ -221,7 +221,6 @@ export default function EditVideoPage() {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload", true);
     
-    // БЕСКОНЕЧНЫЙ ТАЙМАУТ — ЧТОБЫ БРАУЗЕР ЖДАЛ СКОЛЬКО УГОДНО ВО ВРЕМЯ СЖАТИЯ
     xhr.timeout = 0;
 
     xhr.upload.onprogress = (event) => {

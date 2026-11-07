@@ -18,22 +18,16 @@ interface CreateVideoInput {
     cover: string;
     coverFileId?: string;
     authorId: string;
-    videoFile?: File; // Обязательный файл видео с формы
+    telegramUrl: string;
 }
 
-export async function createVideoAction(formData: FormData) {
+export async function createVideoAction(data: CreateVideoInput) {
     try {
         await dbConnect();
 
-        const title = formData.get("title") as string;
-        const singer = formData.get("singer") as string;
-        const genre = formData.get("genre") as string;
-        const duration = formData.get("duration") as string;
-        const cover = formData.get("cover") as string;
-        const authorId = formData.get("authorId") as string;
-        const videoFile = formData.get("videoFile") as File;
+        const { title, singer, genre, duration, cover, coverFileId, authorId, telegramUrl } = data;
 
-        if (!title || !authorId || !videoFile) {
+        if (!title || !authorId || !telegramUrl) {
             return { success: false, errorCode: "FIELD_REQUIRED" };
         }
 
@@ -41,35 +35,6 @@ export async function createVideoAction(formData: FormData) {
         if (!user) {
             return { success: false, errorCode: "USER_NOT_FOUND" };
         }
-
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        const channelUsername = "uzbekistonovozi_video";
-
-        if (!botToken) {
-            return { success: false, errorCode: "BOT_TOKEN_NOT_CONFIGURED" };
-        }
-
-        // Загружаем видео в Telegram-канал
-        const telegramFormData = new FormData();
-        telegramFormData.append('chat_id', `@${channelUsername}`);
-        telegramFormData.append('video', videoFile);
-        telegramFormData.append('caption', `${singer} - ${title}`);
-        telegramFormData.append('supports_streaming', 'true');
-
-        const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendVideo`, {
-            method: 'POST',
-            body: telegramFormData,
-        });
-
-        const tgData = await tgRes.json();
-
-        if (!tgData.ok || !tgData.result?.message_id) {
-            console.error("Telegram upload error:", tgData);
-            return { success: false, errorCode: "TELEGRAM_UPLOAD_FAILED" };
-        }
-
-        const messageId = tgData.result.message_id;
-        const generatedTelegramUrl = `https://t.me/${channelUsername}/${messageId}`;
 
         const isAdmin = user.role === 'admin';
         const rawUnlimitedIds = process.env.UNLIMITED_USER_IDS || "";
@@ -92,9 +57,10 @@ export async function createVideoAction(formData: FormData) {
             singer: singer || "Номаълум ижрочи",
             genre: genre || "Clip",
             duration: duration || "3:45",
-            telegramUrl: generatedTelegramUrl,
-            videoUrl: generatedTelegramUrl,   
+            telegramUrl: telegramUrl,
+            videoUrl: telegramUrl,   
             cover: cover || "/default-cover.webp",
+            coverFileId: coverFileId || "",
             authorId,
             status: 'ACTIVE',
             expiresAt, 
