@@ -1,4 +1,5 @@
 "use client";
+//src\app\dashboard\videos\new\page.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
