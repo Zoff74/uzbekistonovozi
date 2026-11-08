@@ -1,82 +1,127 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const maxDuration = 600;
 
-//src\app\api\videos\stream\[fileId]\route.ts
+process.on('unhandledRejection', (reason: any) => {
+    if (reason?.message === 'TIMEOUT' || reason?.stack?.includes('updates.js')) return;
+});
+
 import { NextRequest, NextResponse } from "next/server";
+import { TelegramClient } from "telegram";
+import { StringSession } from "telegram/sessions";
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+async function getMTProtoClient() {
+    const apiId = Number(process.env.TELEGRAM_API_ID || 0);
+    const apiHash = process.env.TELEGRAM_API_HASH || "";
+    const stringSession = process.env.TELEGRAM_STRING_SESSION || "";
+
+    if (!apiId || !apiHash || !stringSession) {
+        throw new Error("Не настроены параметры TELEGRAM_API_ID, TELEGRAM_API_HASH или TELEGRAM_STRING_SESSION");
+    }
+
+    const client = new TelegramClient(new StringSession(stringSession), apiId, apiHash, {
+        connectionRetries: 3,
+        useWSS: false,
+        autoReconnect: false,
+        noUpdates: true,
+    } as any);
+
+    await client.connect();
+    return client;
+}
 
 export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ fileId: string }> }
 ) {
+    let client: TelegramClient | null = null;
     try {
         const { fileId } = await params;
 
         if (!fileId || fileId === "undefined" || fileId === "null") {
-            return NextResponse.json({ error: "Не указан или невалидный fileId" }, { status: 400 });
+            return NextResponse.json({ error: "Не указан или невалидный fileId/messageId" }, { status: 400 });
         }
 
-        if (!BOT_TOKEN) {
-            return NextResponse.json({ error: "Ошибка конфигурации бота" }, { status: 500 });
+        let messageIdNum = 0;
+        if (fileId.includes("t.me/")) {
+            const match = fileId.match(/\/(\d+)$/);
+            if (match) messageIdNum = Number(match[1]);
+        } else {
+            messageIdNum = Number(fileId);
         }
 
-        // 1. Запрашиваем информацию о файле у Telegram API
-        const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
-        const data = await response.json();
-
-        if (!data || !data.ok || !data.result || !data.result.file_path) {
-            return NextResponse.json({ error: "Видеофайл не найден в Telegram" }, { status: 404 });
+        if (!messageIdNum || isNaN(messageIdNum)) {
+            return NextResponse.json({ error: "Неверный формат ID сообщения" }, { status: 400 });
         }
 
-        const filePath = data.result.file_path;
-        const fileSize = data.result.file_size || 0;
-        
-        // Альтернативный эндпоинт для скачивания файлов (поддерживает до 50-70+ Мб без жесткого сброса по сравнению с file/bot)
-        const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+        const videoChatId = process.env.TELEGRAM_VIDEO_CHAT_ID || "@uzbekistonovozi_video";
 
-        const rangeHeader = request.headers.get("range");
-        const fetchHeaders: HeadersInit = {};
-        
-        // Проксируем Range-запросы для перемотки видео в плеере
-        if (rangeHeader) {
-            fetchHeaders["Range"] = rangeHeader;
-        }
+        client = await getMTProtoClient();
+        const entity = await client.getEntity(videoChatId);
 
-        const telegramRes = await fetch(fileDownloadUrl, {
-            headers: fetchHeaders,
-            cache: "no-store",
+        const messages = await client.getMessages(entity, {
+            ids: [messageIdNum],
         });
 
-        // Если Telegram всё же заартачился отдавать файл напрямую, возвращаем понятную ошибку
-        if (!telegramRes.ok && telegramRes.status !== 206) {
-            console.error(`⚠️ Telegram отказался отдать файл размером ${(fileSize / 1024 / 1024).toFixed(2)}MB. Статус: ${telegramRes.status}`);
-            return NextResponse.json({ 
-                error: "Telegram ограничивает прямую отдачу файлов >20Мб без локального сервера API" 
-            }, { status: telegramRes.status });
+        const message = messages[0];
+        if (!message || !message.media) {
+            await client.disconnect();
+            return NextResponse.json({ error: "Медиафайл не найден в Telegram канале" }, { status: 404 });
         }
 
-        const responseHeaders = new Headers();
-        responseHeaders.set("Content-Type", "video/mp4");
-        responseHeaders.set("Accept-Ranges", "bytes");
+        const buffer = await client.downloadMedia(message, {
+            outputFile: undefined,
+        });
 
-        const contentLength = telegramRes.headers.get("content-length");
-        if (contentLength) responseHeaders.set("Content-Length", contentLength);
+        await client.disconnect().catch(() => {});
+        client = null;
 
-        const contentRange = telegramRes.headers.get("content-range");
-        if (contentRange) {
-            responseHeaders.set("Content-Range", contentRange);
+        if (!buffer || !Buffer.isBuffer(buffer)) {
+            return NextResponse.json({ error: "Не удалось загрузить медиа из Telegram" }, { status: 500 });
         }
 
-        const status = rangeHeader && telegramRes.status === 200 ? 206 : telegramRes.status;
+        const fileSize = buffer.length;
+        const rangeHeader = request.headers.get("range");
+        let start = 0;
+        let end = fileSize - 1;
 
-        return new NextResponse(telegramRes.body, {
-            status: status,
-            headers: responseHeaders,
+        if (rangeHeader) {
+            const parts = rangeHeader.replace(/bytes=/, "").split("-");
+            start = parseInt(parts[0], 10);
+            if (parts[1]) {
+                end = parseInt(parts[1], 10);
+            }
+        }
+
+        if (start >= fileSize) {
+            return new NextResponse(null, {
+                status: 416,
+                headers: {
+                    "Content-Range": `bytes */${fileSize}`,
+                },
+            });
+        }
+
+        const chunksize = (end - start) + 1;
+        const slicedBuffer = buffer.subarray(start, end + 1);
+
+        const headers = new Headers({
+            "Content-Type": "video/mp4",
+            "Accept-Ranges": "bytes",
+            "Content-Length": String(chunksize),
+            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        });
+
+        return new NextResponse(new Uint8Array(slicedBuffer) as any, {
+            status: rangeHeader ? 206 : 200,
+            headers,
         });
 
     } catch (error: any) {
-        console.error("Ошибка стриминга видео:", error?.message || error);
-        return NextResponse.json({ error: "Ошибка сервера при стриминге видео" }, { status: 500 });
+        if (client) {
+            await client.disconnect().catch(() => {});
+        }
+        console.error("🔥 [MTPROTO STREAM ERROR]:", error);
+        return NextResponse.json({ error: error?.message || "Ошибка стриминга через MTProto" }, { status: 500 });
     }
 }

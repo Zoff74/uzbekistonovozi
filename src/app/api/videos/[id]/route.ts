@@ -114,11 +114,19 @@ export async function DELETE(
             }
         }
 
-        // Очистка файла из общего котла Telegram
-        if (video.telegramMessageId) {
+        // Очистка файла из общего котла Telegram (с автоизвлечением ID и приведением к number)
+        const rawTelegramRef = video.telegramMessageId || video.fileId || video.videoUrl;
+        let telegramMsgId = "";
+
+        if (rawTelegramRef) {
+            const match = String(rawTelegramRef).match(/\/(\d+)$/);
+            telegramMsgId = match ? match[1] : String(rawTelegramRef);
+        }
+
+        if (telegramMsgId) {
             try {
-                await deleteVideoFromTelegramStorage(video.telegramMessageId);
-                console.log(`[TELEGRAM CLEANUP] Сообщение ${video.telegramMessageId} удалено из общего котла Telegram.`);
+                await deleteVideoFromTelegramStorage(Number(telegramMsgId));
+                console.log(`[TELEGRAM CLEANUP] Сообщение ${telegramMsgId} удалено из общего котла Telegram.`);
             } catch (tgDelErr: any) {
                 console.warn(`[TELEGRAM DELETE WARNING] Не удалось удалить файл из хранилища Telegram:`, tgDelErr.message);
             }

@@ -1,39 +1,43 @@
-import { NextResponse } from "next/server";
-// src/app/api/videos/extract/route.ts
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export async function GET(req: Request) {
+import { NextResponse, NextRequest } from "next/server";
+
+export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
-    const fileId = searchParams.get("url") || searchParams.get("fileId");
+    const rawParam = searchParams.get("url") || searchParams.get("fileId");
 
-    if (!fileId) {
-        return NextResponse.json({ error: "File ID is required" }, { status: 400 });
+    if (!rawParam) {
+        return NextResponse.json({ error: "File ID or URL is required" }, { status: 400 });
     }
 
     try {
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        if (!botToken) {
-            return NextResponse.json({ error: "TELEGRAM_BOT_TOKEN is not configured" }, { status: 500 });
+        let messageId = "";
+        let channelUsername = process.env.TELEGRAM_VIDEO_CHANNEL_ID || "uzbekistonovozi_video";
+
+        if (rawParam.includes("t.me/")) {
+            const match = rawParam.match(/\/([^\/]+)\/(\d+)$/);
+            if (match) {
+                channelUsername = match[1];
+                messageId = match[2];
+            }
+        } else {
+            messageId = rawParam.trim();
         }
 
-        // Запрашиваем у Telegram официальный путь файла по его file_id (работает для файлов любого размера до 2ГБ)
-        const fileInfoRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId.trim()}`);
-        const fileInfoData = await fileInfoRes.json();
+        const cleanChannelName = channelUsername.replace("@", "");
+        const directPostUrl = `https://t.me/${cleanChannelName}/${messageId}`;
 
-        if (!fileInfoData.ok || !fileInfoData.result?.file_path) {
-            return NextResponse.json({ 
-                error: `Telegram getFile error: ${fileInfoData.description || 'Не удалось получить файл'}` 
-            }, { status: 400 });
-        }
+        return NextResponse.json({ 
+            success: true, 
+            videoUrl: `/api/videos/stream/${messageId}`, 
+            fileId: messageId,
+            messageId: messageId,
+            directUrl: directPostUrl
+        });
 
-        const filePath = fileInfoData.result.file_path;
-        
-        // Собираем вечную прямую CDN-ссылку Telegram для тега <video> на сайте
-        const directCdnUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
-
-        return NextResponse.json({ videoUrl: directCdnUrl });
-
-    } catch (error) {
-        console.error("Ошибка извлечения видео через Bot API:", error);
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    } catch (error: any) {
+        console.error("🔥 [EXTRACT CRITICAL ERROR]:", error);
+        return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
     }
 }

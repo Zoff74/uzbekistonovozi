@@ -72,8 +72,8 @@ interface VideoValidationResult {
 }
 
 /**
- * Валидация видеофайла перед загрузкой в ImageKit
- * Проверяет: формат, максимальный вес (до 100 МБ) и длительность (до 5 минут)
+ * Валидация видеофайла перед загрузкой в Telegram
+ * Проверяет: формат, максимальный вес (до 2048 МБ) и длительность (до 30 минут)
  */
 export const validateVideoFile = (file: File): Promise<VideoValidationResult> => {
     return new Promise((resolve) => {
@@ -89,8 +89,8 @@ export const validateVideoFile = (file: File): Promise<VideoValidationResult> =>
             });
         }
 
-        // Жесткий лимит 100 МБ
-        const MAX_SIZE_MB = 100;
+        // Поднимаем лимит до 2 ГБ для тяжелых видеоклипов через MTProto хранилище
+        const MAX_SIZE_MB = 2048;
         const maxSizeInBytes = MAX_SIZE_MB * 1024 * 1024;
         if (file.size > maxSizeInBytes) {
             return resolve({ 
@@ -105,7 +105,7 @@ export const validateVideoFile = (file: File): Promise<VideoValidationResult> =>
         videoElement.onloadedmetadata = () => {
             window.URL.revokeObjectURL(videoElement.src);
             const durationInSeconds = videoElement.duration;
-            const MAX_DURATION_MINUTES = 10;
+            const MAX_DURATION_MINUTES = 30; // Увеличиваем лимит длительности для полноценных клипов
             const maxDurationInSeconds = MAX_DURATION_MINUTES * 60;
 
             if (durationInSeconds > maxDurationInSeconds) {

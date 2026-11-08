@@ -362,7 +362,7 @@ export default function NewVideoPage() {
                                 {loading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={16} />
-                                        <span>{tr(`Юкланмоқда: ${displayProgress.toFixed(4)}%`, `Yuklanmoqda: ${displayProgress.toFixed(4)}%`, `Загрузка: ${displayProgress.toFixed(4)}%`, `Uploading: ${displayProgress.toFixed(4)}%`)}</span>
+                                        <span>{tr(`Юкланмоқда... Тугашини кутинг: ${displayProgress.toFixed(4)}%`, `Yuklanmoqda: ${displayProgress.toFixed(4)}%`, `Загрузка: ${displayProgress.toFixed(4)}%`, `Uploading: ${displayProgress.toFixed(4)}%`)}</span>
                                     </>
                                 ) : (
                                     <>

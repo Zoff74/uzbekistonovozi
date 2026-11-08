@@ -184,7 +184,6 @@
 ├── .env.local
 ├── .gitignore
 ├── Dockerfile
-├── generate-session.js
 ├── generate_structure.js
 ├── globals.d.ts
 ├── next-env.d.ts
