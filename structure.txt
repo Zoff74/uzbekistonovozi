@@ -24,6 +24,7 @@
 │   └── microfon.avif
 ├── scripts
 │   ├── cleanup-unpaid.js
+│   ├── generate-session.js
 │   └── migrate.js
 ├── src
 │   ├── actions
@@ -183,6 +184,7 @@
 ├── .env.local
 ├── .gitignore
 ├── Dockerfile
+├── generate-session.js
 ├── generate_structure.js
 ├── globals.d.ts
 ├── next-env.d.ts
