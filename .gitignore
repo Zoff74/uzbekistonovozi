@@ -26,6 +26,7 @@ lerna-debug.log*
 .vite
 
 # Переменные окружения (секреты, пароли, API-ключи)
+tmp/
 .env
 .env.local
 .env.development.local
@@ -47,3 +48,4 @@ lerna-debug.log*
 *.temp
 *.mbtree
 ffmpeg2pass*
+
