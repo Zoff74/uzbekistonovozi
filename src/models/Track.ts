@@ -10,8 +10,9 @@ export interface ITrack extends Document {
     coverFileId?: string;
     audioUrl: string;
     audioFileId?: string;
-    telegramMessageId?: number; // 👈 Добавлено для удаления из Telegram
-    telegramChatId?: string;    // 👈 Добавлено для точного указания чата/канала
+    fileSize?: number; // 👈 Размер аудиофайла в байтах
+    telegramMessageId?: number; 
+    telegramChatId?: string;    
     plays: number;
     downloadsCount: number;
     likes: Types.ObjectId[] | IUser[];
@@ -35,8 +36,9 @@ const TrackSchema = new Schema<ITrack>({
     
     audioUrl: { type: String, required: false, default: "" },
     audioFileId: { type: String, required: false, default: "" },
-    telegramMessageId: { type: Number, required: false }, // 👈 ID сообщения в Телеграме
-    telegramChatId: { type: String, required: false },    // 👈 ID чата/канала в Телеграме
+    fileSize: { type: Number, required: false, default: 0 }, // 👈 Сохраняем размер аудио при публикации
+    telegramMessageId: { type: Number, required: false }, 
+    telegramChatId: { type: String, required: false },    
     
     plays: { type: Number, default: 0, required: true },
     downloadsCount: { type: Number, default: 0, required: true },

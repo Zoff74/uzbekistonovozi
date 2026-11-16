@@ -1,12 +1,6 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Глобально глушим таймеры и таймауты фоновых апдейтов GramJS в терминале
-process.on('unhandledRejection', (reason) => {
-    if (reason && (reason.message === 'TIMEOUT' || (reason.stack && reason.stack.includes('updates.js')))) {
-        return;
-    }
-});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

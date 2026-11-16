@@ -10,6 +10,7 @@ import VipClips from "@/components/VipClipsSection";
 import GenreCategories from "@/components/GenreCategories";
 import WelcomeHero from "@/components/WelcomeHero"; 
 import { usePlayer } from "@/context/PlayerContext";
+import { useVideoPlayer } from "@/context/VideoPlayerContext";
 
 interface Track {
     _id: string;
@@ -27,6 +28,7 @@ export default function Home() {
     const router = useRouter();
     
     const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
+    const { openVideo } = useVideoPlayer();
     
     const [isMounted, setIsMounted] = useState(false);
     useEffect(() => {
@@ -111,7 +113,6 @@ export default function Home() {
             <div className="absolute top-[-10%] left-[-10%] w-[350px] lg:w-[400px] h-[350px] lg:h-[400px] bg-emerald-600/15 rounded-full blur-[120px] pointer-events-none" />
             <div className="absolute top-[30%] right-[-10%] w-[450px] lg:w-[500px] h-[450px] lg:h-[500px] bg-cyan-600/10 rounded-full blur-[140px] pointer-events-none" />
 
-            {/* Подключенный компонент шапки */}
             <Header />
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10 w-full space-y-12 sm:space-y-16 relative z-10 mb-20">
@@ -129,8 +130,16 @@ export default function Home() {
                 <VipClips 
                     clips={clips}
                     loading={loadingClips}
-                    onSelectClip={(clip) => {
-                        console.log("Выбран клип:", clip?.title);
+                    onSelectClip={(clip: any) => {
+                        const videoId = clip._id;
+                        if (videoId) {
+                            openVideo({
+                                id: videoId,
+                                title: clip.title,
+                                singer: clip.singer,
+                                genre: clip.genre || "",
+                            });
+                        }
                     }}
                 />
 

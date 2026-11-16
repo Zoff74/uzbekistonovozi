@@ -5,10 +5,12 @@ export interface IVideo extends Document {
   title: string;
   singer: string;         
   duration?: string;
-  telegramUrl: string; // Основное поле для внешней ссылки на видео из Telegram
-  videoUrl?: string;   // Для обратной совместимости
+  telegramUrl: string; 
+  telegramFileId?: string; 
+  videoUrl?: string;   
   cover: string;    
   coverFileId?: string;
+  fileSize?: number; // 👈 Размер файла в байтах для корректного стриминга
   views: number;       
   downloadsCount: number; 
   likes: Types.ObjectId[] | IUser[];
@@ -27,10 +29,13 @@ const VideoSchema = new Schema<IVideo>({
   duration: { type: String, required: false, default: "0:00" },
   
   telegramUrl: { type: String, required: true, trim: true },
+  telegramFileId: { type: String, required: false, default: "" },
   videoUrl: { type: String, required: false, default: "" },
   
   cover: { type: String, required: true, default: "/default-cover.webp" },
   coverFileId: { type: String, required: false },
+  
+  fileSize: { type: Number, required: false, default: 0 }, // 👈 Сохраняем размер файла при публикации
   
   views: { type: Number, default: 0, required: true },
   downloadsCount: { type: Number, default: 0, required: true },

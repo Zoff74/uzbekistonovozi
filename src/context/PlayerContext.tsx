@@ -3,13 +3,15 @@
 // src/context/PlayerContext.tsx
 import React, { createContext, useContext, useState } from "react";
 
-interface Track {
+export interface Track {
     id?: string;
     _id?: string;
     title: string;
     singer: string;
     audioUrl: string;
-    videoUrl?: string; // Ссылка на видеоклип (если есть)
+    videoUrl?: string;       // Ссылка на видеоклип (если есть)
+    videoFileId?: string;    // 👈 Идентификатор видеофайла (Telegram / стриминг)
+    fileSize?: number;       // 👈 Размер файла в байтах
     cover?: string;
 }
 
@@ -34,9 +36,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const [currentIndex, setCurrentIndex] = useState<number>(0);
 
     const playTrack = (track: Track, queue: Track[] = []) => {
-        if (!track.audioUrl && !track.videoUrl) {
-            console.error("У трека нет ни audioUrl, ни videoUrl!", track);
-            alert("Невозможно воспроизвести: аудиофайл не найден");
+        if (!track.audioUrl && !track.videoUrl && !track.videoFileId) {
+            console.error("У трека нет ни audioUrl, ни videoUrl, ни videoFileId!", track);
+            alert("Невозможно воспроизвести: медиафайл не найден");
             return;
         }
 
@@ -46,7 +48,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         const index = newPlaylist.findIndex((t) => (t.id || t._id) === (track.id || track._id));
         setCurrentIndex(index !== -1 ? index : 0);
 
-        if (currentTrack?.audioUrl === track.audioUrl && currentTrack?.videoUrl === track.videoUrl) {
+        if (currentTrack?.audioUrl === track.audioUrl && currentTrack?.videoUrl === track.videoUrl && currentTrack?.videoFileId === track.videoFileId) {
             setIsPlaying(!isPlaying);
         } else {
             setCurrentTrack(track);

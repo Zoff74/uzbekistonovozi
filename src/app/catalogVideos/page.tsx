@@ -1,21 +1,27 @@
 "use client";
-
-//src\app\catalogVideos\page.tsx
-
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Eye, Loader2, Film } from "lucide-react";
-import { getOptimizedVideoUrl, getOptimizedImageUrl } from "@/lib/imagekit";
+import { Loader2, Film } from "lucide-react";
 import { tr } from "@/utils/translate";
+import VideoCard from "@/components/VideoCard";
 
 interface IVideoItem {
   _id: string;
+  id?: string;
   title: string;
   singer: string;
-  duration: string;
-  videoUrl: string;
-  cover: string;
-  views: string;
+  duration?: string;
+  videoUrl?: string;
+  cover?: string;
+  views?: number;
+  status: string;
+  expiresAt: string; // 👈 Сделано обязательным
+  createdAt: string; // 👈 Сделано обязательным
+  genre?: string;
+  downloadsCount?: number;
+  isPaidActive?: boolean;
+  isExpired?: boolean;
+  authorId?: any;
 }
 
 export default function VideosPage() {
@@ -81,42 +87,18 @@ export default function VideosPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {videos.map((video) => (
-              <div 
-                key={video._id}
-                className="group bg-gradient-to-b from-slate-900/50 to-slate-950/85 border border-white/5 hover:border-emerald-500/50 rounded-3xl p-4 transition-all duration-500 flex flex-col justify-between shadow-2xl hover:shadow-[0_0_30px_rgba(16,185,129,0.15)]"
-              >
-                <div>
-                  {/* Плеер видео с оптимизацией через ImageKit */}
-                  <div 
-                    className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 mb-4 shadow-xl"
-                    onContextMenu={(e) => e.preventDefault()}
-                  >
-                    <video 
-                      src={getOptimizedVideoUrl(video.videoUrl, 70)} 
-                      poster={getOptimizedImageUrl(video.cover, 800, 450, 75)}
-                      controls 
-                      preload="none"
-                      playsInline
-                      controlsList="nodownload"
-                      className="w-full h-full object-cover"
-                    />
-                    
-                    <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-bold text-emerald-400 flex items-center gap-1 pointer-events-none">
-                      <Eye className="w-3 h-3" /> {video.views}
-                    </div>
-                  </div>
-
-                  <h3 className="font-black text-lg text-white group-hover:text-emerald-400 transition truncate">{video.title}</h3>
-                  <p className="text-sm text-slate-400 truncate mt-0.5">{video.singer}</p>
-                </div>
-                
-                <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>{tr("Давомийлиги", "Davomiyligi", "Длительность", "Duration")}: {video.duration}</span>
-                  <span className="text-emerald-400 font-bold">{tr("Юқори сифат", "Yuqori sifat", "Высокое качество", "High quality")}</span>
-                </div>
-              </div>
-            ))}
+            {videos.map((video) => {
+              const videoId = String(video._id || video.id || "");
+              return (
+                <VideoCard 
+                  key={videoId} 
+                  video={video} 
+                  onDelete={(deletedId) => {
+                    setVideos((prev) => prev.filter((v) => String(v._id || v.id) !== String(deletedId)));
+                  }}
+                />
+              );
+            })}
           </div>
         )}
       </main>

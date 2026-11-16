@@ -2,7 +2,7 @@
 
 // БЛОК - "Player" src\components\Player.tsx
 import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, Volume2, VolumeX, X, SkipBack, SkipForward, Minimize2, Lock, Film, MessageSquare, Music } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, X, SkipBack, SkipForward, Minimize2, Film, MessageSquare, Music } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
 import { tr } from "@/utils/translate";
 import { usePathname, useRouter } from "next/navigation";
@@ -13,7 +13,7 @@ export default function Player() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { currentTrack, isPlaying, togglePlay, setIsPlaying, closePlayer, nextTrack, prevTrack } = usePlayer();
+  const { currentTrack, isPlaying, togglePlay, closePlayer, nextTrack, prevTrack } = usePlayer();
   
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
 
@@ -22,25 +22,90 @@ export default function Player() {
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [isMinimizedVideo, setIsMinimizedVideo] = useState(false);
-  const [showDemoModal, setShowDemoModal] = useState(false);
   const [showAudioChatModal, setShowAudioChatModal] = useState(false);
+
+  // 🚀 Состояния для клиентского кеширования на диск юзера через Cache API (надежная альтернатива OPFS)
+  const [localVideoSrc, setLocalVideoSrc] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<number>(0);
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
 
   const isAuthenticated = status === "authenticated" && Boolean(session?.user);
 
   useEffect(() => {
     if (!currentTrack?.id && !currentTrack?._id) return;
     setIsMinimizedVideo(false);
+    setLocalVideoSrc(null);
+    setDownloadProgress(0);
   }, [currentTrack]);
 
-  const handleTogglePlaySecure = () => {
-    if (!isAuthenticated) {
-      if (mediaRef.current && mediaRef.current.currentTime >= 20) {
-        mediaRef.current.currentTime = 0;
-        setCurrentTime(0);
+  // 🚀 Функция скачивания и кеширования видео на локальный диск юзера через Cache API
+  useEffect(() => {
+    let isCancelled = false;
+    
+    async function loadVideoToLocalStorage() {
+      const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
+      if (!hasVideo || !currentTrack) return;
+
+      const videoFileId = (currentTrack as any)?.videoFileId || currentTrack?.id || currentTrack?._id;
+      const fileSourceUrl = (currentTrack as any)?.videoFileId ? `/api/videos/stream/${videoFileId}` : currentTrack?.videoUrl;
+
+      if (!fileSourceUrl) return;
+
+      try {
+        const cacheName = "uzbekistonovozi-video-cache-v1";
+        const cache = await caches.open(cacheName);
+        const cacheKey = new Request(fileSourceUrl);
+
+        // Проверяем, есть ли файл в локальном кеше браузера (на диске юзера)
+        const cachedResponse = await cache.match(cacheKey);
+
+        if (cachedResponse) {
+          console.log("🟢 Видео найдено в локальном кеше браузера юзера!");
+          const blob = await cachedResponse.blob();
+          const localUrl = URL.createObjectURL(blob);
+          if (!isCancelled) {
+            setLocalVideoSrc(localUrl);
+            setIsDownloading(false);
+          }
+          return;
+        }
+
+        // Если файла нет в кеше — скачиваем в фоновом режиме на диск юзера
+        if (!isCancelled) setIsDownloading(true);
+        console.log("📥 Скачивание видео на диск юзера...");
+
+        const response = await fetch(fileSourceUrl);
+        if (!response.ok || !response.body) throw new Error("Ошибка загрузки видеопотока");
+
+        // Кладываем ответ сразу в браузерный Cache API (на диск)
+        await cache.put(cacheKey, response.clone());
+
+        // Достаем свежий блоб для воспроизведения
+        const freshResponse = await cache.match(cacheKey);
+        if (freshResponse) {
+          const blob = await freshResponse.blob();
+          const localUrl = URL.createObjectURL(blob);
+          if (!isCancelled) {
+            setLocalVideoSrc(localUrl);
+            setIsDownloading(false);
+            setDownloadProgress(100);
+          }
+        }
+      } catch (err) {
+        console.error("⚠️ Ошибка клиентского кеширования, используем прямую ссылку:", err);
+        if (!isCancelled) {
+          setLocalVideoSrc(fileSourceUrl);
+          setIsDownloading(false);
+        }
       }
     }
-    togglePlay();
-  };
+
+    loadVideoToLocalStorage();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentTrack]);
 
   const handleMediaError = () => {
     console.warn("⚠️ Ошибка загрузки медиафайла. Закрываем плеер...");
@@ -51,7 +116,7 @@ export default function Player() {
     const media = mediaRef.current;
     if (!media || !currentTrack) return;
 
-    if (isPlaying) {
+    if (isPlaying && !isDownloading && localVideoSrc) {
       media.play().catch((err) => {
         console.error("🔥 Ошибка воспроизведения:", err.message);
         handleMediaError();
@@ -59,7 +124,7 @@ export default function Player() {
     } else {
       media.pause();
     }
-  }, [isPlaying, currentTrack]);
+  }, [isPlaying, currentTrack, isDownloading, localVideoSrc]);
 
   useEffect(() => {
     if (mediaRef.current) {
@@ -74,9 +139,8 @@ export default function Player() {
   const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
   const trackId = currentTrack.id || currentTrack._id;
   
-  // НОВОЕ: Аудио теперь идет через наш безопасный прокси по ID трека
   const mediaSrc = hasVideo
-    ? ((currentTrack as any)?.videoFileId ? `/api/videos/stream/${(currentTrack as any).videoFileId}` : currentTrack?.videoUrl)
+    ? (localVideoSrc || "")
     : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
 
   const formatTime = (time: number) => {
@@ -88,18 +152,7 @@ export default function Player() {
 
   const handleTimeUpdate = () => {
     if (!mediaRef.current) return;
-    const current = mediaRef.current.currentTime;
-
-    if (!isAuthenticated && current >= 20) {
-      mediaRef.current.pause();
-      mediaRef.current.currentTime = 0;
-      setCurrentTime(0);
-      setIsPlaying(false);
-      setShowDemoModal(true);
-      return;
-    }
-
-    setCurrentTime(current);
+    setCurrentTime(mediaRef.current.currentTime);
   };
 
   const handleLoadedMetadata = () => {
@@ -115,11 +168,6 @@ export default function Player() {
     const clickX = e.clientX - rect.left;
     const newTime = (clickX / rect.width) * duration;
       
-    if (!isAuthenticated && newTime > 20) {
-      setShowDemoModal(true);
-      return;
-    }
-
     mediaRef.current.currentTime = newTime;
     setCurrentTime(newTime);
   };
@@ -136,38 +184,6 @@ export default function Player() {
 
   return (
     <>
-      {showDemoModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-neutral-900 border border-[#39FF14]/40 rounded-2xl p-6 max-w-md w-full text-center shadow-[0_0_30px_rgba(57,255,20,0.2)] flex flex-col items-center gap-4">
-            <div className="w-14 h-14 rounded-full bg-[#39FF14]/10 border border-[#39FF14]/30 flex items-center justify-center text-[#39FF14]">
-              <Lock size={28} />
-            </div>
-            <h3 className="text-xl font-bold text-white">
-              {tr("Демо-режим тугади", "Demo-rejim tugadi", "Демо-режим окончен", "Demo ended")}
-            </h3>
-            <p className="text-sm text-neutral-300 leading-relaxed">
-              {tr(
-                "Тўлиқ кўриш, фикр қолдириш ва муҳокама қилиш учун тизимга киринг.",
-                "To'liq ko'rish, fikr qoldirish va muhokama qilish uchun tizimga kiring.",
-                "Войдите в систему, чтобы слушать полностью, оставлять комментарии и участвовать в обсуждениях.",
-                "Sign in to listen fully, leave comments, and participate in discussions."
-              )}
-            </p>
-            <div className="flex gap-3 w-full mt-2">
-              <button onClick={() => router.push("/auth/login")} className="flex-1 py-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-sm transition cursor-pointer">
-                {tr("Кириш", "Kirish", "Войти", "Sign In")}
-              </button>
-              <button onClick={() => router.push("/auth/register")} className="flex-1 py-3 rounded-xl bg-[#39FF14] hover:bg-[#32e012] text-black font-bold text-sm transition cursor-pointer">
-                {tr("Рўйхатдан ўтиш", "Ro'yxatdan o'tish", "Регистрация", "Register")}
-              </button>
-            </div>
-            <button onClick={() => setShowDemoModal(false)} className="text-xs text-neutral-400 hover:text-white mt-1 transition underline bg-transparent border-none cursor-pointer">
-              {tr("Ёпиш", "Yopish", "Закрыть", "Close")}
-            </button>
-          </div>
-        </div>
-      )}
-
       {showAudioChatModal && !hasVideo && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-lg h-[80vh] flex flex-col overflow-hidden shadow-2xl">
@@ -195,8 +211,24 @@ export default function Player() {
       {hasVideo ? (
         isMinimizedVideo ? (
           <div className="fixed bottom-6 right-6 z-50 w-80 bg-neutral-900 border border-neutral-700 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)] animate-fadeIn">
-            <div className="relative aspect-video bg-black flex items-center justify-center group cursor-pointer" onClick={() => setIsMinimizedVideo(false)}>
-              <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} onError={handleMediaError} className="w-full h-full object-cover" />
+            <div className="relative aspect-video bg-black flex items-center justify-center group cursor-pointer" onClick={() => !isDownloading && setIsMinimizedVideo(false)}>
+              {isDownloading ? (
+                <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                  <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-[10px] text-emerald-400 font-medium">Загрузка на диск юзера...</span>
+                </div>
+              ) : (
+                <video 
+                  ref={mediaRef as React.RefObject<HTMLVideoElement>} 
+                  src={mediaSrc} 
+                  preload="metadata" 
+                  onTimeUpdate={handleTimeUpdate} 
+                  onLoadedMetadata={handleLoadedMetadata} 
+                  onEnded={() => nextTrack()} 
+                  onError={handleMediaError} 
+                  className="w-full h-full object-cover" 
+                />
+              )}
             </div>
             <div className="p-3 bg-neutral-900 flex items-center justify-between">
               <div className="truncate pr-2">
@@ -204,7 +236,7 @@ export default function Player() {
                 <p className="text-[10px] text-neutral-400 truncate">{currentTrack.singer}</p>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button onClick={handleTogglePlaySecure} className="p-1.5 rounded-full bg-emerald-500 text-neutral-950 hover:bg-emerald-400 transition cursor-pointer border-none">
+                <button onClick={togglePlay} disabled={isDownloading} className="p-1.5 rounded-full bg-emerald-500 text-neutral-950 hover:bg-emerald-400 transition cursor-pointer border-none disabled:opacity-50">
                   {isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
                 </button>
                 <button onClick={closePlayer} className="p-1.5 rounded-lg bg-neutral-800 text-neutral-400 hover:text-red-400 transition cursor-pointer border-none">
@@ -239,7 +271,26 @@ export default function Player() {
                 </div>
 
                 <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
-                  <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} onError={handleMediaError} className="w-full h-full object-contain" />
+                  {isDownloading ? (
+                    <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
+                      <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm font-semibold text-white">Скачивание видео на устройство юзера...</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <video 
+                      ref={mediaRef as React.RefObject<HTMLVideoElement>} 
+                      src={mediaSrc} 
+                      preload="metadata" 
+                      controls
+                      onTimeUpdate={handleTimeUpdate} 
+                      onLoadedMetadata={handleLoadedMetadata} 
+                      onEnded={() => nextTrack()} 
+                      onError={handleMediaError} 
+                      className="w-full h-full object-contain" 
+                    />
+                  )}
                 </div>
 
                 <div className="p-4 bg-neutral-950 border-t border-neutral-800 flex flex-col gap-3">
@@ -256,7 +307,7 @@ export default function Player() {
                       <button onClick={prevTrack} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none">
                         <SkipBack size={20} />
                       </button>
-                      <button onClick={handleTogglePlaySecure} className="p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-neutral-950 cursor-pointer transition border-none shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                      <button onClick={togglePlay} disabled={isDownloading} className="p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-neutral-950 cursor-pointer transition border-none shadow-[0_0_15px_rgba(16,185,129,0.3)] disabled:opacity-50">
                         {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
                       </button>
                       <button onClick={nextTrack} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none">
@@ -306,7 +357,7 @@ export default function Player() {
               <button onClick={prevTrack} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none p-0">
                 <SkipBack size={20} />
               </button>
-              <button onClick={handleTogglePlaySecure} className="p-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-neutral-950 cursor-pointer transition flex-shrink-0 border-none">
+              <button onClick={togglePlay} className="p-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-neutral-950 cursor-pointer transition flex-shrink-0 border-none">
                 {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
               </button>
               <button onClick={nextTrack} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none p-0">
@@ -331,7 +382,7 @@ export default function Player() {
               </button>
               
               <div onClick={handleVolumeClick} className="w-16 sm:w-20 h-2 bg-neutral-700 rounded-full overflow-hidden relative cursor-pointer">
-                <div className="absolute top-0 left-0 bottom-0 bg-amber-500 transition-all duration-75" style={{ width: `${volumePercent}%` }} />
+                <div className="absolute top-0 left-0 bottom-0 bg-amber-500" style={{ width: `${volumePercent}%` }} />
               </div>
 
               <button onClick={closePlayer} className="p-2 rounded-xl bg-neutral-800 hover:bg-red-500/20 text-neutral-400 hover:text-red-400 transition cursor-pointer ml-1 border-none">

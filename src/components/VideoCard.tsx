@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { Edit, Trash2, AlertCircle, Play } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
+import { useVideoPlayer } from "@/context/VideoPlayerContext";
 
-interface VideoCardProps {
+export interface VideoCardProps {
     video: {
-        _id: string;
+        _id?: string;
+        id?: string;
         title: string;
         singer: string;
         cover?: string;
@@ -32,29 +34,22 @@ interface VideoCardProps {
 }
 
 const FAKE_SEQUENCE = [1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
-const INTERVAL_MS = 15 * 60 * 1000; // 15 минут
+const INTERVAL_MS = 15 * 60 * 1000;
 
 export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const router = useRouter();
     const { data: session } = useSession();
+    const { openVideo } = useVideoPlayer();
 
     const [isDeleting, setIsDeleting] = useState(false);
     const [showTariffs, setShowTariffs] = useState(false);
     const [isRemoved, setIsRemoved] = useState(false);
 
-    // Состояния для прямого проигрывания видео
-    const [directVideoUrl, setDirectVideoUrl] = useState<string | null>(null);
-    const [isLoadingVideo, setIsLoadingVideo] = useState(false);
-    const [isPlaying, setIsPlaying] = useState(false);
+    const videoId = video._id?.toString() || video.id?.toString() || "";
 
-    const videoId = video._id.toString();
-
-    // Цены из .env для видео
     const videoInitial = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_INITIAL || 15000);
     const videoDaily = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_DAILY || 1500);
     const videoMonthly = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_MONTHLY || 45000);
-
-    const telegramVideoUrl = video.telegramUrl || video.videoUrl || video.fileUrl || "";
 
     const currentUserId = (session?.user as any)?.id;
     const currentUserRole = (session?.user as any)?.role;
@@ -76,7 +71,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
     useEffect(() => {
         if (!videoId) return;
-
         const stepKey = `fake_video_step_${videoId}`;
         const offsetKey = `fake_video_offset_${videoId}`;
 
@@ -86,66 +80,55 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
         if (savedOffset) setFakeOffset(Number(savedOffset));
 
         const timer = setInterval(() => {
-            const nextStep = (stepIndex + 1) % FAKE_SEQUENCE.length;
-            const addValue = FAKE_SEQUENCE[nextStep];
+            setStepIndex((prevStep) => {
+                const nextStep = (prevStep + 1) % FAKE_SEQUENCE.length;
+                const addValue = FAKE_SEQUENCE[nextStep];
 
-            setFakeOffset((prev) => {
-                const updated = prev + addValue;
-                localStorage.setItem(offsetKey, String(updated));
-                return updated;
+                setFakeOffset((prevOffset) => {
+                    const updated = prevOffset + addValue;
+                    localStorage.setItem(offsetKey, String(updated));
+                    return updated;
+                });
+
+                localStorage.setItem(stepKey, String(nextStep));
+                return nextStep;
             });
-
-            setStepIndex(nextStep);
-            localStorage.setItem(stepKey, String(nextStep));
         }, INTERVAL_MS);
 
         return () => clearInterval(timer);
-    }, [stepIndex, videoId]);
+    }, [videoId]);
 
-    // Функция загрузки прямой ссылки при клике на Play
-    const handlePlayClick = async () => {
-        if (directVideoUrl) {
-            setIsPlaying(true);
+    const handlePlayClick = () => {
+        if (video.isExpired && !canManage) {
             return;
         }
 
-        if (!telegramVideoUrl) {
-            alert(tr("Telegram видео ҳаволаси топилмади", "Telegram video havolasi topilmadi", "Ссылка не найдена", "Link not found"));
+        if (!videoId) {
+            alert(tr("Видео ID топилмади", "Video ID topilmadi", "ID видео не найден", "Video ID not found"));
             return;
         }
 
-        try {
-            setIsLoadingVideo(true);
-            const res = await fetch(`/api/videos/extract?url=${encodeURIComponent(telegramVideoUrl)}`);
-            const data = await res.json();
-
-            if (res.ok && data.videoUrl) {
-                setDirectVideoUrl(data.videoUrl);
-                setIsPlaying(true);
-            } else {
-                alert(tr("Видео файлини олиб бўлмади", "Video faylini olib bo'lmadi", "Не удалось получить видео файл", "Failed to retrieve video file"));
-            }
-        } catch {
-            alert(tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred"));
-        } finally {
-            setIsLoadingVideo(false);
-        }
+        openVideo({
+            id: videoId,
+            title: video.title,
+            singer: video.singer,
+            genre: video.genre,
+        });
     };
 
-    if (isRemoved) {
-        return null;
-    }
+    if (isRemoved) return null;
 
     const realViews = video.views || 0;
     const displayedViews = realViews + fakeOffset;
 
-    const createdAtDate = new Date(video.createdAt || video.expiresAt);
+    const validDateStr = video.createdAt || video.expiresAt || Date.now();
+    const createdAtDate = new Date(validDateStr);
     const now = new Date();
 
     const hoursSinceCreation = (now.getTime() - createdAtDate.getTime()) / (1000 * 60 * 60);
     const isWithinFirst24Hours = hoursSinceCreation <= 24 && !video.isPaidActive;
 
-    const diffMs = new Date(video.createdAt).getTime() + 24 * 60 * 60 * 1000 - now.getTime();
+    const diffMs = createdAtDate.getTime() + 24 * 60 * 60 * 1000 - now.getTime();
     const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
     const minutesLeft = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
 
@@ -194,9 +177,11 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
-                {/* ПРЕВЬЮ / ВСТРОЕННЫЙ HTML5 ПЛЕЕР */}
-                <div className="relative w-full sm:w-80 aspect-video rounded-2xl border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center">
-                    
+                {/* ПРЕВЬЮ С КНОПКОЙ PLAY (ОТКРЫВАЕТ МОДАЛКУ) */}
+                <div 
+                    onClick={handlePlayClick}
+                    className="relative w-full sm:w-80 aspect-video rounded-2xl border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer group"
+                >
                     {video.isExpired && !canManage ? (
                         <div className="absolute inset-0 z-20 backdrop-blur-md bg-neutral-950/80 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
                             <AlertCircle className="w-8 h-8 text-amber-400 mb-2" />
@@ -206,36 +191,21 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                         </div>
                     ) : null}
 
-                    {isPlaying && directVideoUrl ? (
-                        <video
-                            src={directVideoUrl}
-                            controls
-                            autoPlay
-                            className="w-full h-full object-contain bg-black"
-                        />
-                    ) : (
-                        <div 
-                            onClick={handlePlayClick}
-                            className="relative w-full h-full cursor-pointer group block"
-                        >
-                            <img
-                                src={video.cover || "/default-cover.webp"}
-                                alt={video.title}
-                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                            />
-                            <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 transition flex items-center justify-center text-amber-400">
-                                {isLoadingVideo ? (
-                                    <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                    <Play size={48} fill="currentColor" />
-                                )}
-                            </div>
-                        </div>
-                    )}
+                    <img
+                        src={video.cover || "/default-cover.webp"}
+                        alt={video.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    />
+                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 transition flex items-center justify-center text-amber-400">
+                        <Play size={48} fill="currentColor" />
+                    </div>
                 </div>
 
                 <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-lg sm:text-xl text-white break-words">
+                    <h3 
+                        onClick={handlePlayClick}
+                        className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition"
+                    >
                         {video.title}
                     </h3>
 

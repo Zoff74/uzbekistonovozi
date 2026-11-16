@@ -1,10 +1,23 @@
+//src\app\api\upload\route.ts
+// Обязательно в самом начале файла, до любых импортов
+import { Logger } from "telegram/extensions/Logger";
+
+// Жестко отключаем любые варнинги и логи внутри GramJS SDK
+Logger.setLevel("none");
+process.removeAllListeners('unhandledRejection');
+process.on('unhandledRejection', (reason: any) => {
+    const msg = reason?.message || String(reason);
+    if (msg.includes('TIMEOUT') || msg.includes('updates.js') || reason?.stack?.includes('updates.js')) {
+        return;
+    }
+});
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 600;
 export const runtime = 'nodejs';
-process.on('unhandledRejection', (reason: any) => {
-    if (reason?.message === 'TIMEOUT' || reason?.stack?.includes('updates.js')) return;
-});
+
+
 import { NextResponse, NextRequest } from "next/server";
 import ImageKit from "@imagekit/nodejs";
 import { getServerSession } from "next-auth";
@@ -36,7 +49,8 @@ async function getMTProtoClient() {
         connectionRetries: 3,
         useWSS: false,
         autoReconnect: false,
-    });
+        noUpdates: true,
+    } as any);
 
     await client.connect();
     return client;
@@ -124,10 +138,10 @@ export async function POST(request: NextRequest) {
         await pipeline(nodeReadable, writeStream);
 
         const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-        const privateChatId = process.env.TELEGRAM_STORAGE_CHAT_ID; // ПРИВАТНЫЙ КАНАЛ СТРОГО ДЛЯ АУДИО
+        const privateChatId = process.env.TELEGRAM_STORAGE_CHAT_ID; // КАНАЛ ДЛЯ АУДИО (теперь связан с uzbekistonovozi_track)
         const videoChatId = process.env.TELEGRAM_VIDEO_CHAT_ID || process.env.TELEGRAM_VIDEO_CHANNEL_ID || "@uzbekistonovozi_video"; // ПУБЛИЧНЫЙ КАНАЛ ДЛЯ ВИДЕО
 
-        // 2. АУДИО — СТРОГО В ПРИВАТНЫЙ КАНАЛ (uzbekistonovozi)
+        // 2. АУДИО — В КАНАЛ ТРЕКОВ (uzbekistonovozi_track)
         if (uploadType === "audio") {
             if (!BOT_TOKEN || !privateChatId) {
                 await fs.unlink(inputPath).catch(() => {});
@@ -185,7 +199,6 @@ export async function POST(request: NextRequest) {
                 await fs.writeFile(thumbPath, coverBuffer);
             }
 
-            // Получаем чистую сущность публичного канала через getEntity, чтобы исключить сторонний роутинг
             const targetEntity = await mtprotoClient.getEntity(videoChatId);
 
             const uploadedMessage = await mtprotoClient.sendFile(targetEntity, {

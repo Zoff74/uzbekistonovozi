@@ -1,7 +1,10 @@
-# Используем официальный образ Node.js 20
+# Используем официальный образ Node.js 20 на базе Debian-slim
 FROM node:20.11.0-slim
 
 WORKDIR /app
+
+# 🛠️ Устанавливаем ffmpeg для мгновенного переноса moov atom (Fast Start) без сжатия
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
 RUN npm ci
@@ -9,7 +12,7 @@ RUN npm ci
 # Копируем весь проект
 COPY . .
 
-# Пробрасываем ВСЕ ключи ImageKit и настройки на этап сборки
+# Пробрасываем ключи на этап сборки
 ENV MONGODB_URI="mongodb+srv://zoff74_db_user:OXVUzsAEZCp1IGc0@cluster0.xqcppys.mongodb.net/uzbekistonovozi?retryWrites=true&w=majority&appName=Cluster0"
 ENV IMAGEKIT_URL_ENDPOINT="https://ik.imagekit.io/tyhsos05b"
 ENV IMAGEKIT_PRIVATE_KEY="private_MBEycosMetKWm0iR0Z76GEBuxAo="
@@ -28,7 +31,6 @@ RUN rm -rf .next
 # Собираем проект заново
 RUN npm run build
 
-# Порт берем из переменной окружения Render или ставим 10000 по умолчанию
 ENV PORT=10000
 EXPOSE 10000
 

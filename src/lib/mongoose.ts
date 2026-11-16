@@ -1,3 +1,15 @@
+// ==========================================
+// 🛑 ЖЕСТКИЙ ФИЛЬТР: глушим фоновые TIMEOUT ошибки GramJS на уровне процесса
+// ==========================================
+if (typeof process !== 'undefined') {
+    process.on('unhandledRejection', (reason: any) => {
+        const msg = reason?.message || String(reason);
+        if (msg.includes('TIMEOUT') || (reason?.stack && reason.stack.includes('updates.js'))) {
+            return; // Полностью игнорируем этот мусор в терминале
+        }
+    });
+}
+
 // src/lib/mongoose.ts
 import mongoose from "mongoose";
 

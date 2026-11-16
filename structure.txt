@@ -141,6 +141,7 @@
 │   │   ├── Discussion.tsx
 │   │   ├── FireworkCanvas.tsx
 │   │   ├── GenreCategories.tsx
+│   │   ├── GlobalVideoModal.tsx
 │   │   ├── Header.tsx
 │   │   ├── HeaderCanvas.tsx
 │   │   ├── InstrumentAutocomplete.tsx
@@ -155,7 +156,8 @@
 │   │   └── WelcomeHero.tsx
 │   ├── context
 │   │   ├── LoadingContext.tsx
-│   │   └── PlayerContext.tsx
+│   │   ├── PlayerContext.tsx
+│   │   └── VideoPlayerContext.tsx
 │   ├── lib
 │   │   ├── adminCheck.ts
 │   │   ├── gridfs.ts
@@ -176,11 +178,16 @@
 │   │   └── Video.ts
 │   ├── types
 │   │   └── next-auth.d.ts
-│   └── utils
-│       ├── auth-validators.ts
-│       ├── image-compressor.ts
-│       ├── register-validators.ts
-│       └── translate.ts
+│   ├── utils
+│   │   ├── auth-validators.ts
+│   │   ├── image-compressor.ts
+│   │   ├── register-validators.ts
+│   │   └── translate.ts
+│   └── instrumentation.ts
+├── tmp
+│   └── videos
+│       ├── 6af5930ceed60e62118764da.mkv
+│       └── 6af5930ceed60e62118764da.mp4
 ├── .env.local
 ├── .gitignore
 ├── Dockerfile
