@@ -1,6 +1,5 @@
 "use client";
 
-// БЛОК - "Player" src\components\Player.tsx
 import { usePlayer } from "@/context/PlayerContext";
 import { Play, Pause, Volume2, VolumeX, X, SkipBack, SkipForward, Minimize2, Film, MessageSquare, Music } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
@@ -24,10 +23,9 @@ export default function Player() {
   const [isMinimizedVideo, setIsMinimizedVideo] = useState(false);
   const [showAudioChatModal, setShowAudioChatModal] = useState(false);
 
-  // 🚀 Состояния для клиентского кеширования на диск юзера через Cache API (надежная альтернатива OPFS)
   const [localVideoSrc, setLocalVideoSrc] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [downloadProgress, setDownloadProgress] = useState<number>(0);
 
   const isAuthenticated = status === "authenticated" && Boolean(session?.user);
 
@@ -35,72 +33,84 @@ export default function Player() {
     if (!currentTrack?.id && !currentTrack?._id) return;
     setIsMinimizedVideo(false);
     setLocalVideoSrc(null);
+    setIsDownloading(false);
     setDownloadProgress(0);
   }, [currentTrack]);
 
-  // 🚀 Функция скачивания и кеширования видео на локальный диск юзера через Cache API
+  // 🚀 Загружаем оригинальный файл в кэш диска юзера с сохранением исходного формата
   useEffect(() => {
     let isCancelled = false;
     
-    async function loadVideoToLocalStorage() {
-      const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
+    async function downloadAndCacheVideo() {
+      const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.telegramUrl || (currentTrack as any)?.videoFileId);
       if (!hasVideo || !currentTrack) return;
 
-      const videoFileId = (currentTrack as any)?.videoFileId || currentTrack?.id || currentTrack?._id;
-      const fileSourceUrl = (currentTrack as any)?.videoFileId ? `/api/videos/stream/${videoFileId}` : currentTrack?.videoUrl;
-
-      if (!fileSourceUrl) return;
+      const trackId = currentTrack.id || currentTrack._id;
+      const streamUrl = `/api/videos/stream/${trackId}`;
 
       try {
-        const cacheName = "uzbekistonovozi-video-cache-v1";
+        const cacheName = "uzbekistonovozi-video-cache-v2";
         const cache = await caches.open(cacheName);
-        const cacheKey = new Request(fileSourceUrl);
+        const cacheKey = new Request(streamUrl);
 
-        // Проверяем, есть ли файл в локальном кеше браузера (на диске юзера)
+        // 1. Проверяем, есть ли уже файл на диске юзера
         const cachedResponse = await cache.match(cacheKey);
-
         if (cachedResponse) {
-          console.log("🟢 Видео найдено в локальном кеше браузера юзера!");
           const blob = await cachedResponse.blob();
-          const localUrl = URL.createObjectURL(blob);
           if (!isCancelled) {
-            setLocalVideoSrc(localUrl);
+            setLocalVideoSrc(URL.createObjectURL(blob));
             setIsDownloading(false);
           }
           return;
         }
 
-        // Если файла нет в кеше — скачиваем в фоновом режиме на диск юзера
+        // 2. Скачиваем оригинальный файл целиком
         if (!isCancelled) setIsDownloading(true);
-        console.log("📥 Скачивание видео на диск юзера...");
 
-        const response = await fetch(fileSourceUrl);
-        if (!response.ok || !response.body) throw new Error("Ошибка загрузки видеопотока");
+        const response = await fetch(streamUrl);
+        if (!response.ok || !response.body) throw new Error("Ошибка загрузки потока");
 
-        // Кладываем ответ сразу в браузерный Cache API (на диск)
-        await cache.put(cacheKey, response.clone());
+        const reader = response.body.getReader();
+        const contentLength = Number(response.headers.get("Content-Length") || 0);
+        // Динамический захват исходного формата (video/mp4, video/x-matroska и т.д.)
+        const contentType = response.headers.get("Content-Type") || "video/mp4";
+        
+        let receivedLength = 0;
+        const chunks: Uint8Array[] = [];
 
-        // Достаем свежий блоб для воспроизведения
-        const freshResponse = await cache.match(cacheKey);
-        if (freshResponse) {
-          const blob = await freshResponse.blob();
-          const localUrl = URL.createObjectURL(blob);
-          if (!isCancelled) {
-            setLocalVideoSrc(localUrl);
-            setIsDownloading(false);
-            setDownloadProgress(100);
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          receivedLength += value.length;
+          if (contentLength > 0 && !isCancelled) {
+            const percent = Math.round((receivedLength / contentLength) * 100);
+            setDownloadProgress(percent);
           }
         }
-      } catch (err) {
-        console.error("⚠️ Ошибка клиентского кеширования, используем прямую ссылку:", err);
+
+        // Сохраняем в исходном формате без конвертации и без хардкода
+        const blob = new Blob(chunks as unknown as BlobPart[], { type: contentType });
+        
+        // 3. Сохраняем готовый оригинальный файл в кэш браузера на диск юзера
+        await cache.put(cacheKey, new Response(blob));
+
         if (!isCancelled) {
-          setLocalVideoSrc(fileSourceUrl);
+          setLocalVideoSrc(URL.createObjectURL(blob));
+          setIsDownloading(false);
+          setDownloadProgress(100);
+        }
+
+      } catch (err) {
+        console.error("⚠️ Ошибка кеширования, фоллбек на прямой стрим:", err);
+        if (!isCancelled) {
+          setLocalVideoSrc(streamUrl);
           setIsDownloading(false);
         }
       }
     }
 
-    loadVideoToLocalStorage();
+    downloadAndCacheVideo();
 
     return () => {
       isCancelled = true;
@@ -108,8 +118,7 @@ export default function Player() {
   }, [currentTrack]);
 
   const handleMediaError = () => {
-    console.warn("⚠️ Ошибка загрузки медиафайла. Закрываем плеер...");
-    closePlayer();
+    console.warn("⚠️ Ошибка воспроизведения медиафайла.");
   };
 
   useEffect(() => {
@@ -118,8 +127,7 @@ export default function Player() {
 
     if (isPlaying && !isDownloading && localVideoSrc) {
       media.play().catch((err) => {
-        console.error("🔥 Ошибка воспроизведения:", err.message);
-        handleMediaError();
+        console.error("🔥 Ошибка play():", err.message);
       });
     } else {
       media.pause();
@@ -136,7 +144,7 @@ export default function Player() {
     return null;
   }
 
-  const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.videoFileId);
+  const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.telegramUrl || (currentTrack as any)?.videoFileId);
   const trackId = currentTrack.id || currentTrack._id;
   
   const mediaSrc = hasVideo
@@ -163,11 +171,8 @@ export default function Player() {
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!mediaRef.current || !duration) return;
-    
     const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const newTime = (clickX / rect.width) * duration;
-      
+    const newTime = ((e.clientX - rect.left) / rect.width) * duration;
     mediaRef.current.currentTime = newTime;
     setCurrentTime(newTime);
   };
@@ -215,7 +220,7 @@ export default function Player() {
               {isDownloading ? (
                 <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
                   <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-[10px] text-emerald-400 font-medium">Загрузка на диск юзера...</span>
+                  <span className="text-[10px] text-emerald-400 font-medium">Загрузка: {downloadProgress}%</span>
                 </div>
               ) : (
                 <video 
@@ -275,7 +280,7 @@ export default function Player() {
                     <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
                       <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                       <div className="flex flex-col gap-1">
-                        <span className="text-sm font-semibold text-white">Скачивание видео на устройство юзера...</span>
+                        <span className="text-sm font-semibold text-white">Скачивание оригинального файла на диск устройства... ({downloadProgress}%)</span>
                       </div>
                     </div>
                   ) : (
