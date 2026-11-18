@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     experimental: {
+        instrumentationHook: true,
         serverActions: {
             bodySizeLimit: '2048mb', // Увеличиваем лимит тела запроса до 2 Гб для загрузки тяжелых видео
         },
@@ -47,7 +48,7 @@ const nextConfig = {
                 headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
             },
             {
-                source: '/((?!_next/static|_next/image|img|fonts).*)',
+                source: '/((?!_next/static|_next/image|img|fonts|api).*)',
                 headers: [
                     { key: 'Cache-Control', value: 'public, max-age=3600, stale-while-revalidate=86400' },
                     { 
@@ -86,8 +87,7 @@ const nextConfig = {
                 '**/README.txt',
                 '**/README.md',
                 '**/registrations.log',
-                '**/structure.txt',
-                '**/Пожелания бизнесменов.txt'
+                '**/structure.txt'
             ],
         };
 

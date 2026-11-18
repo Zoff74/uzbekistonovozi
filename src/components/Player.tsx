@@ -340,7 +340,7 @@ export default function Player() {
                     <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
                       <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                       <div className="flex flex-col gap-1">
-                        <span className="text-sm font-semibold text-white">Идет скачивание видео файла на устройство... Дождитесь окончания ({downloadProgress}%)</span>
+                        <span className="text-sm font-semibold text-white">Идет загрузка видео файла... Дождитесь окончания ({downloadProgress}%)</span>
                       </div>
                     </div>
                   ) : (

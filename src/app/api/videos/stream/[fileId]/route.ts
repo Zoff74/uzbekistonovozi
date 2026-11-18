@@ -10,6 +10,10 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import bigInt from "big-integer";
 
+if (typeof process !== "undefined" && process.setMaxListeners) {
+    process.setMaxListeners(50);
+}
+
 function extractMessageId(video: any, fileId: string): number {
     const candidates = [fileId, video?.telegramUrl, video?.videoUrl, video?.telegramFileId];
     for (const candidate of candidates) {
