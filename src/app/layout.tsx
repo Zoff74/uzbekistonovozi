@@ -2,12 +2,10 @@ import React from "react";
 import type { Metadata } from "next";
 import NextAuthSessionProvider from "@/components/SessionProvider";
 import { PlayerProvider } from "@/context/PlayerContext";
-import { VideoPlayerProvider } from "@/context/VideoPlayerContext";
 import Player from "@/components/Player";
-import GlobalVideoModal from "@/components/GlobalVideoModal";
 // @ts-ignore
 import "./globals.css";
-//src\app\layout.tsx
+
 export const metadata: Metadata = {
   title: "Ўзбекистон овози",
   description: "Мусиқий маркетплейс ва платформа",
@@ -40,11 +38,8 @@ export default function RootLayout({
       <body className="bg-[#030712] text-white overflow-x-hidden antialiased">
         <NextAuthSessionProvider>
           <PlayerProvider>
-            <VideoPlayerProvider>
-              {children}
-              <Player />
-              <GlobalVideoModal />
-            </VideoPlayerProvider>
+            {children}
+            <Player />
           </PlayerProvider>
         </NextAuthSessionProvider>
       </body>

@@ -44,7 +44,7 @@ export async function GET(
             ? await (Video as any).findById(fileId).lean() 
             : await (Video as any).findOne({
                 $or: [{ telegramFileId: fileId }, { telegramUrl: fileId }, { videoUrl: fileId }]
-            }).lean();
+              }).lean();
 
         if (!video) {
             return NextResponse.json({ error: "Видео не найдено" }, { status: 404 });
@@ -56,11 +56,11 @@ export async function GET(
         const videoChatId = process.env.TELEGRAM_VIDEO_CHAT_ID || "@uzbekistonovozi_video";
 
         client = new TelegramClient(new StringSession(stringSession), apiId, apiHash, {
-            connectionRetries: 3,
+            connectionRetries: 5,
             useWSS: false,
             autoReconnect: true,
             noUpdates: true,
-            timeout: 30000,
+            timeout: 60000,
         } as any);
         (client as any).setLogLevel("none" as any);
 
@@ -94,11 +94,14 @@ export async function GET(
             return NextResponse.json({ error: "Медиафайл не найден в Telegram" }, { status: 404 });
         }
 
-        // 🚀 Автоматическое определение размера из Telegram, если в базе пусто
-        const telegramRealSize = Number(media.document.size || 0);
-        let totalFileSize = Number(video?.fileSize || video?.size || telegramRealSize || (73 * 1024 * 1024));
+        // Берем исключительно реальный размер файла напрямую из Telegram
+        const totalFileSize = Number(media.document.size || 0);
 
-        // Читаем Range заголовок
+        if (!totalFileSize) {
+            await client.disconnect().catch(() => {});
+            return NextResponse.json({ error: "Telegram не вернул размер медиафайла" }, { status: 502 });
+        }
+
         const rangeHeader = request.headers.get("range");
         let start = 0;
         let end = totalFileSize - 1;
@@ -111,24 +114,58 @@ export async function GET(
             }
         }
 
+        if (start >= totalFileSize || start > end) {
+            await client.disconnect().catch(() => {});
+            return new NextResponse(null, {
+                status: 416,
+                headers: {
+                    "Content-Range": `bytes */${totalFileSize}`,
+                },
+            });
+        }
+
         const chunkSizeToFetch = (end - start) + 1;
+
+        // Выравниваем offset вниз до ближайшего числа, кратного 4096 (требование Telegram MTProto)
+        const alignedOffset = Math.floor(start / 4096) * 4096;
+        let bytesToSkip = start - alignedOffset;
+        let bytesRemaining = chunkSizeToFetch;
+
         const activeClient = client;
 
-        // Прямой поток без сохранения на диск сервера
         const readableStream = new ReadableStream({
             async start(controller) {
                 try {
                     const generator = activeClient.iterDownload({
                         file: media,
-                        offset: bigInt(start),
-                        limit: Number(chunkSizeToFetch),
+                        offset: bigInt(alignedOffset),
                         fileSize: bigInt(totalFileSize),
                         chunkSize: 512 * 1024,
-                        requestSize: 1024 * 1024,
+                        requestSize: 512 * 1024,
                     });
 
                     for await (const chunk of generator) {
-                        controller.enqueue(chunk);
+                        if (bytesRemaining <= 0) break;
+
+                        let buffer = Buffer.from(chunk);
+
+                        if (bytesToSkip > 0) {
+                            if (buffer.length <= bytesToSkip) {
+                                bytesToSkip -= buffer.length;
+                                continue;
+                            }
+                            buffer = buffer.subarray(bytesToSkip);
+                            bytesToSkip = 0;
+                        }
+
+                        if (buffer.length > bytesRemaining) {
+                            buffer = buffer.subarray(0, bytesRemaining);
+                        }
+
+                        controller.enqueue(new Uint8Array(buffer));
+                        bytesRemaining -= buffer.length;
+
+                        if (bytesRemaining <= 0) break;
                     }
                     controller.close();
                 } catch (err) {
@@ -142,18 +179,29 @@ export async function GET(
             }
         });
 
+        const headers: Record<string, string> = {
+            "Content-Type": media.document.mimeType || "video/mp4",
+            "Accept-Ranges": "bytes",
+            "Content-Length": String(chunkSizeToFetch),
+            "Cache-Control": "no-store",
+        };
+
+        if (rangeHeader) {
+            headers["Content-Range"] = `bytes ${start}-${end}/${totalFileSize}`;
+            return new NextResponse(readableStream, {
+                status: 206,
+                headers,
+            });
+        }
+
         return new NextResponse(readableStream, {
-            status: 206,
-            headers: {
-                "Content-Type": "video/mp4",
-                "Accept-Ranges": "bytes",
-                "Content-Length": String(chunkSizeToFetch),
-                "Content-Range": `bytes ${start}-${end}/${totalFileSize}`,
-            },
+            status: 200,
+            headers,
         });
 
     } catch (error: any) {
         if (client) await client.disconnect().catch(() => {});
+        console.error("🔥 [STREAM ERROR]:", error);
         return NextResponse.json({ error: "Ошибка проксирования" }, { status: 500 });
     }
 }

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-//src\app\api\tracks\stream\[fileId]\route.ts
+// src/app/api/tracks/stream/[fileId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Track } from "@/models/Track";
@@ -8,13 +8,39 @@ import { Types } from "mongoose";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+function getOriginalMimeType(filePath: string, telegramContentType: string | null): string {
+    if (telegramContentType && telegramContentType !== "application/octet-stream") {
+        return telegramContentType;
+    }
+    const ext = filePath.split(".").pop()?.toLowerCase();
+    const mimeMap: Record<string, string> = {
+        mp3: "audio/mpeg",
+        m4a: "audio/mp4",
+        mp4: "audio/mp4",
+        aac: "audio/aac",
+        ogg: "audio/ogg",
+        oga: "audio/ogg",
+        opus: "audio/opus",
+        wav: "audio/wav",
+        flac: "audio/flac",
+        webm: "audio/webm",
+        wma: "audio/x-ms-wma",
+    };
+    return (ext && mimeMap[ext]) || telegramContentType || "application/octet-stream";
+}
+
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export async function GET(
     request: NextRequest,
-    { params }: { params: { fileId: string } }
+    { params }: { params: Promise<{ fileId: string }> | { fileId: string } }
 ) {
-    const logPrefix = "[STREAM LOG]";
     try {
-        const fileId = params?.fileId;
+        const resolvedParams = await params;
+        const fileId = resolvedParams?.fileId;
+
         if (!fileId || fileId === "undefined" || fileId === "null") {
             return NextResponse.json({ error: "Невалидный fileId" }, { status: 400 });
         }
@@ -32,10 +58,11 @@ export async function GET(
         }
         
         if (!track) {
+            const safePattern = escapeRegex(fileId);
             track = await (Track as any).findOne({
                 $or: [
                     { audioFileId: fileId },
-                    { audioUrl: { $regex: fileId } }
+                    { audioUrl: { $regex: safePattern } }
                 ]
             }).lean();
         }
@@ -68,23 +95,24 @@ export async function GET(
         }
 
         // 3. Запрашиваем путь файла у Telegram API
-        const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${targetFileId}`);
+        const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${targetFileId}`, {
+            cache: "no-store",
+        });
         const tgData = await tgRes.json();
 
         if (!tgData?.ok || !tgData?.result?.file_path) {
             return NextResponse.json({ error: "Аудиофайл не найден в Telegram" }, { status: 404 });
         }
 
-        const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${tgData.result.file_path}`;
+        const filePath: string = tgData.result.file_path;
+        const fileDownloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+        const isWma = filePath.toLowerCase().endsWith(".wma") || fileId.toLowerCase().includes(".wma");
 
-        // 4. Проксируем запрос к Telegram, но управляем Range-заголовками,
-        // чтобы экзотические форматы (.wma и др.) не ломали сессию капризными кусками.
+        // 4. Проксируем запрос к Telegram с сохранением исходного формата и корректным Range
         const rangeHeader = request.headers.get("range");
         const fetchHeaders: HeadersInit = {};
         
-        // Если браузер запрашивает диапазон, передаем его, но если файл проблемный, 
-        // мы можем отдать его целиком (без Range), чтобы браузер нормально его проглотил.
-        if (rangeHeader && !fileId.includes(".wma")) {
+        if (rangeHeader && !isWma) {
             fetchHeaders["Range"] = rangeHeader;
         }
 
@@ -98,23 +126,27 @@ export async function GET(
         }
 
         const responseHeaders = new Headers();
-        
-        // Принудительно задаем универсальный тип, чтобы браузер не ругался на контейнер
-        responseHeaders.set("Content-Type", "audio/mpeg");
+        responseHeaders.set(
+            "Content-Type",
+            getOriginalMimeType(filePath, telegramRes.headers.get("content-type"))
+        );
         responseHeaders.set("Accept-Ranges", "bytes");
+        responseHeaders.set("Cache-Control", "no-store");
 
         const contentLength = telegramRes.headers.get("content-length");
-        if (contentLength) responseHeaders.set("Content-Length", contentLength);
+        if (contentLength) {
+            responseHeaders.set("Content-Length", contentLength);
+        }
 
         const contentRange = telegramRes.headers.get("content-range");
-        if (contentRange && !fileId.includes(".wma")) {
+        const isPartial = telegramRes.status === 206 && Boolean(contentRange) && !isWma;
+
+        if (isPartial && contentRange) {
             responseHeaders.set("Content-Range", contentRange);
         }
 
-        const status = rangeHeader && telegramRes.status === 200 && !fileId.includes(".wma") ? 206 : telegramRes.status;
-
         return new NextResponse(telegramRes.body, {
-            status: status === 206 ? 206 : 200,
+            status: isPartial ? 206 : 200,
             headers: responseHeaders,
         });
 

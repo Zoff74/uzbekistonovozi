@@ -1,11 +1,10 @@
-// БЛОК - "VideoCard" src/components/VideoCard.tsx
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Edit, Trash2, AlertCircle, Play } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
-import { useVideoPlayer } from "@/context/VideoPlayerContext";
+import { usePlayer } from "@/context/PlayerContext";
 
 export interface VideoCardProps {
     video: {
@@ -28,6 +27,7 @@ export interface VideoCardProps {
         telegramUrl?: string;
         videoUrl?: string;
         fileUrl?: string;
+        fileSize?: number;
     };
     onDelete?: (id: string) => void;
     isOwner?: boolean;
@@ -39,7 +39,7 @@ const INTERVAL_MS = 15 * 60 * 1000;
 export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const router = useRouter();
     const { data: session } = useSession();
-    const { openVideo } = useVideoPlayer();
+    const { playTrack } = usePlayer();
 
     const [isDeleting, setIsDeleting] = useState(false);
     const [showTariffs, setShowTariffs] = useState(false);
@@ -108,11 +108,16 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
             return;
         }
 
-        openVideo({
+        playTrack({
             id: videoId,
+            _id: videoId,
             title: video.title,
             singer: video.singer,
-            genre: video.genre,
+            cover: video.cover,
+            audioUrl: "",
+            videoUrl: `/api/videos/stream/${videoId}`,
+            videoFileId: videoId,
+            fileSize: video.fileSize,
         });
     };
 
@@ -177,7 +182,6 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 
-                {/* ПРЕВЬЮ С КНОПКОЙ PLAY (ОТКРЫВАЕТ МОДАЛКУ) */}
                 <div 
                     onClick={handlePlayClick}
                     className="relative w-full sm:w-80 aspect-video rounded-2xl border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer group"

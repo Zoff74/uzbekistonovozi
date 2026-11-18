@@ -10,7 +10,6 @@ import VipClips from "@/components/VipClipsSection";
 import GenreCategories from "@/components/GenreCategories";
 import WelcomeHero from "@/components/WelcomeHero"; 
 import { usePlayer } from "@/context/PlayerContext";
-import { useVideoPlayer } from "@/context/VideoPlayerContext";
 
 interface Track {
     _id: string;
@@ -28,7 +27,6 @@ export default function Home() {
     const router = useRouter();
     
     const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
-    const { openVideo } = useVideoPlayer();
     
     const [isMounted, setIsMounted] = useState(false);
     useEffect(() => {
@@ -131,13 +129,18 @@ export default function Home() {
                     clips={clips}
                     loading={loadingClips}
                     onSelectClip={(clip: any) => {
-                        const videoId = clip._id;
+                        const videoId = clip._id || clip.id;
                         if (videoId) {
-                            openVideo({
+                            playTrack({
                                 id: videoId,
+                                _id: videoId,
                                 title: clip.title,
                                 singer: clip.singer,
-                                genre: clip.genre || "",
+                                cover: clip.cover,
+                                audioUrl: "",
+                                videoUrl: `/api/videos/stream/${videoId}`,
+                                videoFileId: videoId,
+                                fileSize: clip.fileSize,
                             });
                         }
                     }}

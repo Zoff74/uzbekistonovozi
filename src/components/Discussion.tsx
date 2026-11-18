@@ -171,7 +171,7 @@ export default function Discussion({ targetId, targetType = "track" }: Discussio
           type="text"
           value={newText}
           onChange={(e) => setNewText(e.target.value)}
-          placeholder={isAuthenticated ? (replyingTo ? tr("Жавоб ёзиш...", "Javob yozish...", "Написать ответ...", "Write a reply...") : tr("Фикр ёзиш...", "Fikr yozish...", "Написать комментарий...", "Write a comment...")) : tr("Фикр ёзиш учун киринг...", "Fikr yozish uchun kiring...", "Войдите, чтобы написать...", "Sign in to write...")}
+          placeholder={isAuthenticated ? (replyingTo ? tr("Жавоб ёзиш...", "Javob yozish...", "Написать ответ...", "Write a reply...") : tr("Коментарий ёзиш...", "Kommentariy yozish...", "Написать комментарий...", "Write a comment...")) : tr("Коментарий ёзиш учун киринг...", "Kommentariy yozish uchun kiring...", "Войдите, чтобы написать...", "Sign in to write...")}
           className="flex-1 bg-neutral-800 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 transition"
         />
         <button

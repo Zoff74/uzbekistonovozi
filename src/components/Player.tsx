@@ -28,24 +28,29 @@ export default function Player() {
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
 
   const isAuthenticated = status === "authenticated" && Boolean(session?.user);
+  const trackId = currentTrack?.id || currentTrack?._id;
+  const hasVideo = Boolean(
+    currentTrack?.videoUrl ||
+    (currentTrack as any)?.telegramUrl ||
+    (currentTrack as any)?.videoFileId
+  );
 
   useEffect(() => {
-    if (!currentTrack?.id && !currentTrack?._id) return;
+    if (!trackId) return;
     setIsMinimizedVideo(false);
     setLocalVideoSrc(null);
     setIsDownloading(false);
     setDownloadProgress(0);
-  }, [currentTrack]);
+  }, [trackId]);
 
-  // 🚀 Загружаем оригинальный файл в кэш диска юзера с сохранением исходного формата
+  // 🚀 Загружаем оригинальный видеофайл в кэш диска юзера с авто-докачкой при обрывах
   useEffect(() => {
     let isCancelled = false;
+    const abortController = new AbortController();
     
     async function downloadAndCacheVideo() {
-      const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.telegramUrl || (currentTrack as any)?.videoFileId);
-      if (!hasVideo || !currentTrack) return;
+      if (!hasVideo || !trackId) return;
 
-      const trackId = currentTrack.id || currentTrack._id;
       const streamUrl = `/api/videos/stream/${trackId}`;
 
       try {
@@ -53,46 +58,94 @@ export default function Player() {
         const cache = await caches.open(cacheName);
         const cacheKey = new Request(streamUrl);
 
-        // 1. Проверяем, есть ли уже файл на диске юзера
+        // 1. Проверяем, есть ли уже файл в кэше
         const cachedResponse = await cache.match(cacheKey);
         if (cachedResponse) {
           const blob = await cachedResponse.blob();
           if (!isCancelled) {
             setLocalVideoSrc(URL.createObjectURL(blob));
             setIsDownloading(false);
+            setDownloadProgress(100);
           }
           return;
         }
 
-        // 2. Скачиваем оригинальный файл целиком
-        if (!isCancelled) setIsDownloading(true);
+        // 2. Скачиваем файл с поддержкой докачки с того же байта при обрыве потока
+        if (!isCancelled) {
+          setIsDownloading(true);
+          setDownloadProgress(0);
+        }
 
-        const response = await fetch(streamUrl);
-        if (!response.ok || !response.body) throw new Error("Ошибка загрузки потока");
-
-        const reader = response.body.getReader();
-        const contentLength = Number(response.headers.get("Content-Length") || 0);
-        // Динамический захват исходного формата (video/mp4, video/x-matroska и т.д.)
-        const contentType = response.headers.get("Content-Type") || "video/mp4";
-        
         let receivedLength = 0;
+        let totalLength = 0;
+        let contentType = "video/mp4";
         const chunks: Uint8Array[] = [];
+        let retries = 0;
+        const maxRetries = 10;
 
         while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          receivedLength += value.length;
-          if (contentLength > 0 && !isCancelled) {
-            const percent = Math.round((receivedLength / contentLength) * 100);
-            setDownloadProgress(percent);
+          if (isCancelled) return;
+
+          try {
+            const headers: Record<string, string> = {};
+            if (receivedLength > 0) {
+              headers["Range"] = `bytes=${receivedLength}-`;
+            }
+
+            const response = await fetch(streamUrl, {
+              headers,
+              signal: abortController.signal,
+            });
+
+            if (!response.ok || !response.body) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            if (receivedLength === 0) {
+              totalLength = Number(response.headers.get("Content-Length") || 0);
+              contentType = response.headers.get("Content-Type") || "video/mp4";
+            } else if (response.status === 200) {
+              // Если сервер не поддержал Range и отдает заново, сбрасываем буфер
+              receivedLength = 0;
+              chunks.length = 0;
+              totalLength = Number(response.headers.get("Content-Length") || 0);
+            }
+
+            const reader = response.body.getReader();
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (isCancelled) {
+                reader.cancel();
+                return;
+              }
+              chunks.push(value);
+              receivedLength += value.length;
+              if (totalLength > 0 && !isCancelled) {
+                const percent = Math.min(99, Math.round((receivedLength / totalLength) * 100));
+                setDownloadProgress(percent);
+              }
+            }
+
+            // Если дочитали до конца без исключений — выходим из цикла докачки
+            break;
+          } catch (chunkErr: any) {
+            if (isCancelled || chunkErr?.name === "AbortError") return;
+            retries += 1;
+            if (retries > maxRetries) {
+              throw chunkErr;
+            }
+            // Пауза 800мс перед докачкой с текущего процента (без сброса прогресса!)
+            await new Promise((res) => setTimeout(res, 800));
           }
         }
 
-        // Сохраняем в исходном формате без конвертации и без хардкода
+        if (isCancelled) return;
+
         const blob = new Blob(chunks as unknown as BlobPart[], { type: contentType });
         
-        // 3. Сохраняем готовый оригинальный файл в кэш браузера на диск юзера
+        // 3. Сохраняем готовый файл в кэш браузера
         await cache.put(cacheKey, new Response(blob));
 
         if (!isCancelled) {
@@ -102,11 +155,10 @@ export default function Player() {
         }
 
       } catch (err) {
+        if (isCancelled) return;
         console.error("⚠️ Ошибка кеширования, фоллбек на прямой стрим:", err);
-        if (!isCancelled) {
-          setLocalVideoSrc(streamUrl);
-          setIsDownloading(false);
-        }
+        setLocalVideoSrc(streamUrl);
+        setIsDownloading(false);
       }
     }
 
@@ -114,10 +166,12 @@ export default function Player() {
 
     return () => {
       isCancelled = true;
+      abortController.abort();
     };
-  }, [currentTrack]);
+  }, [trackId, hasVideo]);
 
-  const handleMediaError = () => {
+  const handleMediaError = (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement, Event>) => {
+    if (!e.currentTarget.getAttribute("src")) return;
     console.warn("⚠️ Ошибка воспроизведения медиафайла.");
   };
 
@@ -125,14 +179,20 @@ export default function Player() {
     const media = mediaRef.current;
     if (!media || !currentTrack) return;
 
-    if (isPlaying && !isDownloading && localVideoSrc) {
+    const canStartPlayback = hasVideo
+      ? !isDownloading && Boolean(localVideoSrc)
+      : true;
+
+    if (isPlaying && canStartPlayback) {
       media.play().catch((err) => {
-        console.error("🔥 Ошибка play():", err.message);
+        if (err.name !== "AbortError") {
+          console.error("🔥 Ошибка play():", err.message);
+        }
       });
     } else {
       media.pause();
     }
-  }, [isPlaying, currentTrack, isDownloading, localVideoSrc]);
+  }, [isPlaying, trackId, hasVideo, isDownloading, localVideoSrc]);
 
   useEffect(() => {
     if (mediaRef.current) {
@@ -143,9 +203,6 @@ export default function Player() {
   if (!currentTrack || (!isAuthenticated && pathname === "/")) {
     return null;
   }
-
-  const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.telegramUrl || (currentTrack as any)?.videoFileId);
-  const trackId = currentTrack.id || currentTrack._id;
   
   const mediaSrc = hasVideo
     ? (localVideoSrc || "")
@@ -217,7 +274,7 @@ export default function Player() {
         isMinimizedVideo ? (
           <div className="fixed bottom-6 right-6 z-50 w-80 bg-neutral-900 border border-neutral-700 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)] animate-fadeIn">
             <div className="relative aspect-video bg-black flex items-center justify-center group cursor-pointer" onClick={() => !isDownloading && setIsMinimizedVideo(false)}>
-              {isDownloading ? (
+              {isDownloading || !mediaSrc ? (
                 <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
                   <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                   <span className="text-[10px] text-emerald-400 font-medium">Загрузка: {downloadProgress}%</span>
@@ -226,7 +283,10 @@ export default function Player() {
                 <video 
                   ref={mediaRef as React.RefObject<HTMLVideoElement>} 
                   src={mediaSrc} 
-                  preload="metadata" 
+                  preload="metadata"
+                  controlsList="nodownload"
+                  disablePictureInPicture
+                  onContextMenu={(e) => e.preventDefault()}
                   onTimeUpdate={handleTimeUpdate} 
                   onLoadedMetadata={handleLoadedMetadata} 
                   onEnded={() => nextTrack()} 
@@ -276,11 +336,11 @@ export default function Player() {
                 </div>
 
                 <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
-                  {isDownloading ? (
+                  {isDownloading || !mediaSrc ? (
                     <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
                       <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                       <div className="flex flex-col gap-1">
-                        <span className="text-sm font-semibold text-white">Скачивание оригинального файла на диск устройства... ({downloadProgress}%)</span>
+                        <span className="text-sm font-semibold text-white">Идет скачивание видео файла на устройство... Дождитесь окончания ({downloadProgress}%)</span>
                       </div>
                     </div>
                   ) : (
@@ -289,6 +349,9 @@ export default function Player() {
                       src={mediaSrc} 
                       preload="metadata" 
                       controls
+                      controlsList="nodownload"
+                      disablePictureInPicture
+                      onContextMenu={(e) => e.preventDefault()}
                       onTimeUpdate={handleTimeUpdate} 
                       onLoadedMetadata={handleLoadedMetadata} 
                       onEnded={() => nextTrack()} 
@@ -341,7 +404,18 @@ export default function Player() {
       ) : (
         /* АУДИОПЛЕЕР (НИЖНЯЯ ПАНЕЛЬ) */
         <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 text-white z-50 shadow-2xl p-4">
-          <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} src={mediaSrc} preload="metadata" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => nextTrack()} onError={handleMediaError} />
+          {mediaSrc && (
+            <audio
+              ref={mediaRef as React.RefObject<HTMLAudioElement>}
+              src={mediaSrc}
+              preload="metadata"
+              controlsList="nodownload"
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={handleLoadedMetadata}
+              onEnded={() => nextTrack()}
+              onError={handleMediaError}
+            />
+          )}
 
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 w-full">
             <div className="flex items-center gap-3 min-w-[200px]">

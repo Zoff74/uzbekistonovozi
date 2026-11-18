@@ -141,7 +141,6 @@
 │   │   ├── Discussion.tsx
 │   │   ├── FireworkCanvas.tsx
 │   │   ├── GenreCategories.tsx
-│   │   ├── GlobalVideoModal.tsx
 │   │   ├── Header.tsx
 │   │   ├── HeaderCanvas.tsx
 │   │   ├── InstrumentAutocomplete.tsx
@@ -156,8 +155,7 @@
 │   │   └── WelcomeHero.tsx
 │   ├── context
 │   │   ├── LoadingContext.tsx
-│   │   ├── PlayerContext.tsx
-│   │   └── VideoPlayerContext.tsx
+│   │   └── PlayerContext.tsx
 │   ├── lib
 │   │   ├── adminCheck.ts
 │   │   ├── gridfs.ts
