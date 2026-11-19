@@ -1,7 +1,6 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -10,9 +9,9 @@ const nextConfig = {
     experimental: {
         instrumentationHook: true,
         serverActions: {
-            bodySizeLimit: '2048mb', // Увеличиваем лимит тела запроса до 2 Гб для загрузки тяжелых видео
+            bodySizeLimit: '2048mb',
         },
-        optimizeCss: true,
+        optimizeCss: process.env.NODE_ENV === 'production',
         optimizePackageImports: [
             'lucide-react', 
             'date-fns', 
@@ -33,7 +32,6 @@ const nextConfig = {
         qualities: [60, 65, 75],
         formats: ['image/avif', 'image/webp'],
         remotePatterns: [
-            { protocol: 'https', hostname: 'placehold.co' },
             { protocol: 'https', hostname: 'ik.imagekit.io' },
         ],
     },
@@ -71,8 +69,7 @@ const nextConfig = {
             },
         ];
     },
-    webpack: (config, { isServer }) => {
-
+    webpack: (config, { isServer, dev }) => {
         config.resolve.alias = {
             ...config.resolve.alias,
             '@': path.resolve(__dirname, 'src'),
@@ -91,7 +88,7 @@ const nextConfig = {
             ],
         };
 
-        if (!isServer && config.optimization && config.optimization.splitChunks) {
+        if (!dev && !isServer && config.optimization && config.optimization.splitChunks) {
             config.optimization.splitChunks.cacheGroups = {
                 ...config.optimization.splitChunks.cacheGroups,
                 styles: {

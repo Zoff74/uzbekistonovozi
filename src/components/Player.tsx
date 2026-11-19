@@ -1,20 +1,20 @@
 "use client";
 
 import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, Volume2, VolumeX, X, SkipBack, SkipForward, Minimize2, Film, MessageSquare, Music } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, X, SkipBack, SkipForward, Minimize2, Film, MessageSquare, Music, RotateCcw } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
 import { tr } from "@/utils/translate";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Discussion from "@/components/Discussion";
 
 export default function Player() {
   const pathname = usePathname();
-  const router = useRouter();
   const { data: session, status } = useSession();
   const { currentTrack, isPlaying, togglePlay, closePlayer, nextTrack, prevTrack } = usePlayer();
   
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -26,6 +26,8 @@ export default function Player() {
   const [localVideoSrc, setLocalVideoSrc] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
+  const [downloadError, setDownloadError] = useState<boolean>(false);
+  const [retryTrigger, setRetryTrigger] = useState<number>(0);
 
   const isAuthenticated = status === "authenticated" && Boolean(session?.user);
   const trackId = currentTrack?.id || currentTrack?._id;
@@ -35,22 +37,39 @@ export default function Player() {
     (currentTrack as any)?.videoFileId
   );
 
-  useEffect(() => {
-    if (!trackId) return;
-    setIsMinimizedVideo(false);
-    setLocalVideoSrc(null);
-    setIsDownloading(false);
-    setDownloadProgress(0);
-  }, [trackId]);
-
-  // 🚀 Загружаем оригинальный видеофайл в кэш диска юзера с авто-докачкой при обрывах
+  // 🚀 Загружаем оригинальный видеофайл в кэш диска юзера с авто-докачкой при обрывах (без прямого стриминга)
   useEffect(() => {
     let isCancelled = false;
     const abortController = new AbortController();
+
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+
+    if (!trackId) {
+      setLocalVideoSrc(null);
+      setIsDownloading(false);
+      setDownloadProgress(0);
+      setDownloadError(false);
+      return;
+    }
+
+    setIsMinimizedVideo(false);
+    setLocalVideoSrc(null);
+    setDownloadProgress(0);
+    setDownloadError(false);
+    setCurrentTime(0);
+    setDuration(0);
+
+    if (!hasVideo) {
+      setIsDownloading(false);
+      return;
+    }
+
+    setIsDownloading(true);
     
     async function downloadAndCacheVideo() {
-      if (!hasVideo || !trackId) return;
-
       const streamUrl = `/api/videos/stream/${trackId}`;
 
       try {
@@ -58,24 +77,25 @@ export default function Player() {
         const cache = await caches.open(cacheName);
         const cacheKey = new Request(streamUrl);
 
-        // 1. Проверяем, есть ли уже файл в кэше
+        // 1. Проверяем, есть ли уже валидный непустой файл в кэше
         const cachedResponse = await cache.match(cacheKey);
         if (cachedResponse) {
           const blob = await cachedResponse.blob();
-          if (!isCancelled) {
-            setLocalVideoSrc(URL.createObjectURL(blob));
-            setIsDownloading(false);
-            setDownloadProgress(100);
+          if (blob.size > 1024) {
+            if (!isCancelled) {
+              const objUrl = URL.createObjectURL(blob);
+              blobUrlRef.current = objUrl;
+              setLocalVideoSrc(objUrl);
+              setIsDownloading(false);
+              setDownloadProgress(100);
+            }
+            return;
+          } else {
+            await cache.delete(cacheKey);
           }
-          return;
         }
 
-        // 2. Скачиваем файл с поддержкой докачки с того же байта при обрыве потока
-        if (!isCancelled) {
-          setIsDownloading(true);
-          setDownloadProgress(0);
-        }
-
+        // 2. Скачиваем файл целиком в локальный буфер с докачкой с того же байта при обрывах
         let receivedLength = 0;
         let totalLength = 0;
         let contentType = "video/mp4";
@@ -101,14 +121,19 @@ export default function Player() {
               throw new Error(`HTTP ${response.status}`);
             }
 
+            const headerTotal = Number(
+              response.headers.get("X-Total-Size") ||
+              response.headers.get("Content-Length") ||
+              0
+            );
+
             if (receivedLength === 0) {
-              totalLength = Number(response.headers.get("Content-Length") || 0);
+              totalLength = headerTotal;
               contentType = response.headers.get("Content-Type") || "video/mp4";
             } else if (response.status === 200) {
-              // Если сервер не поддержал Range и отдает заново, сбрасываем буфер
               receivedLength = 0;
               chunks.length = 0;
-              totalLength = Number(response.headers.get("Content-Length") || 0);
+              totalLength = headerTotal;
             }
 
             const reader = response.body.getReader();
@@ -128,7 +153,6 @@ export default function Player() {
               }
             }
 
-            // Если дочитали до конца без исключений — выходим из цикла докачки
             break;
           } catch (chunkErr: any) {
             if (isCancelled || chunkErr?.name === "AbortError") return;
@@ -136,8 +160,7 @@ export default function Player() {
             if (retries > maxRetries) {
               throw chunkErr;
             }
-            // Пауза 800мс перед докачкой с текущего процента (без сброса прогресса!)
-            await new Promise((res) => setTimeout(res, 800));
+            await new Promise((res) => setTimeout(res, 1000));
           }
         }
 
@@ -145,20 +168,27 @@ export default function Player() {
 
         const blob = new Blob(chunks as unknown as BlobPart[], { type: contentType });
         
+        if (blob.size <= 1024) {
+          throw new Error("Получен пустой файл");
+        }
+
         // 3. Сохраняем готовый файл в кэш браузера
         await cache.put(cacheKey, new Response(blob));
 
         if (!isCancelled) {
-          setLocalVideoSrc(URL.createObjectURL(blob));
+          const objUrl = URL.createObjectURL(blob);
+          blobUrlRef.current = objUrl;
+          setLocalVideoSrc(objUrl);
           setIsDownloading(false);
           setDownloadProgress(100);
         }
 
       } catch (err) {
         if (isCancelled) return;
-        console.error("⚠️ Ошибка кеширования, фоллбек на прямой стрим:", err);
-        setLocalVideoSrc(streamUrl);
+        console.error("⚠️ Не удалось завершить загрузку видео в кэш:", err);
+        setLocalVideoSrc(null);
         setIsDownloading(false);
+        setDownloadError(true);
       }
     }
 
@@ -167,8 +197,12 @@ export default function Player() {
     return () => {
       isCancelled = true;
       abortController.abort();
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
     };
-  }, [trackId, hasVideo]);
+  }, [trackId, hasVideo, retryTrigger]);
 
   const handleMediaError = (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement, Event>) => {
     if (!e.currentTarget.getAttribute("src")) return;
@@ -273,8 +307,19 @@ export default function Player() {
       {hasVideo ? (
         isMinimizedVideo ? (
           <div className="fixed bottom-6 right-6 z-50 w-80 bg-neutral-900 border border-neutral-700 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)] animate-fadeIn">
-            <div className="relative aspect-video bg-black flex items-center justify-center group cursor-pointer" onClick={() => !isDownloading && setIsMinimizedVideo(false)}>
-              {isDownloading || !mediaSrc ? (
+            <div className="relative aspect-video bg-black flex items-center justify-center group cursor-pointer" onClick={() => !isDownloading && !downloadError && setIsMinimizedVideo(false)}>
+              {downloadError ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRetryTrigger((n) => n + 1);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-neutral-950 text-xs font-semibold border-none cursor-pointer"
+                >
+                  <RotateCcw size={14} />
+                  <span>Повторить</span>
+                </button>
+              ) : isDownloading || !mediaSrc ? (
                 <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
                   <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                   <span className="text-[10px] text-emerald-400 font-medium">Загрузка: {downloadProgress}%</span>
@@ -301,7 +346,7 @@ export default function Player() {
                 <p className="text-[10px] text-neutral-400 truncate">{currentTrack.singer}</p>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button onClick={togglePlay} disabled={isDownloading} className="p-1.5 rounded-full bg-emerald-500 text-neutral-950 hover:bg-emerald-400 transition cursor-pointer border-none disabled:opacity-50">
+                <button onClick={togglePlay} disabled={isDownloading || !mediaSrc} className="p-1.5 rounded-full bg-emerald-500 text-neutral-950 hover:bg-emerald-400 transition cursor-pointer border-none disabled:opacity-50">
                   {isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
                 </button>
                 <button onClick={closePlayer} className="p-1.5 rounded-lg bg-neutral-800 text-neutral-400 hover:text-red-400 transition cursor-pointer border-none">
@@ -336,7 +381,18 @@ export default function Player() {
                 </div>
 
                 <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
-                  {isDownloading || !mediaSrc ? (
+                  {downloadError ? (
+                    <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
+                      <span className="text-sm font-semibold text-red-400">Ошибка соединения при загрузке видео ({downloadProgress}%)</span>
+                      <button
+                        onClick={() => setRetryTrigger((n) => n + 1)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition cursor-pointer border-none"
+                      >
+                        <RotateCcw size={16} />
+                        <span>Повторить загрузку</span>
+                      </button>
+                    </div>
+                  ) : isDownloading || !mediaSrc ? (
                     <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
                       <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                       <div className="flex flex-col gap-1">
@@ -375,7 +431,7 @@ export default function Player() {
                       <button onClick={prevTrack} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none">
                         <SkipBack size={20} />
                       </button>
-                      <button onClick={togglePlay} disabled={isDownloading} className="p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-neutral-950 cursor-pointer transition border-none shadow-[0_0_15px_rgba(16,185,129,0.3)] disabled:opacity-50">
+                      <button onClick={togglePlay} disabled={isDownloading || !mediaSrc} className="p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-neutral-950 cursor-pointer transition border-none shadow-[0_0_15px_rgba(16,185,129,0.3)] disabled:opacity-50">
                         {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
                       </button>
                       <button onClick={nextTrack} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none">

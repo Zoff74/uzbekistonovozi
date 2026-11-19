@@ -34,11 +34,14 @@ function extractMessageId(video: any, fileId: string): number {
 
 export async function GET(
     request: NextRequest,
-    { params }: { params: Promise<{ fileId: string }> }
+    { params }: { params: Promise<{ fileId: string }> | { fileId: string } }
 ) {
     let client: TelegramClient | null = null;
     try {
-        const { fileId } = await params;
+        const resolvedParams = await params;
+        const fileId = resolvedParams?.fileId;
+        console.log(`[VIDEO STREAM] Запрос для fileId: ${fileId}, Range: ${request.headers.get("range") || "нет"}`);
+
         if (!fileId || fileId === "undefined" || fileId === "null") {
             return NextResponse.json({ error: "Невалидный fileId" }, { status: 400 });
         }
@@ -51,6 +54,7 @@ export async function GET(
               }).lean();
 
         if (!video) {
+            console.warn(`[VIDEO STREAM] Видео не найдено в БД: ${fileId}`);
             return NextResponse.json({ error: "Видео не найдено" }, { status: 404 });
         }
 
@@ -72,6 +76,7 @@ export async function GET(
 
         const entity = await client.getEntity(videoChatId);
         const messageIdNum = extractMessageId(video, fileId);
+        console.log(`[VIDEO STREAM] Поиск сообщения в Telegram ID: ${messageIdNum}`);
         let media: any = null;
 
         if (messageIdNum) {
@@ -95,11 +100,12 @@ export async function GET(
 
         if (!media || !media.document) {
             await client.disconnect().catch(() => {});
+            console.warn(`[VIDEO STREAM] Медиафайл не найден в Telegram для ${fileId}`);
             return NextResponse.json({ error: "Медиафайл не найден в Telegram" }, { status: 404 });
         }
 
-        // Берем исключительно реальный размер файла напрямую из Telegram
         const totalFileSize = Number(media.document.size || 0);
+        console.log(`[VIDEO STREAM] Реальный размер в Telegram: ${totalFileSize} байт (${(totalFileSize / 1024 / 1024).toFixed(2)} МБ)`);
 
         if (!totalFileSize) {
             await client.disconnect().catch(() => {});
@@ -136,6 +142,7 @@ export async function GET(
         let bytesRemaining = chunkSizeToFetch;
 
         const activeClient = client;
+        let isStreamClosed = false;
 
         const readableStream = new ReadableStream({
             async start(controller) {
@@ -149,7 +156,7 @@ export async function GET(
                     });
 
                     for await (const chunk of generator) {
-                        if (bytesRemaining <= 0) break;
+                        if (isStreamClosed || bytesRemaining <= 0) break;
 
                         let buffer = Buffer.from(chunk);
 
@@ -166,19 +173,29 @@ export async function GET(
                             buffer = buffer.subarray(0, bytesRemaining);
                         }
 
-                        controller.enqueue(new Uint8Array(buffer));
+                        if (!isStreamClosed) {
+                            controller.enqueue(new Uint8Array(buffer));
+                        }
                         bytesRemaining -= buffer.length;
 
                         if (bytesRemaining <= 0) break;
                     }
-                    controller.close();
+                    if (!isStreamClosed) {
+                        isStreamClosed = true;
+                        controller.close();
+                    }
                 } catch (err) {
-                    controller.error(err);
+                    if (!isStreamClosed) {
+                        isStreamClosed = true;
+                        console.error("🔥 [VIDEO STREAM CHUNK ERROR]:", err);
+                        try { controller.error(err); } catch {}
+                    }
                 } finally {
                     await activeClient.disconnect().catch(() => {});
                 }
             },
             cancel() {
+                isStreamClosed = true;
                 activeClient.disconnect().catch(() => {});
             }
         });
@@ -187,6 +204,7 @@ export async function GET(
             "Content-Type": media.document.mimeType || "video/mp4",
             "Accept-Ranges": "bytes",
             "Content-Length": String(chunkSizeToFetch),
+            "X-Total-Size": String(totalFileSize),
             "Cache-Control": "no-store",
         };
 
