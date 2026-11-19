@@ -1,6 +1,6 @@
 "use client";
 //src\app\page.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
@@ -37,12 +37,19 @@ export default function Home() {
     const [clips, setClips] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingClips, setLoadingClips] = useState(true);
+    const hasFetchedRef = useRef(false);
+
+    const userId = (session?.user as any)?.id || session?.user?.email || null;
 
     useEffect(() => {
-        if (!session?.user) {
+        if (!userId) {
             setLoading(false);
+            setLoadingClips(false);
             return;
         }
+
+        if (hasFetchedRef.current) return;
+        hasFetchedRef.current = true;
 
         fetch("/api/tracks")
             .then((res) => res.json())
@@ -57,13 +64,6 @@ export default function Home() {
             })
             .catch((err) => console.error("Ошибка загрузки треков:", err))
             .finally(() => setLoading(false));
-    }, [session]);
-
-    useEffect(() => {
-        if (!session?.user) {
-            setLoadingClips(false);
-            return;
-        }
 
         fetch("/api/videos")
             .then((res) => res.json())
@@ -78,7 +78,7 @@ export default function Home() {
             })
             .catch((err) => console.error("Ошибка загрузки клипов:", err))
             .finally(() => setLoadingClips(false));
-    }, [session]);
+    }, [userId]);
 
     const handleTogglePlay = (track: Track) => {
         const formattedTrack = {

@@ -14,6 +14,8 @@ export interface IUser extends Document {
     balance: number;
     followers: Types.ObjectId[];
     following: Types.ObjectId[];
+    purchasedTracks: Types.ObjectId[];
+    purchasedVideos: Types.ObjectId[];
     bio?: string | null;
     location?: string | null;
     address?: {
@@ -73,6 +75,8 @@ const userSchema = new Schema<IUser>({
     balance: { type: Number, required: true, default: 0 },
     followers: [{ type: Schema.Types.ObjectId, ref: "User" }],
     following: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    purchasedTracks: { type: [{ type: Schema.Types.ObjectId, ref: "Track" }], required: true, default: [] },
+    purchasedVideos: { type: [{ type: Schema.Types.ObjectId, ref: "Video" }], required: true, default: [] },
     bio: { type: String, required: false, trim: true, maxlength: 1000 },
     location: { type: String, required: false, trim: true, maxlength: 50 },
     address: {

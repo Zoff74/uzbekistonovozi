@@ -53,6 +53,10 @@
 │   │   │   │   └── route.ts
 │   │   │   ├── discussions
 │   │   │   │   └── route.ts
+│   │   │   ├── download
+│   │   │   │   └── [type]
+│   │   │   │       └── [id]
+│   │   │   │           └── route.ts
 │   │   │   ├── imagekit-auth
 │   │   │   │   └── route.ts
 │   │   │   ├── instruments

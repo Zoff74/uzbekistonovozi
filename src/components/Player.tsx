@@ -37,7 +37,7 @@ export default function Player() {
     (currentTrack as any)?.videoFileId
   );
 
-  // 🚀 Загружаем оригинальный видеофайл в кэш диска юзера с авто-докачкой при обрывах (без прямого стриминга)
+  // 🚀 Многопоточная загрузка видео по принципу IDM (4 сегмента + микропроценты 0.0000% + кэш v5)
   useEffect(() => {
     let isCancelled = false;
     const abortController = new AbortController();
@@ -69,15 +69,20 @@ export default function Player() {
 
     setIsDownloading(true);
     
-    async function downloadAndCacheVideo() {
+    async function downloadAndCacheVideoIDM() {
       const streamUrl = `/api/videos/stream/${trackId}`;
 
       try {
-        const cacheName = "uzbekistonovozi-video-cache-v2";
+        // Удаляем все старые версии кэша с поврежденными/сдвинутыми сегментами
+        await caches.delete("uzbekistonovozi-video-cache-v2").catch(() => {});
+        await caches.delete("uzbekistonovozi-video-cache-v3").catch(() => {});
+        await caches.delete("uzbekistonovozi-video-cache-v4").catch(() => {});
+
+        const cacheName = "uzbekistonovozi-video-cache-v5";
         const cache = await caches.open(cacheName);
         const cacheKey = new Request(streamUrl);
 
-        // 1. Проверяем, есть ли уже валидный непустой файл в кэше
+        // 1. Проверяем, есть ли уже целый файл в чистом кэше v5
         const cachedResponse = await cache.match(cacheKey);
         if (cachedResponse) {
           const blob = await cachedResponse.blob();
@@ -95,94 +100,167 @@ export default function Player() {
           }
         }
 
-        // 2. Скачиваем файл целиком в локальный буфер с докачкой с того же байта при обрывах
-        let receivedLength = 0;
-        let totalLength = 0;
-        let contentType = "video/mp4";
-        const chunks: Uint8Array[] = [];
-        let retries = 0;
-        const maxRetries = 10;
+        // 2. Пробный запрос bytes=0-0 (1 байт), чтобы мгновенно узнать точный размер и тип файла
+        const probeRes = await fetch(streamUrl, {
+          headers: { Range: "bytes=0-0" },
+          signal: abortController.signal,
+        });
 
-        while (true) {
-          if (isCancelled) return;
-
-          try {
-            const headers: Record<string, string> = {};
-            if (receivedLength > 0) {
-              headers["Range"] = `bytes=${receivedLength}-`;
-            }
-
-            const response = await fetch(streamUrl, {
-              headers,
-              signal: abortController.signal,
-            });
-
-            if (!response.ok || !response.body) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-
-            const headerTotal = Number(
-              response.headers.get("X-Total-Size") ||
-              response.headers.get("Content-Length") ||
-              0
-            );
-
-            if (receivedLength === 0) {
-              totalLength = headerTotal;
-              contentType = response.headers.get("Content-Type") || "video/mp4";
-            } else if (response.status === 200) {
-              receivedLength = 0;
-              chunks.length = 0;
-              totalLength = headerTotal;
-            }
-
-            const reader = response.body.getReader();
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              if (isCancelled) {
-                reader.cancel();
-                return;
-              }
-              chunks.push(value);
-              receivedLength += value.length;
-              if (totalLength > 0 && !isCancelled) {
-                const percent = Math.min(99, Math.round((receivedLength / totalLength) * 100));
-                setDownloadProgress(percent);
-              }
-            }
-
-            break;
-          } catch (chunkErr: any) {
-            if (isCancelled || chunkErr?.name === "AbortError") return;
-            retries += 1;
-            if (retries > maxRetries) {
-              throw chunkErr;
-            }
-            await new Promise((res) => setTimeout(res, 1000));
-          }
+        if (!probeRes.ok) {
+          throw new Error(`HTTP ${probeRes.status}`);
         }
+
+        let totalLength = Number(probeRes.headers.get("X-Total-Size") || 0);
+        if (!totalLength) {
+          const contentRange = probeRes.headers.get("Content-Range") || "";
+          const match = contentRange.match(/\/(\d+)$/);
+          if (match) totalLength = Number(match[1]);
+        }
+        const contentType = probeRes.headers.get("Content-Type") || "video/mp4";
+        await probeRes.body?.cancel().catch(() => {});
+
+        if (!totalLength || totalLength <= 0) {
+          throw new Error("Не удалось определить размер видеофайла");
+        }
+
+        // 3. Делим файл на 4 сегмента (выровненных по 4096 байт) для файлов больше 5 МБ, иначе 1 поток
+        const THREADS = totalLength > 5 * 1024 * 1024 ? 4 : 1;
+        const rawSegmentSize = Math.ceil(totalLength / THREADS);
+        const alignedSegmentSize = Math.ceil(rawSegmentSize / 4096) * 4096;
+
+        const segments: { start: number; end: number }[] = [];
+        for (let i = 0; i < THREADS; i++) {
+          const start = i * alignedSegmentSize;
+          if (start >= totalLength) break;
+          const end = Math.min(totalLength - 1, (i + 1) * alignedSegmentSize - 1);
+          segments.push({ start, end });
+        }
+
+        const threadProgress = new Array<number>(segments.length).fill(0);
+        const updateTotalProgress = () => {
+          if (isCancelled) return;
+          const totalReceived = threadProgress.reduce((acc, v) => acc + v, 0);
+          const exactPercent = Math.min(99.9999, (totalReceived / totalLength) * 100);
+          setDownloadProgress(exactPercent);
+        };
+
+        // Функция скачивания сегмента с побайтовой верификацией Content-Range
+        const downloadSegment = async (segIndex: number, segStart: number, segEnd: number): Promise<Blob> => {
+          const expectedBytes = segEnd - segStart + 1;
+          let receivedInSeg = 0;
+          const segChunks: Uint8Array[] = [];
+          let retries = 0;
+          const maxRetries = 8;
+
+          while (receivedInSeg < expectedBytes) {
+            if (isCancelled) throw new Error("Cancelled");
+
+            try {
+              const currentStart = segStart + receivedInSeg;
+              const res = await fetch(streamUrl, {
+                headers: { Range: `bytes=${currentStart}-${segEnd}` },
+                signal: abortController.signal,
+              });
+
+              if (!res.ok || !res.body) {
+                throw new Error(`HTTP ${res.status}`);
+              }
+
+              // Проверяем фактический стартовый байт из Content-Range
+              let serverStart = 0;
+              if (res.status === 206) {
+                const cr = res.headers.get("Content-Range") || "";
+                const m = cr.match(/bytes\s+(\d+)-(\d+)\/(\d+)/i);
+                if (m) {
+                  serverStart = Number(m[1]);
+                } else {
+                  serverStart = currentStart;
+                }
+              }
+
+              if (serverStart > currentStart) {
+                throw new Error(`Сервер вернул смещенный диапазон: ${serverStart} > ${currentStart}`);
+              }
+
+              let bytesToSkip = currentStart - serverStart;
+
+              const reader = res.body.getReader();
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (isCancelled) {
+                  reader.cancel();
+                  throw new Error("Cancelled");
+                }
+
+                let chunk = value;
+                if (bytesToSkip > 0) {
+                  if (chunk.length <= bytesToSkip) {
+                    bytesToSkip -= chunk.length;
+                    continue;
+                  }
+                  chunk = chunk.subarray(bytesToSkip);
+                  bytesToSkip = 0;
+                }
+
+                const needed = expectedBytes - receivedInSeg;
+                if (chunk.length > needed) {
+                  chunk = chunk.subarray(0, needed);
+                }
+
+                segChunks.push(chunk);
+                receivedInSeg += chunk.length;
+                threadProgress[segIndex] = Math.min(expectedBytes, receivedInSeg);
+                updateTotalProgress();
+
+                if (receivedInSeg >= expectedBytes) {
+                  await reader.cancel().catch(() => {});
+                  break;
+                }
+              }
+
+              if (receivedInSeg < expectedBytes) {
+                throw new Error("Неполный сегмент, докачиваем остаток");
+              }
+            } catch (err: any) {
+              if (isCancelled || err?.name === "AbortError" || err?.message === "Cancelled") {
+                throw err;
+              }
+              retries += 1;
+              if (retries > maxRetries) {
+                throw err;
+              }
+              await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+
+          return new Blob(segChunks as unknown as BlobPart[]);
+        };
+
+        // 4. Запускаем все 4 потока одновременно и ждем завершения всех сегментов
+        const segmentBlobs = await Promise.all(
+          segments.map((seg, idx) => downloadSegment(idx, seg.start, seg.end))
+        );
 
         if (isCancelled) return;
 
-        const blob = new Blob(chunks as unknown as BlobPart[], { type: contentType });
-        
-        if (blob.size <= 1024) {
-          throw new Error("Получен пустой файл");
+        // 5. Склеиваем сегменты по порядку в единый оригинальный видеофайл
+        const finalBlob = new Blob(segmentBlobs, { type: contentType });
+
+        if (finalBlob.size !== totalLength) {
+          throw new Error(`Несовпадение размера: получено ${finalBlob.size}, ожидалось ${totalLength}`);
         }
 
-        // 3. Сохраняем готовый файл в кэш браузера
-        await cache.put(cacheKey, new Response(blob));
+        // 6. Сохраняем готовый файл в кэш браузера
+        await cache.put(cacheKey, new Response(finalBlob));
 
         if (!isCancelled) {
-          const objUrl = URL.createObjectURL(blob);
+          const objUrl = URL.createObjectURL(finalBlob);
           blobUrlRef.current = objUrl;
           setLocalVideoSrc(objUrl);
           setIsDownloading(false);
           setDownloadProgress(100);
         }
-
       } catch (err) {
         if (isCancelled) return;
         console.error("⚠️ Не удалось завершить загрузку видео в кэш:", err);
@@ -192,7 +270,7 @@ export default function Player() {
       }
     }
 
-    downloadAndCacheVideo();
+    downloadAndCacheVideoIDM();
 
     return () => {
       isCancelled = true;
@@ -277,6 +355,7 @@ export default function Player() {
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   const volumePercent = isMuted ? 0 : volume * 100;
+  const formattedDownloadPercent = downloadProgress.toFixed(4);
 
   return (
     <>
@@ -320,15 +399,20 @@ export default function Player() {
                   <span>Повторить</span>
                 </button>
               ) : isDownloading || !mediaSrc ? (
-                <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
-                  <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-[10px] text-emerald-400 font-medium">Загрузка: {downloadProgress}%</span>
+                <div className="relative w-full h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
+                  {currentTrack?.cover && (
+                    <img src={currentTrack.cover} alt={currentTrack.title} className="absolute inset-0 w-full h-full object-cover opacity-30 blur-[2px]" />
+                  )}
+                  <div className="relative z-10 w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="relative z-10 text-xs text-emerald-400 font-mono font-bold">Загрузка: {formattedDownloadPercent}%</span>
                 </div>
               ) : (
                 <video 
                   ref={mediaRef as React.RefObject<HTMLVideoElement>} 
                   src={mediaSrc} 
-                  preload="metadata"
+                  poster={currentTrack?.cover || undefined}
+                  preload="auto"
+                  playsInline
                   controlsList="nodownload"
                   disablePictureInPicture
                   onContextMenu={(e) => e.preventDefault()}
@@ -361,8 +445,12 @@ export default function Player() {
               <div className="flex-1 flex flex-col h-full bg-black/50 border-r border-neutral-800">
                 <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-800 bg-neutral-950">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-                      <Film size={18} />
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 overflow-hidden">
+                      {currentTrack?.cover ? (
+                        <img src={currentTrack.cover} alt={currentTrack.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <Film size={18} />
+                      )}
                     </div>
                     <div className="truncate">
                       <h3 className="font-bold text-sm text-white truncate">{currentTrack.title}</h3>
@@ -383,7 +471,7 @@ export default function Player() {
                 <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
                   {downloadError ? (
                     <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
-                      <span className="text-sm font-semibold text-red-400">Ошибка соединения при загрузке видео ({downloadProgress}%)</span>
+                      <span className="text-sm font-semibold text-red-400">Ошибка соединения при загрузке видео ({formattedDownloadPercent}%)</span>
                       <button
                         onClick={() => setRetryTrigger((n) => n + 1)}
                         className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition cursor-pointer border-none"
@@ -393,26 +481,48 @@ export default function Player() {
                       </button>
                     </div>
                   ) : isDownloading || !mediaSrc ? (
-                    <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
-                      <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-sm font-semibold text-white">Идет загрузка видео файла... Дождитесь окончания ({downloadProgress}%)</span>
+                    <div className="relative w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+                      {currentTrack?.cover && (
+                        <img
+                          src={currentTrack.cover}
+                          alt={currentTrack.title}
+                          className="absolute inset-0 w-full h-full object-cover opacity-25 blur-sm pointer-events-none"
+                        />
+                      )}
+                      <div className="relative z-10 flex flex-col items-center gap-4 max-w-md w-full bg-neutral-950/85 border border-neutral-800 rounded-2xl p-6 shadow-2xl">
+                        <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                        <div className="flex flex-col gap-2 w-full">
+                          <span className="text-lg font-mono font-bold text-emerald-400 tabular-nums">
+                            {formattedDownloadPercent}%
+                          </span>
+                          <div className="w-full h-2.5 bg-neutral-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-emerald-500 transition-all duration-75"
+                              style={{ width: `${downloadProgress}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-neutral-400">
+                            Идет многопоточная загрузка видео... Дождитесь окончания
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ) : (
                     <video 
                       ref={mediaRef as React.RefObject<HTMLVideoElement>} 
                       src={mediaSrc} 
-                      preload="metadata" 
-                      controls
+                      poster={currentTrack?.cover || undefined}
+                      preload="auto"
+                      playsInline
                       controlsList="nodownload"
                       disablePictureInPicture
+                      onClick={togglePlay}
                       onContextMenu={(e) => e.preventDefault()}
                       onTimeUpdate={handleTimeUpdate} 
                       onLoadedMetadata={handleLoadedMetadata} 
                       onEnded={() => nextTrack()} 
                       onError={handleMediaError} 
-                      className="w-full h-full object-contain" 
+                      className="w-full h-full object-contain cursor-pointer" 
                     />
                   )}
                 </div>

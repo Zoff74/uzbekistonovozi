@@ -59,11 +59,10 @@ export default function VipTracksSection({
             return;
         }
 
-        // Если оплачено — скачиваем файл
+        // Если оплачено — скачиваем оригинал через защищённый роут
         const a = document.createElement("a");
-        a.href = track.audioUrl;
+        a.href = `/api/download/track/${track._id}`;
         a.download = `${track.singer} - ${track.title}.mp3`;
-        a.target = "_blank";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

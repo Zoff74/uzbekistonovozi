@@ -2,7 +2,7 @@
 
 // БЛОК - "VIP Видео Клиплар" src\components\VipClipsSection.tsx
 import React, { useState } from "react";
-import { Video, Play, X, Download, Lock, CreditCard } from "lucide-react";
+import { Video, Play, Lock, CreditCard } from "lucide-react";
 import { tr } from "@/utils/translate";
 
 interface Clip {
@@ -23,12 +23,10 @@ interface VipClipsProps {
 }
 
 export default function VipClips({ clips, loading, onSelectClip }: VipClipsProps) {
-    const [selectedClip, setSelectedClip] = useState<Clip | null>(null);
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [pendingClip, setPendingClip] = useState<Clip | null>(null);
 
     const handleCardClick = (clip: Clip) => {
-        setSelectedClip(clip);
         if (onSelectClip) {
             onSelectClip(clip);
         }
@@ -45,10 +43,10 @@ export default function VipClips({ clips, loading, onSelectClip }: VipClipsProps
             return;
         }
 
+        // Если оплачено — скачиваем оригинал через защищённый роут
         const a = document.createElement("a");
-        a.href = clip.videoUrl;
+        a.href = `/api/download/video/${clip._id}`;
         a.download = `${clip.title}.mp4`;
-        a.target = "_blank";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -129,52 +127,6 @@ export default function VipClips({ clips, loading, onSelectClip }: VipClipsProps
             ) : (
                 <div className="bg-slate-900/30 border border-white/5 rounded-2xl p-8 text-center text-slate-400">
                     <p className="text-sm">{tr("Ҳозирча Сизда VIP клиплар мавжуд эмас.", "Hozircha Sizda VIP kliplar mavjud emas.", "У Вас пока нет VIP клипов.", "No VIP clips available yet.")}</p>
-                </div>
-            )}
-
-            {/* Модальное окно плеера видеоклипа */}
-            {selectedClip && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in overflow-y-auto">
-                    <div className="bg-slate-900 border border-white/10 rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-hidden shadow-2xl relative flex flex-col my-auto">
-                        
-                        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/5 flex-shrink-0">
-                            <div className="truncate pr-2">
-                                <h3 className="font-bold text-sm sm:text-base text-white truncate">{selectedClip.title}</h3>
-                                <p className="text-xs text-slate-400 truncate">{selectedClip.singer}</p>
-                            </div>
-                            <button
-                                onClick={() => setSelectedClip(null)}
-                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer flex-shrink-0"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-
-                        <div className="bg-black w-full flex-1 flex items-center justify-center overflow-hidden min-h-[220px] max-h-[60vh]">
-                            <video
-                                src={selectedClip.videoUrl}
-                                controls
-                                autoPlay
-                                playsInline
-                                className="w-full h-full object-contain max-h-[60vh]"
-                                controlsList="nodownload"
-                                onContextMenu={(e) => e.preventDefault()}
-                            />
-                        </div>
-
-                        <div className="flex items-center justify-between px-5 py-3.5 bg-slate-950/80 border-t border-white/5 flex-shrink-0">
-                            <span className="text-xs text-slate-400 hidden sm:inline">
-                                {tr("VIP контент ҳуқуқлари ҳимояланган", "VIP kontent huquqlari himoyalangan", "Права на VIP контент защищены", "VIP content rights are protected")}
-                            </span>
-                            <button
-                                onClick={(e) => handleDownloadClick(e, selectedClip)}
-                                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition shadow-lg cursor-pointer"
-                            >
-                                <Lock className="w-4 h-4" /> {tr("Сотиб олиш", "Sotib olish", "Купить", "Buy")}
-                            </button>
-                        </div>
-
-                    </div>
                 </div>
             )}
 

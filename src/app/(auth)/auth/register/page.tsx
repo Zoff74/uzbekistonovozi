@@ -232,7 +232,15 @@ function RegisterForm() {
                         borderImageSlice: 1
                     }}>
 
-                    <Image alt="Logo" width={160} height={160} sizes="120px" src="/img/muzikanti.webp" priority />
+                    <Image
+  alt="Logo"
+  width={160}
+  height={160}
+  sizes="120px"
+  src="/img/muzikanti.webp"
+  priority
+  className="w-[120px] h-auto"
+/>
 
                     <div className="w-full flex flex-col justify-center items-center text-center">
     <span className="text-[#FFDA09] !text-[20px] font-thin antialiased leading-[1.3] tracking-tighter break-words max-w-full whitespace-pre-line" style={{ fontFamily: "'Bad Script', cursive", fontWeight: '400' }}>
