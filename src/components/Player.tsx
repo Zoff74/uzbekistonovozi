@@ -7,6 +7,7 @@ import { tr } from "@/utils/translate";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Discussion from "@/components/Discussion";
+import { loadVideoToDevice } from "@/utils/videoDeviceCache";
 
 export default function Player() {
   const pathname = usePathname();
@@ -15,6 +16,7 @@ export default function Player() {
   
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  const lastTimeUpdateRef = useRef<number>(0);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -37,22 +39,12 @@ export default function Player() {
     (currentTrack as any)?.videoFileId
   );
 
-  // 🚀 Многопоточная загрузка видео по принципу IDM (4 сегмента + микропроценты 0.0000% + кэш v5)
   useEffect(() => {
-    let isCancelled = false;
     const abortController = new AbortController();
 
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
-    }
-
-    if (!trackId) {
-      setLocalVideoSrc(null);
-      setIsDownloading(false);
-      setDownloadProgress(0);
-      setDownloadError(false);
-      return;
     }
 
     setIsMinimizedVideo(false);
@@ -62,218 +54,32 @@ export default function Player() {
     setCurrentTime(0);
     setDuration(0);
 
-    if (!hasVideo) {
+    if (!trackId || !hasVideo) {
       setIsDownloading(false);
       return;
     }
 
     setIsDownloading(true);
-    
-    async function downloadAndCacheVideoIDM() {
-      const streamUrl = `/api/videos/stream/${trackId}`;
 
-      try {
-        // Удаляем все старые версии кэша с поврежденными/сдвинутыми сегментами
-        await caches.delete("uzbekistonovozi-video-cache-v2").catch(() => {});
-        await caches.delete("uzbekistonovozi-video-cache-v3").catch(() => {});
-        await caches.delete("uzbekistonovozi-video-cache-v4").catch(() => {});
-
-        const cacheName = "uzbekistonovozi-video-cache-v5";
-        const cache = await caches.open(cacheName);
-        const cacheKey = new Request(streamUrl);
-
-        // 1. Проверяем, есть ли уже целый файл в чистом кэше v5
-        const cachedResponse = await cache.match(cacheKey);
-        if (cachedResponse) {
-          const blob = await cachedResponse.blob();
-          if (blob.size > 1024) {
-            if (!isCancelled) {
-              const objUrl = URL.createObjectURL(blob);
-              blobUrlRef.current = objUrl;
-              setLocalVideoSrc(objUrl);
-              setIsDownloading(false);
-              setDownloadProgress(100);
-            }
-            return;
-          } else {
-            await cache.delete(cacheKey);
-          }
+    loadVideoToDevice(String(trackId), abortController.signal, setDownloadProgress)
+      .then((objUrl) => {
+        if (abortController.signal.aborted) {
+          URL.revokeObjectURL(objUrl);
+          return;
         }
-
-        // 2. Пробный запрос bytes=0-0 (1 байт), чтобы мгновенно узнать точный размер и тип файла
-        const probeRes = await fetch(streamUrl, {
-          headers: { Range: "bytes=0-0" },
-          signal: abortController.signal,
-        });
-
-        if (!probeRes.ok) {
-          throw new Error(`HTTP ${probeRes.status}`);
-        }
-
-        let totalLength = Number(probeRes.headers.get("X-Total-Size") || 0);
-        if (!totalLength) {
-          const contentRange = probeRes.headers.get("Content-Range") || "";
-          const match = contentRange.match(/\/(\d+)$/);
-          if (match) totalLength = Number(match[1]);
-        }
-        const contentType = probeRes.headers.get("Content-Type") || "video/mp4";
-        await probeRes.body?.cancel().catch(() => {});
-
-        if (!totalLength || totalLength <= 0) {
-          throw new Error("Не удалось определить размер видеофайла");
-        }
-
-        // 3. Делим файл на 4 сегмента (выровненных по 4096 байт) для файлов больше 5 МБ, иначе 1 поток
-        const THREADS = totalLength > 5 * 1024 * 1024 ? 4 : 1;
-        const rawSegmentSize = Math.ceil(totalLength / THREADS);
-        const alignedSegmentSize = Math.ceil(rawSegmentSize / 4096) * 4096;
-
-        const segments: { start: number; end: number }[] = [];
-        for (let i = 0; i < THREADS; i++) {
-          const start = i * alignedSegmentSize;
-          if (start >= totalLength) break;
-          const end = Math.min(totalLength - 1, (i + 1) * alignedSegmentSize - 1);
-          segments.push({ start, end });
-        }
-
-        const threadProgress = new Array<number>(segments.length).fill(0);
-        const updateTotalProgress = () => {
-          if (isCancelled) return;
-          const totalReceived = threadProgress.reduce((acc, v) => acc + v, 0);
-          const exactPercent = Math.min(99.9999, (totalReceived / totalLength) * 100);
-          setDownloadProgress(exactPercent);
-        };
-
-        // Функция скачивания сегмента с побайтовой верификацией Content-Range
-        const downloadSegment = async (segIndex: number, segStart: number, segEnd: number): Promise<Blob> => {
-          const expectedBytes = segEnd - segStart + 1;
-          let receivedInSeg = 0;
-          const segChunks: Uint8Array[] = [];
-          let retries = 0;
-          const maxRetries = 8;
-
-          while (receivedInSeg < expectedBytes) {
-            if (isCancelled) throw new Error("Cancelled");
-
-            try {
-              const currentStart = segStart + receivedInSeg;
-              const res = await fetch(streamUrl, {
-                headers: { Range: `bytes=${currentStart}-${segEnd}` },
-                signal: abortController.signal,
-              });
-
-              if (!res.ok || !res.body) {
-                throw new Error(`HTTP ${res.status}`);
-              }
-
-              // Проверяем фактический стартовый байт из Content-Range
-              let serverStart = 0;
-              if (res.status === 206) {
-                const cr = res.headers.get("Content-Range") || "";
-                const m = cr.match(/bytes\s+(\d+)-(\d+)\/(\d+)/i);
-                if (m) {
-                  serverStart = Number(m[1]);
-                } else {
-                  serverStart = currentStart;
-                }
-              }
-
-              if (serverStart > currentStart) {
-                throw new Error(`Сервер вернул смещенный диапазон: ${serverStart} > ${currentStart}`);
-              }
-
-              let bytesToSkip = currentStart - serverStart;
-
-              const reader = res.body.getReader();
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                if (isCancelled) {
-                  reader.cancel();
-                  throw new Error("Cancelled");
-                }
-
-                let chunk = value;
-                if (bytesToSkip > 0) {
-                  if (chunk.length <= bytesToSkip) {
-                    bytesToSkip -= chunk.length;
-                    continue;
-                  }
-                  chunk = chunk.subarray(bytesToSkip);
-                  bytesToSkip = 0;
-                }
-
-                const needed = expectedBytes - receivedInSeg;
-                if (chunk.length > needed) {
-                  chunk = chunk.subarray(0, needed);
-                }
-
-                segChunks.push(chunk);
-                receivedInSeg += chunk.length;
-                threadProgress[segIndex] = Math.min(expectedBytes, receivedInSeg);
-                updateTotalProgress();
-
-                if (receivedInSeg >= expectedBytes) {
-                  await reader.cancel().catch(() => {});
-                  break;
-                }
-              }
-
-              if (receivedInSeg < expectedBytes) {
-                throw new Error("Неполный сегмент, докачиваем остаток");
-              }
-            } catch (err: any) {
-              if (isCancelled || err?.name === "AbortError" || err?.message === "Cancelled") {
-                throw err;
-              }
-              retries += 1;
-              if (retries > maxRetries) {
-                throw err;
-              }
-              await new Promise((r) => setTimeout(r, 800));
-            }
-          }
-
-          return new Blob(segChunks as unknown as BlobPart[]);
-        };
-
-        // 4. Запускаем все 4 потока одновременно и ждем завершения всех сегментов
-        const segmentBlobs = await Promise.all(
-          segments.map((seg, idx) => downloadSegment(idx, seg.start, seg.end))
-        );
-
-        if (isCancelled) return;
-
-        // 5. Склеиваем сегменты по порядку в единый оригинальный видеофайл
-        const finalBlob = new Blob(segmentBlobs, { type: contentType });
-
-        if (finalBlob.size !== totalLength) {
-          throw new Error(`Несовпадение размера: получено ${finalBlob.size}, ожидалось ${totalLength}`);
-        }
-
-        // 6. Сохраняем готовый файл в кэш браузера
-        await cache.put(cacheKey, new Response(finalBlob));
-
-        if (!isCancelled) {
-          const objUrl = URL.createObjectURL(finalBlob);
-          blobUrlRef.current = objUrl;
-          setLocalVideoSrc(objUrl);
-          setIsDownloading(false);
-          setDownloadProgress(100);
-        }
-      } catch (err) {
-        if (isCancelled) return;
-        console.error("⚠️ Не удалось завершить загрузку видео в кэш:", err);
+        blobUrlRef.current = objUrl;
+        setLocalVideoSrc(objUrl);
+        setIsDownloading(false);
+      })
+      .catch((err) => {
+        if (abortController.signal.aborted || err?.name === "AbortError") return;
+        console.error("⚠️ Не удалось завершить сохранение видео на устройство:", err);
         setLocalVideoSrc(null);
         setIsDownloading(false);
         setDownloadError(true);
-      }
-    }
-
-    downloadAndCacheVideoIDM();
+      });
 
     return () => {
-      isCancelled = true;
       abortController.abort();
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
@@ -282,24 +88,14 @@ export default function Player() {
     };
   }, [trackId, hasVideo, retryTrigger]);
 
-  const handleMediaError = (e: React.SyntheticEvent<HTMLVideoElement | HTMLAudioElement, Event>) => {
-    if (!e.currentTarget.getAttribute("src")) return;
-    console.warn("⚠️ Ошибка воспроизведения медиафайла.");
-  };
-
   useEffect(() => {
     const media = mediaRef.current;
     if (!media || !currentTrack) return;
 
-    const canStartPlayback = hasVideo
-      ? !isDownloading && Boolean(localVideoSrc)
-      : true;
-
+    const canStartPlayback = hasVideo ? (!isDownloading && Boolean(localVideoSrc)) : true;
     if (isPlaying && canStartPlayback) {
       media.play().catch((err) => {
-        if (err.name !== "AbortError") {
-          console.error("🔥 Ошибка play():", err.message);
-        }
+        if (err.name !== "AbortError") console.error("🔥 Ошибка play():", err.message);
       });
     } else {
       media.pause();
@@ -315,7 +111,7 @@ export default function Player() {
   if (!currentTrack || (!isAuthenticated && pathname === "/")) {
     return null;
   }
-  
+
   const mediaSrc = hasVideo
     ? (localVideoSrc || "")
     : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
@@ -329,13 +125,10 @@ export default function Player() {
 
   const handleTimeUpdate = () => {
     if (!mediaRef.current) return;
+    const now = performance.now();
+    if (now - lastTimeUpdateRef.current < 250) return;
+    lastTimeUpdateRef.current = now;
     setCurrentTime(mediaRef.current.currentTime);
-  };
-
-  const handleLoadedMetadata = () => {
-    if (mediaRef.current) {
-      setDuration(mediaRef.current.duration);
-    }
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -417,9 +210,8 @@ export default function Player() {
                   disablePictureInPicture
                   onContextMenu={(e) => e.preventDefault()}
                   onTimeUpdate={handleTimeUpdate} 
-                  onLoadedMetadata={handleLoadedMetadata} 
+                  onLoadedMetadata={() => mediaRef.current && setDuration(mediaRef.current.duration)} 
                   onEnded={() => nextTrack()} 
-                  onError={handleMediaError} 
                   className="w-full h-full object-cover" 
                 />
               )}
@@ -502,7 +294,7 @@ export default function Player() {
                             />
                           </div>
                           <span className="text-xs text-neutral-400">
-                            Идет многопоточная загрузка видео... Дождитесь окончания
+                            Сохранение видео на устройство... Дождитесь окончания
                           </span>
                         </div>
                       </div>
@@ -519,9 +311,8 @@ export default function Player() {
                       onClick={togglePlay}
                       onContextMenu={(e) => e.preventDefault()}
                       onTimeUpdate={handleTimeUpdate} 
-                      onLoadedMetadata={handleLoadedMetadata} 
+                      onLoadedMetadata={() => mediaRef.current && setDuration(mediaRef.current.duration)} 
                       onEnded={() => nextTrack()} 
-                      onError={handleMediaError} 
                       className="w-full h-full object-contain cursor-pointer" 
                     />
                   )}
@@ -568,7 +359,6 @@ export default function Player() {
           </div>
         )
       ) : (
-        /* АУДИОПЛЕЕР (НИЖНЯЯ ПАНЕЛЬ) */
         <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 text-white z-50 shadow-2xl p-4">
           {mediaSrc && (
             <audio
@@ -577,9 +367,8 @@ export default function Player() {
               preload="metadata"
               controlsList="nodownload"
               onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={handleLoadedMetadata}
+              onLoadedMetadata={() => mediaRef.current && setDuration(mediaRef.current.duration)}
               onEnded={() => nextTrack()}
-              onError={handleMediaError}
             />
           )}
 

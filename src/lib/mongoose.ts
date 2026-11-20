@@ -29,7 +29,7 @@ if (!cached) {
 
 export const dbConnect = async (): Promise<typeof mongoose> => {
   // 🛑 ЖЕСТКАЯ БЛОКИРОВКА: если идет сборка (next build), база данных НЕ вызывается вообще
-  if (process.env.NEXT_PHASE === 'phase-production-build' || process.env.BUILDING === 'true' || process.env.NODE_ENV === 'production' && !process.env.PORT) {
+  if (process.env.NEXT_PHASE === 'phase-production-build' || process.env.BUILDING === 'true') {
     return mongoose;
   }
 

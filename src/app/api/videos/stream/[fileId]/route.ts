@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbConnect } from "@/lib/mongoose";
 import { Video } from "@/models/Video";
 import { Types } from "mongoose";
-import { TelegramClient } from "telegram";
+import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions";
 import bigInt from "big-integer";
 
@@ -161,6 +161,16 @@ export async function GET(
         }
 
         const { media, totalFileSize, mimeType } = mediaEntry;
+        const doc = media.document;
+        const dcId = Number(doc.dcId || 2);
+
+        const location = new Api.InputDocumentFileLocation({
+            id: bigInt(String(doc.id)),
+            accessHash: bigInt(String(doc.accessHash)),
+            fileReference: doc.fileReference,
+            thumbSize: "",
+        });
+
         const rangeHeader = request.headers.get("range");
         let start = 0;
         let end = totalFileSize - 1;
@@ -182,7 +192,7 @@ export async function GET(
             });
         }
 
-        // Мгновенный ответ на пробный запрос bytes=0-0 без вызова iterDownload
+        // Мгновенный ответ на пробный запрос bytes=0-0
         if (rangeHeader && start === 0 && end === 0) {
             return new NextResponse(new Uint8Array([0]), {
                 status: 206,
@@ -197,27 +207,78 @@ export async function GET(
             });
         }
 
-        const chunkSizeToFetch = (end - start) + 1;
+        const chunkSizeToFetch = end - start + 1;
         const alignedOffset = Math.floor(start / 4096) * 4096;
         let bytesToSkip = start - alignedOffset;
         let bytesRemaining = chunkSizeToFetch;
         let isStreamClosed = false;
 
+        // 1 МБ (1048576 байт — строго кратно 4096 и <= 1 МБ лимита Telegram MTProto)
+        const PART_SIZE = 1024 * 1024;
+        // 2 чанка в пайплайне на каждый из 4 HTTP-потоков = 8 параллельных запросов (стандарт Telegram Desktop)
+        const PIPELINE_DEPTH = 2;
+
+        const fetchPartWithRetry = async (offsetBytes: number): Promise<Buffer> => {
+            let attempt = 0;
+            while (true) {
+                if (isStreamClosed) return Buffer.alloc(0);
+                try {
+                    const result: any = await client.invoke(
+                        new Api.upload.GetFile({
+                            location,
+                            offset: bigInt(offsetBytes),
+                            limit: PART_SIZE,
+                            precise: true,
+                        }),
+                        dcId
+                    );
+                    return Buffer.from(result.bytes || []);
+                } catch (err: any) {
+                    attempt++;
+                    if (isStreamClosed || attempt > 6) throw err;
+
+                    const errMsg = String(err?.message || err?.errorMessage || "");
+
+                    if (errMsg.includes("FILE_REFERENCE")) {
+                        g.__tgVideoMediaCache.delete(fileId);
+                    }
+
+                    const floodMatch = errMsg.match(/FLOOD_WAIT_(\d+)/);
+                    if (floodMatch) {
+                        const waitSec = Math.min(30, Number(floodMatch[1]) || 2);
+                        await new Promise((r) => setTimeout(r, waitSec * 1000));
+                        continue;
+                    }
+
+                    await new Promise((r) => setTimeout(r, 300 * attempt));
+                }
+            }
+        };
+
         const readableStream = new ReadableStream({
             async start(controller) {
                 try {
-                    const generator = client.iterDownload({
-                        file: media,
-                        offset: bigInt(alignedOffset),
-                        fileSize: bigInt(totalFileSize),
-                        chunkSize: 1024 * 1024,
-                        requestSize: 1024 * 1024,
-                    });
+                    let nextFetchOffset = alignedOffset;
+                    const maxOffset = end + 1;
+                    const inFlight: Promise<Buffer>[] = [];
 
-                    for await (const chunk of generator) {
+                    const scheduleNext = () => {
+                        while (!isStreamClosed && inFlight.length < PIPELINE_DEPTH && nextFetchOffset < maxOffset) {
+                            const currentOffset = nextFetchOffset;
+                            nextFetchOffset += PART_SIZE;
+                            inFlight.push(fetchPartWithRetry(currentOffset));
+                        }
+                    };
+
+                    scheduleNext();
+
+                    while (inFlight.length > 0 && !isStreamClosed && bytesRemaining > 0) {
+                        const currentPromise = inFlight.shift()!;
+                        scheduleNext();
+
+                        let buffer = await currentPromise;
                         if (isStreamClosed || bytesRemaining <= 0) break;
-
-                        let buffer = Buffer.from(chunk);
+                        if (buffer.length === 0) break;
 
                         if (bytesToSkip > 0) {
                             if (buffer.length <= bytesToSkip) {
@@ -236,8 +297,6 @@ export async function GET(
                             controller.enqueue(new Uint8Array(buffer));
                         }
                         bytesRemaining -= buffer.length;
-
-                        if (bytesRemaining <= 0) break;
                     }
 
                     if (!isStreamClosed) {

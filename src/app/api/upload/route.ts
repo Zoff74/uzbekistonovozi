@@ -28,12 +28,46 @@ import fs from "fs/promises";
 import { createReadStream, createWriteStream } from "fs";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
+
+const execFileAsync = promisify(execFile);
 
 const imagekit = new ImageKit({
     privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key",
 });
+
+// Мгновенная оптимизация MP4 (+faststart без перекодирования, 0.3 сек). Остальные форматы отправляются напрямую без задержек.
+async function normalizeVideoForWeb(inputPath: string, tempDir: string, uniqueId: number): Promise<{ filePath: string; isTempConverted: boolean }> {
+    const isMp4Ext = inputPath.toLowerCase().endsWith(".mp4");
+    if (!isMp4Ext) {
+        return { filePath: inputPath, isTempConverted: false };
+    }
+
+    const outputPath = path.join(tempDir, `web_${uniqueId}.mp4`);
+
+    try {
+        await execFileAsync("ffmpeg", [
+            "-nostdin",
+            "-y",
+            "-i", inputPath,
+            "-c", "copy",
+            "-movflags", "+faststart",
+            outputPath,
+        ], { timeout: 15000 });
+
+        const stat = await fs.stat(outputPath);
+        if (stat.size > 1024) {
+            return { filePath: outputPath, isTempConverted: true };
+        }
+    } catch {
+        await fs.unlink(outputPath).catch(() => {});
+    }
+
+    return { filePath: inputPath, isTempConverted: false };
+}
 
 // MTProto клиент для обхода лимитов Telegram при загрузке видео >20МБ
 async function getMTProtoClient() {
@@ -58,6 +92,7 @@ async function getMTProtoClient() {
 
 export async function POST(request: NextRequest) {
     let inputPath = "";
+    let convertedVideoPath = "";
     let mtprotoClient: TelegramClient | null = null;
 
     try {
@@ -189,8 +224,17 @@ export async function POST(request: NextRequest) {
 
         // 3. ВИДЕО — СТРОГО В ПУБЛИЧНЫЙ КАНАЛ (@uzbekistonovozi_video) ЧЕРЕЗ MTPROTO
         if (uploadType === "video") {
+            const normalized = await normalizeVideoForWeb(inputPath, tempDir, uniqueId);
+            const finalUploadPath = normalized.filePath;
+            if (normalized.isTempConverted) {
+                convertedVideoPath = normalized.filePath;
+            }
+
             mtprotoClient = await getMTProtoClient();
-            const caption = `🎬 ${originalName}`;
+            const finalDisplayName = normalized.isTempConverted
+                ? originalName.replace(/\.[^/.]+$/, "") + ".mp4"
+                : originalName;
+            const caption = `🎬 ${finalDisplayName}`;
 
             let thumbPath = "";
             if (coverFile) {
@@ -202,7 +246,7 @@ export async function POST(request: NextRequest) {
             const targetEntity = await mtprotoClient.getEntity(videoChatId);
 
             const uploadedMessage = await mtprotoClient.sendFile(targetEntity, {
-                file: inputPath,
+                file: finalUploadPath,
                 caption: caption,
                 parseMode: "html",
                 thumb: thumbPath || undefined,
@@ -214,6 +258,7 @@ export async function POST(request: NextRequest) {
             mtprotoClient = null;
 
             await fs.unlink(inputPath).catch(() => {});
+            if (convertedVideoPath) await fs.unlink(convertedVideoPath).catch(() => {});
             if (thumbPath) await fs.unlink(thumbPath).catch(() => {});
 
             const messageId = uploadedMessage.id;
@@ -225,7 +270,7 @@ export async function POST(request: NextRequest) {
                 messageId: messageId,
                 telegramMessageId: messageId,
                 url: postUrl,
-                name: originalName,
+                name: finalDisplayName,
             });
         }
 
@@ -237,6 +282,7 @@ export async function POST(request: NextRequest) {
             await mtprotoClient.disconnect().catch(() => {});
         }
         if (inputPath) await fs.unlink(inputPath).catch(() => {});
+        if (convertedVideoPath) await fs.unlink(convertedVideoPath).catch(() => {});
         console.error("🔥 [UPLOAD ERROR]:", error);
         return NextResponse.json(
             { error: error.message || "Ошибка при обработке файла" },
