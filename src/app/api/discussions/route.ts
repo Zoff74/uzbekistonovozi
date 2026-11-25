@@ -19,14 +19,13 @@ export async function GET(request: Request) {
 
     await dbConnect();
 
-    // Исправлено: запрашиваем username вместо name, так как в User модели поле называется username
     const comments = await Comment.find({ targetId })
       .populate("userId", "username image")
       .populate({
         path: "parentId",
         populate: { path: "userId", select: "username" },
       })
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: 1 })
       .lean();
 
     const formattedComments = comments.map((c: any) => {
@@ -35,13 +34,14 @@ export async function GET(request: Request) {
 
       return {
         id: c._id.toString(),
+        parentId: c.parentId ? (typeof c.parentId === "object" && c.parentId._id ? c.parentId._id.toString() : String(c.parentId)) : null,
         user: {
-          name: c.userId?.username || "Foydalanuvchi", // Использован username
+          name: c.userId?.username || "Foydalanuvchi",
           image: c.userId?.image || null,
         },
         text: c.text,
-        replyTo: c.parentId ? {
-          userName: c.parentId.userId?.username || "Foydalanuvchi", // Использован username
+        replyTo: c.parentId && typeof c.parentId === "object" ? {
+          userName: c.parentId.userId?.username || "Foydalanuvchi",
           text: c.parentId.text,
         } : null,
         createdAt: formattedDate,
@@ -80,7 +80,6 @@ export async function POST(request: Request) {
       parentId: parentId || null,
     });
 
-    // Исправлено: запрашиваем username вместо name
     await newComment.populate("userId", "username image");
     if (parentId) {
       await newComment.populate({
@@ -97,13 +96,14 @@ export async function POST(request: Request) {
 
     const formattedResponse = {
       id: newComment._id.toString(),
+      parentId: parentComment ? (typeof parentComment === "object" && parentComment._id ? parentComment._id.toString() : String(parentComment)) : null,
       user: {
-        name: populatedUser?.username || "Foydalanuvchi", // Использован username
+        name: populatedUser?.username || "Foydalanuvchi",
         image: populatedUser?.image || null,
       },
       text: newComment.text,
-      replyTo: parentComment ? {
-        userName: parentComment.userId?.username || "Foydalanuvchi", // Использован username
+      replyTo: parentComment && typeof parentComment === "object" ? {
+        userName: parentComment.userId?.username || "Foydalanuvchi",
         text: parentComment.text,
       } : null,
       createdAt: formattedDate,

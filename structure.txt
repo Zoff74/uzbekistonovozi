@@ -192,8 +192,6 @@
 │   └── instrumentation.ts
 ├── tmp
 │   └── videos
-│       ├── 6af5930ceed60e62118764da.mkv
-│       └── 6af5930ceed60e62118764da.mp4
 ├── .env.local
 ├── .gitignore
 ├── Dockerfile

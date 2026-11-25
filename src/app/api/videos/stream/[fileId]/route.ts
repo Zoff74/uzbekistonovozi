@@ -170,7 +170,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                     ]);
                     return Buffer.from(result.bytes || []);
                 } catch (err: any) {
-                    if (isStreamClosed || attempt === 6) return Buffer.alloc(0);
+                    if (isStreamClosed || attempt === 6) throw err;
                     const errMsg = String(err?.message || err?.errorMessage || "");
                     if (errMsg.includes("FILE_REFERENCE") && currentClient) {
                         g.__tgVideoMediaCache.delete(fileId);
@@ -182,7 +182,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                     await new Promise((r) => setTimeout(r, floodMatch ? Math.min(30, Number(floodMatch[1]) || 2) * 1000 : 400 * attempt));
                 }
             }
-            return Buffer.alloc(0);
+            throw new Error("Не удалось получить чанк видео из Telegram");
         };
 
         const prefetched = new Map<number, Promise<Buffer>>();
@@ -218,9 +218,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                         if (isStreamClosed) return;
 
                         if (buffer.length === 0) {
-                            const padLen = Math.min(bytesRemaining, PART_SIZE);
-                            bytesRemaining -= padLen;
-                            controller.enqueue(new Uint8Array(padLen));
+                            isStreamClosed = true;
+                            await finalizeBgCache(false);
+                            controller.error(new Error("Пустой чанк видео из Telegram"));
                             return;
                         }
 
@@ -249,7 +249,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                         isStreamClosed = true;
                         await finalizeBgCache(false);
                         console.error("🔥 [VIDEO STREAM CHUNK ERROR]:", err);
-                        try { controller.close(); } catch {}
+                        try { controller.error(err); } catch {}
                     }
                 }
             },

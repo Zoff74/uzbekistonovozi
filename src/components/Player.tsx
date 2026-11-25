@@ -7,9 +7,13 @@ import { tr } from "@/utils/translate";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Discussion from "@/components/Discussion";
-import { loadVideoToDevice, revokeLocalVideoUrl } from "@/utils/videoDeviceCache";
+import { downloadVideoBeforePlayback, revokeLocalVideoUrl } from "@/utils/videoDeviceCache";
 
 const MemoDiscussion = memo(Discussion);
+
+function formatDownloadPercent(value: number): string {
+  return `${Math.max(0, Math.min(100, value)).toFixed(4).replace(".", ",")}%`;
+}
 
 export default function Player() {
   const pathname = usePathname();
@@ -28,7 +32,8 @@ export default function Player() {
   const [streamError, setStreamError] = useState<boolean>(false);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
-  const [loadPercent, setLoadPercent] = useState<number>(0);
+  const [isReadingFromDevice, setIsReadingFromDevice] = useState<boolean>(false);
+  const [deviceDownloadPercent, setDeviceDownloadPercent] = useState<number>(0);
   const [chatReady, setChatReady] = useState<boolean>(false);
   const [resolvedVideoSrc, setResolvedVideoSrc] = useState<string>("");
 
@@ -36,23 +41,18 @@ export default function Player() {
   const trackId = String(currentTrack?._id || currentTrack?.id || "").trim();
   const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.telegramUrl || (currentTrack as any)?.videoFileId);
 
-  const handleChatReady = useCallback(() => {
-    setChatReady(true);
-  }, []);
+  const syncAudioState = useCallback(() => {
+    const el = mediaRef.current;
+    if (!el) return;
+    const effectiveVolume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
+    el.muted = isMuted || effectiveVolume === 0;
+    el.volume = effectiveVolume;
+  }, [volume, isMuted]);
 
-  const updateBufferedPercent = useCallback(() => {
-    const media = mediaRef.current;
-    if (!media) return;
-    if (resolvedVideoSrc.startsWith("blob:")) {
-      setLoadPercent(100);
-      return;
-    }
-    const dur = media.duration;
-    if (!dur || !isFinite(dur) || dur <= 0 || media.buffered.length === 0) return;
-    const bufferedEnd = media.buffered.end(media.buffered.length - 1);
-    const pct = Math.max(0, Math.min(100, Math.round((bufferedEnd / dur) * 100)));
-    setLoadPercent(pct);
-  }, [resolvedVideoSrc]);
+  const handleChatReady = useCallback(() => {
+    console.log("💬 [PLAYER] Чат готов (onReady):", { trackId });
+    setChatReady(true);
+  }, [trackId]);
 
   useEffect(() => {
     let active = true;
@@ -63,10 +63,13 @@ export default function Player() {
     setStreamError(false);
     setCurrentTime(0);
     setDuration(0);
-    setLoadPercent(0);
+    setDeviceDownloadPercent(0);
     setIsBuffering(Boolean(trackId && hasVideo));
+    setIsReadingFromDevice(Boolean(trackId && hasVideo));
     setChatReady(!hasVideo || !trackId);
     setResolvedVideoSrc("");
+
+    console.log("🎬 [PLAYER] Старт эффекта загрузки видео:", { trackId, hasVideo, retryTrigger });
 
     if (!hasVideo || !trackId) {
       return () => {
@@ -77,20 +80,36 @@ export default function Player() {
 
     (async () => {
       try {
-        const localBlobUrl = await loadVideoToDevice(trackId, abortController.signal, (pct) => {
-          if (active) setLoadPercent(Math.max(0, Math.min(100, Math.round(pct))));
-        });
+        console.log("⬇️ [PLAYER] Проверка локального кэша / загрузка на устройство перед показом:", trackId);
+        const downloadResult = await downloadVideoBeforePlayback(
+          trackId,
+          abortController.signal,
+          (percent) => {
+            if (!active) return;
+            setDeviceDownloadPercent(Math.max(0, Math.min(100, Number(percent) || 0)));
+          }
+        );
         if (!active) {
-          revokeLocalVideoUrl(localBlobUrl);
+          console.log("⏹️ [PLAYER] Отмена эффекта после downloadVideoBeforePlayback:", trackId);
+          revokeLocalVideoUrl(downloadResult.src);
           return;
         }
-        createdBlobUrl = localBlobUrl;
-        setLoadPercent(100);
-        setResolvedVideoSrc(localBlobUrl);
-        setIsBuffering(false);
+        createdBlobUrl = downloadResult.src;
+        setDeviceDownloadPercent(100);
+        console.log("✅ [PLAYER] Видео готово с устройства (ждём готовность чата перед стартом):", {
+          trackId,
+          src: downloadResult.src,
+          fromCache: downloadResult.fromCache,
+        });
+        setResolvedVideoSrc(downloadResult.src);
+        setIsReadingFromDevice(false);
       } catch (err: any) {
-        if (!active || err?.name === "AbortError") return;
+        if (err?.name === "AbortError" || !active) return;
+        console.error("🔥 [PLAYER] Ошибка при скачивании/чтении видео на устройство:", { trackId, err });
+        if (!active) return;
+        setIsReadingFromDevice(false);
         setIsBuffering(false);
+        setResolvedVideoSrc("");
         setStreamError(true);
       }
     })();
@@ -103,17 +122,36 @@ export default function Player() {
   }, [trackId, hasVideo, retryTrigger]);
 
   useEffect(() => {
+    syncAudioState();
+  }, [syncAudioState, resolvedVideoSrc, streamError, retryTrigger]);
+
+  useEffect(() => {
     const media = mediaRef.current;
     if (!media || !currentTrack) return;
-    if (hasVideo && (!resolvedVideoSrc.startsWith("blob:") || !chatReady)) {
+    syncAudioState();
+    if (hasVideo && (!resolvedVideoSrc || !chatReady || streamError)) {
+      console.log("⏸️ [PLAYER] Пауза до готовности видео с устройства и чата:", {
+        trackId,
+        hasSrc: Boolean(resolvedVideoSrc),
+        chatReady,
+        streamError,
+      });
       media.pause();
       return;
     }
     if (isPlaying && !streamError) {
       const startPlay = () => {
-        media.play().catch((err) => { if (err.name !== "AbortError") console.error("🔥 Ошибка play():", err.message); });
+        syncAudioState();
+        console.log("▶️ [PLAYER] Чат загружен, декодер подготовил запас кадров — запуск media.play():", {
+          trackId,
+          src: resolvedVideoSrc,
+          readyState: media.readyState,
+        });
+        media.play().catch((err) => {
+          if (err.name !== "AbortError") console.error("🔥 [PLAYER] Ошибка play():", err.name, err.message);
+        });
       };
-      if (media.readyState >= 2) {
+      if (media.readyState >= 3) {
         startPlay();
       } else {
         media.addEventListener("canplay", startPlay, { once: true });
@@ -122,30 +160,42 @@ export default function Player() {
     } else {
       media.pause();
     }
-  }, [isPlaying, trackId, hasVideo, streamError, retryTrigger, resolvedVideoSrc, chatReady]);
-
-  useEffect(() => {
-    if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume;
-  }, [volume, isMuted]);
+  }, [isPlaying, trackId, hasVideo, streamError, retryTrigger, resolvedVideoSrc, chatReady, syncAudioState]);
 
   const handleWaiting = useCallback(() => {
-    if (!resolvedVideoSrc.startsWith("blob:")) setIsBuffering(true);
-  }, [resolvedVideoSrc]);
-  const handlePlaying = useCallback(() => {
-    setIsBuffering(false);
+    setIsBuffering(true);
   }, []);
+
+  const handlePlaying = useCallback(() => {
+    syncAudioState();
+    setIsBuffering(false);
+  }, [syncAudioState]);
+
   const handleCanPlay = useCallback(() => {
+    syncAudioState();
     setIsBuffering(false);
     if (mediaRef.current) {
       setDuration(mediaRef.current.duration || 0);
-      updateBufferedPercent();
     }
-  }, [updateBufferedPercent]);
-  const handleVideoError = useCallback(() => { setIsBuffering(false); setStreamError(true); }, []);
+  }, [syncAudioState]);
+
+  const handleVideoError = useCallback(() => {
+    const videoEl = mediaRef.current as HTMLVideoElement | null;
+    console.error("🔥 [PLAYER] Ошибка воспроизведения <video>:", {
+      trackId,
+      src: videoEl?.currentSrc || resolvedVideoSrc,
+      errorCode: videoEl?.error?.code,
+      errorMessage: videoEl?.error?.message,
+    });
+    setIsBuffering(false);
+    setIsReadingFromDevice(false);
+    setResolvedVideoSrc("");
+    setStreamError(true);
+  }, [trackId, resolvedVideoSrc]);
 
   if (!currentTrack || (!isAuthenticated && pathname === "/")) return null;
 
-  const mediaSrc = hasVideo ? resolvedVideoSrc : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
+  const mediaSrc = hasVideo ? (streamError ? "" : resolvedVideoSrc) : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
 
   const formatTime = (time: number) => {
     if (isNaN(time) || time === 0) return "0:00";
@@ -160,7 +210,6 @@ export default function Player() {
     if (now - lastTimeUpdateRef.current < 300) return;
     lastTimeUpdateRef.current = now;
     setCurrentTime(mediaRef.current.currentTime);
-    updateBufferedPercent();
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -173,14 +222,16 @@ export default function Player() {
 
   const handleVolumeClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setVolume(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
-    if (isMuted) setIsMuted(false);
+    const nextVol = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setVolume(nextVol);
+    if (isMuted && nextVol > 0) setIsMuted(false);
   };
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   const volumePercent = isMuted ? 0 : volume * 100;
-  const showVideoSurface = hasVideo && !streamError && resolvedVideoSrc.startsWith("blob:");
+  const showVideoSurface = hasVideo && !streamError && Boolean(resolvedVideoSrc);
   const waitingForChat = hasVideo && !streamError && showVideoSurface && !chatReady;
+  const formattedDownloadPercent = formatDownloadPercent(deviceDownloadPercent);
 
   return (
     <>
@@ -228,7 +279,7 @@ export default function Player() {
               <div className={isMinimizedVideo ? "relative aspect-video bg-black flex items-center justify-center overflow-hidden cursor-pointer" : "relative flex-1 bg-black flex items-center justify-center overflow-hidden"} onClick={() => { if (isMinimizedVideo && !streamError) setIsMinimizedVideo(false); }}>
                 {streamError && (
                   <div className="flex flex-col items-center justify-center gap-3 p-4 text-center z-20">
-                    <span className="text-xs sm:text-sm font-semibold text-red-400">{tr("Видеони қурилмага юклашда хатолик юз берди", "Videoni qurilmaga yuklashda xatolik yuz berdi", "Ошибка загрузки видео на устройство", "Error loading video to device")}</span>
+                    <span className="text-xs sm:text-sm font-semibold text-red-400">{tr("Видеони ўқишда хатолик юз берди", "Videoni o'qishda xatolik yuz berdi", "Ошибка чтения видео", "Error reading video")}</span>
                     <button onClick={(e) => { e.stopPropagation(); setRetryTrigger((n) => n + 1); }} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition cursor-pointer border-none">
                       <RotateCcw size={14} />
                       <span>{tr("Қайта уриниш", "Qayta urinish", "Повторить", "Retry")}</span>
@@ -238,7 +289,7 @@ export default function Player() {
 
                 <video
                   ref={mediaRef as React.RefObject<HTMLVideoElement>}
-                  src={showVideoSurface ? mediaSrc : undefined}
+                  src={showVideoSurface && mediaSrc ? mediaSrc : undefined}
                   poster={currentTrack?.cover || undefined}
                   preload="auto"
                   playsInline
@@ -247,10 +298,9 @@ export default function Player() {
                   onContextMenu={(e) => e.preventDefault()}
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={() => {
+                    syncAudioState();
                     if (mediaRef.current) setDuration(mediaRef.current.duration || 0);
-                    updateBufferedPercent();
                   }}
-                  onProgress={updateBufferedPercent}
                   onCanPlay={handleCanPlay}
                   onWaiting={handleWaiting}
                   onPlaying={handlePlaying}
@@ -259,24 +309,33 @@ export default function Player() {
                   className={showVideoSurface ? (isMinimizedVideo ? "w-full h-full object-cover" : "w-full h-full object-contain cursor-pointer") : "hidden"}
                 />
 
-                {!showVideoSurface && !streamError && (
-                  <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3 p-4 text-center z-10">
-                    <div className="w-9 h-9 border-3 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-xs sm:text-sm font-medium text-emerald-300 flex items-center gap-1.5">
-                      <HardDrive size={15} className="text-emerald-400 shrink-0" />
-                      <span>{tr("Қурилмага юкланмоқда...", "Qurilmaga yuklanmoqda...", "Загрузка на устройство...", "Loading to device...")} {loadPercent}%</span>
-                    </span>
-                    <div className="w-56 sm:w-72 h-2 bg-neutral-800 rounded-full overflow-hidden border border-neutral-700">
-                      <div className="h-full bg-emerald-400 transition-all duration-150" style={{ width: `${loadPercent}%` }} />
+                {isReadingFromDevice && !streamError && (
+                  <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-3 p-4 text-center z-10 pointer-events-none">
+                    <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-xs sm:text-sm font-medium text-emerald-300 flex items-center gap-1.5">
+                        <HardDrive size={15} className="text-emerald-400 shrink-0" />
+                        <span>{tr("Кўрсатиш учун қурилмага юкланмоқда...", "Ko'rsatish uchun qurilmaga yuklanmoqda...", "Идёт загрузка для показа...", "Downloading for playback...")}</span>
+                      </span>
+                      <span className="text-sm sm:text-base font-bold text-emerald-400 tabular-nums">{formattedDownloadPercent}</span>
+                    </div>
+                    <div className="w-56 sm:w-64 h-2 bg-neutral-800 rounded-full overflow-hidden border border-neutral-700/70">
+                      <div className="h-full bg-emerald-400 transition-all duration-150" style={{ width: `${deviceDownloadPercent}%` }} />
                     </div>
                   </div>
                 )}
 
-                {waitingForChat && (
+                {isBuffering && !streamError && showVideoSurface && chatReady && !isReadingFromDevice && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center pointer-events-none z-10">
+                    <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+
+                {waitingForChat && !isReadingFromDevice && (
                   <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-2.5 p-4 text-center z-10 pointer-events-none">
                     <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                     <span className="text-xs sm:text-sm font-medium text-emerald-300">
-                      {tr("Чат юкланмоқда, видео бироздан сўнг бошланади...", "Chat yuklanmoqda, video birozdan so'ng boshlanadi...", "Загрузка чата, видео запустится после формирования чата...", "Loading chat, video will start after chat is ready...")}
+                      {tr("Сабр қилинг, Видео клип юкланмоқда...", "Sabr qiling, Video yuklanmoqda...", "Загрузка чата, видео запустится после формирования чата...", "Loading chat, video will start after chat is ready...")}
                     </span>
                   </div>
                 )}
@@ -300,7 +359,7 @@ export default function Player() {
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-neutral-400 w-10 text-right">{formatTime(currentTime)}</span>
                     <div onClick={handleProgressClick} className="w-full h-2 bg-neutral-800 rounded-full overflow-hidden relative cursor-pointer">
-                      <div className="absolute top-0 left-0 bottom-0 bg-emerald-500 transition-all duration-100" style={{ width: `${progressPercent}%` }} />
+                      <div className="absolute top-0 left-0 bottom-0 bg-emerald-500" style={{ width: `${progressPercent}%` }} />
                     </div>
                     <span className="text-xs text-neutral-400 w-10">{formatTime(duration)}</span>
                   </div>
@@ -342,8 +401,12 @@ export default function Player() {
               src={mediaSrc}
               preload="metadata"
               controlsList="nodownload"
+              onLoadedMetadata={() => {
+                syncAudioState();
+                if (mediaRef.current) setDuration(mediaRef.current.duration || 0);
+              }}
+              onCanPlay={syncAudioState}
               onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={() => mediaRef.current && setDuration(mediaRef.current.duration || 0)}
               onEnded={() => nextTrack()}
             />
           )}
@@ -368,7 +431,7 @@ export default function Player() {
 
               <span className="text-xs text-neutral-400 w-10 text-right">{formatTime(currentTime)}</span>
               <div onClick={handleProgressClick} className="w-full h-2 bg-neutral-700 rounded-full overflow-hidden relative cursor-pointer">
-                <div className="absolute top-0 left-0 bottom-0 bg-amber-500 transition-all duration-100" style={{ width: `${progressPercent}%` }} />
+                <div className="absolute top-0 left-0 bottom-0 bg-amber-500" style={{ width: `${progressPercent}%` }} />
               </div>
               <span className="text-xs text-neutral-400 w-10">{formatTime(duration)}</span>
             </div>
