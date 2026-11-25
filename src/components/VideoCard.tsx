@@ -1,4 +1,5 @@
 "use client";
+//src\components\VideoCard.tsx
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Edit, Trash2, AlertCircle, Play } from "lucide-react";
@@ -8,26 +9,13 @@ import { usePlayer } from "@/context/PlayerContext";
 
 export interface VideoCardProps {
     video: {
-        _id?: string;
-        id?: string;
-        title: string;
-        singer: string;
-        cover?: string;
-        genre?: string;
-        views?: number;        
-        downloadsCount?: number; 
-        status: string;
-        expiresAt: string;
-        createdAt: string;
-        isPaidActive?: boolean;
-        isExpired?: boolean;
+        _id?: string; id?: string; title: string; singer: string; cover?: string; genre?: string;
+        views?: number; downloadsCount?: number; status: string; expiresAt: string; createdAt: string;
+        isPaidActive?: boolean; isExpired?: boolean;
         authorId?: string | { _id: string; toString(): string };
         author?: string | { _id: string; toString(): string };
         userId?: string | { _id: string; toString(): string };
-        telegramUrl?: string;
-        videoUrl?: string;
-        fileUrl?: string;
-        fileSize?: number;
+        telegramUrl?: string; videoUrl?: string; fileUrl?: string; fileSize?: number;
     };
     onDelete?: (id: string) => void;
     isOwner?: boolean;
@@ -46,15 +34,13 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     const [isRemoved, setIsRemoved] = useState(false);
 
     const videoId = video._id?.toString() || video.id?.toString() || "";
-
     const videoInitial = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_INITIAL || 15000);
     const videoDaily = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_DAILY || 1500);
     const videoMonthly = Number(process.env.NEXT_PUBLIC_VIDEO_PRICE_MONTHLY || 45000);
 
     const currentUserId = (session?.user as any)?.id;
-    const currentUserRole = (session?.user as any)?.role;
-    const isAdmin = currentUserRole === 'admin' || (session?.user as any)?.isAdmin === true;
-    
+    const isAdmin = (session?.user as any)?.role === 'admin' || (session?.user as any)?.isAdmin === true;
+
     const getNormalizedId = (field: any) => {
         if (!field) return "";
         if (typeof field === 'string') return field;
@@ -63,8 +49,7 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
     };
 
     const authorField = getNormalizedId(video.authorId) || getNormalizedId(video.author) || getNormalizedId(video.userId);
-    const isOwner = currentUserId && authorField && authorField === currentUserId.toString();
-    const canManage = isOwner || isAdmin;
+    const canManage = Boolean(currentUserId && authorField && authorField === currentUserId.toString()) || isAdmin;
 
     const [fakeOffset, setFakeOffset] = useState(0);
     const [stepIndex, setStepIndex] = useState(0);
@@ -73,107 +58,64 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
         if (!videoId) return;
         const stepKey = `fake_video_step_${videoId}`;
         const offsetKey = `fake_video_offset_${videoId}`;
-
-        const savedStep = localStorage.getItem(stepKey);
-        const savedOffset = localStorage.getItem(offsetKey);
-        if (savedStep) setStepIndex(Number(savedStep));
-        if (savedOffset) setFakeOffset(Number(savedOffset));
+        const savedStep = Number(localStorage.getItem(stepKey) || 0);
+        const savedOffset = Number(localStorage.getItem(offsetKey) || 0);
+        let curStep = Number.isFinite(savedStep) ? savedStep : 0;
+        let curOffset = Number.isFinite(savedOffset) ? savedOffset : 0;
+        setStepIndex(curStep);
+        setFakeOffset(curOffset);
 
         const timer = setInterval(() => {
-            setStepIndex((prevStep) => {
-                const nextStep = (prevStep + 1) % FAKE_SEQUENCE.length;
-                const addValue = FAKE_SEQUENCE[nextStep];
-
-                setFakeOffset((prevOffset) => {
-                    const updated = prevOffset + addValue;
-                    localStorage.setItem(offsetKey, String(updated));
-                    return updated;
-                });
-
-                localStorage.setItem(stepKey, String(nextStep));
-                return nextStep;
-            });
+            curStep = (curStep + 1) % FAKE_SEQUENCE.length;
+            curOffset += FAKE_SEQUENCE[curStep];
+            localStorage.setItem(stepKey, String(curStep));
+            localStorage.setItem(offsetKey, String(curOffset));
+            setStepIndex(curStep);
+            setFakeOffset(curOffset);
         }, INTERVAL_MS);
 
         return () => clearInterval(timer);
     }, [videoId]);
 
     const handlePlayClick = () => {
-        if (video.isExpired && !canManage) {
-            return;
-        }
-
-        if (!videoId) {
-            alert(tr("Видео ID топилмади", "Video ID topilmadi", "ID видео не найден", "Video ID not found"));
-            return;
-        }
-
-        playTrack({
-            id: videoId,
-            _id: videoId,
-            title: video.title,
-            singer: video.singer,
-            cover: video.cover,
-            audioUrl: "",
-            videoUrl: `/api/videos/stream/${videoId}`,
-            videoFileId: videoId,
-            fileSize: video.fileSize,
-        });
+        if (video.isExpired && !canManage) return;
+        if (!videoId) { alert(tr("Видео ID топилмади", "Video ID topilmadi", "ID видео не найден", "Video ID not found")); return; }
+        playTrack({ id: videoId, _id: videoId, title: video.title, singer: video.singer, cover: video.cover, audioUrl: "", videoUrl: `/api/videos/stream/${encodeURIComponent(videoId)}`, videoFileId: videoId, fileSize: video.fileSize });
     };
 
     if (isRemoved) return null;
 
     const realViews = video.views || 0;
     const displayedViews = realViews + fakeOffset;
-
-    const validDateStr = video.createdAt || video.expiresAt || Date.now();
-    const createdAtDate = new Date(validDateStr);
+    const createdAtDate = new Date(video.createdAt || video.expiresAt || Date.now());
     const now = new Date();
-
-    const hoursSinceCreation = (now.getTime() - createdAtDate.getTime()) / (1000 * 60 * 60);
-    const isWithinFirst24Hours = hoursSinceCreation <= 24 && !video.isPaidActive;
-
+    const isWithinFirst24Hours = (now.getTime() - createdAtDate.getTime()) / (1000 * 60 * 60) <= 24 && !video.isPaidActive;
     const diffMs = createdAtDate.getTime() + 24 * 60 * 60 * 1000 - now.getTime();
     const hoursLeft = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
     const minutesLeft = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
 
     const GradientBorder = () => (
-        <div 
+        <div
             className="absolute inset-0 rounded-xl z-0 shadow-[0_0_20px_rgba(57,255,20,0.3)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
             style={{
-                padding: '2px',
-                background: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)',
-                WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                WebkitMaskComposite: 'xor',
-                maskComposite: 'exclude',
+                padding: '2px', background: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)',
+                WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)', WebkitMaskComposite: 'xor', maskComposite: 'exclude',
             }}
         />
     );
 
     const handleDelete = async () => {
         if (!confirm(tr("Ростдан ҳам бу видеони ўчирмоқчимисиз?", "Rostdan ham bu videoni o'chirmoqchimisiz?", "Вы действительно хотите удалить это видео?", "Are you sure you want to delete this video?"))) return;
-
         try {
             setIsDeleting(true);
             const res = await fetch(`/api/videos/${videoId}`, { method: "DELETE" });
-            if (res.ok) {
-                setIsRemoved(true);
-                if (onDelete) onDelete(videoId);
-                router.refresh();
-            } else {
-                const data = await res.json();
-                alert(data.error || tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred"));
-                setIsDeleting(false);
-            }
-        } catch {
-            alert(tr("Сервер билан алоқада хатолик", "Server bilan aloqada xatolik", "Ошибка связи с сервером", "Server connection error"));
-            setIsDeleting(false);
-        }
+            if (res.ok) { setIsRemoved(true); if (onDelete) onDelete(videoId); router.refresh(); }
+            else { const data = await res.json(); alert(data.error || tr("Хатолик юз берди", "Xatolik yuz berdi", "Произошла ошибка", "An error occurred")); setIsDeleting(false); }
+        } catch { alert(tr("Сервер билан алоқада хатолик", "Server bilan aloqada xatolik", "Ошибка связи с сервером", "Server connection error")); setIsDeleting(false); }
     };
 
     return (
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 flex flex-col gap-5 transition hover:border-neutral-700 relative">
-            
             {video.isExpired && !canManage && (
                 <div className="absolute top-3 right-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] px-2.5 py-1 rounded-lg font-medium z-20">
                     {tr("Тўлов кутилмоқда", "To'lov kutilmoqda", "Ожидает оплаты", "Awaiting payment")}
@@ -181,55 +123,26 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
             )}
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
-                
-                <div 
-                    onClick={handlePlayClick}
-                    className="relative w-full sm:w-80 aspect-video rounded-2xl border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer group"
-                >
-                    {video.isExpired && !canManage ? (
+                <div onClick={handlePlayClick} className="relative w-full sm:w-80 aspect-video rounded-2xl border border-neutral-800 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer group">
+                    {video.isExpired && !canManage && (
                         <div className="absolute inset-0 z-20 backdrop-blur-md bg-neutral-950/80 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
                             <AlertCircle className="w-8 h-8 text-amber-400 mb-2" />
-                            <p className="text-amber-400 font-bold text-xs">
-                                {tr("Видео вақтинча ёпилган", "Video vaqtincha yopilgan", "Видео заблокировано", "Video blocked")}
-                            </p>
+                            <p className="text-amber-400 font-bold text-xs">{tr("Видео вақтинча ёпилган", "Video vaqtincha yopilgan", "Видео заблокировано", "Video blocked")}</p>
                         </div>
-                    ) : null}
-
-                    <img
-                        src={video.cover || "/default-cover.webp"}
-                        alt={video.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                    />
-                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 transition flex items-center justify-center text-amber-400">
-                        <Play size={48} fill="currentColor" />
-                    </div>
+                    )}
+                    <img src={video.cover || "/default-cover.webp"} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 transition flex items-center justify-center text-amber-400"><Play size={48} fill="currentColor" /></div>
                 </div>
 
                 <div className="min-w-0 flex-1">
-                    <h3 
-                        onClick={handlePlayClick}
-                        className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition"
-                    >
-                        {video.title}
-                    </h3>
-
+                    <h3 onClick={handlePlayClick} className="font-bold text-lg sm:text-xl text-white break-words cursor-pointer hover:text-amber-400 transition">{video.title}</h3>
                     <div className={video.isExpired && !canManage ? "filter blur-[6px] select-none pointer-events-none opacity-60 mt-1" : "mt-1"}>
-                        <p className="text-base text-neutral-200 break-words font-medium">
-                            {video.singer} • <span className="text-amber-400">{video.genre}</span>
-                        </p>
+                        <p className="text-base text-neutral-200 break-words font-medium">{video.singer} • <span className="text-amber-400">{video.genre}</span></p>
                     </div>
-
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-neutral-300">
-                        <span>
-                            {tr("Томоша қилинган", "Tomosha qilingan", "Просмотров", "Views")}:{" "}
-                            <strong className="text-white font-semibold">{displayedViews}</strong>
-                            <span className="text-neutral-500 text-xs ml-1.5">({realViews})</span>
-                        </span>
+                        <span>{tr("Томоша қилинган", "Tomosha qilingan", "Просмотров", "Views")}: <strong className="text-white font-semibold">{displayedViews}</strong><span className="text-neutral-500 text-xs ml-1.5">({realViews})</span></span>
                         <span className="hidden sm:inline">•</span>
-                        <span>
-                            {tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}:{" "}
-                            <strong className="text-white font-semibold">{video.downloadsCount || 0}</strong>
-                        </span>
+                        <span>{tr("Юклаб олинган", "Yuklab olingan", "Скачиваний", "Downloads")}: <strong className="text-white font-semibold">{video.downloadsCount || 0}</strong></span>
                     </div>
                 </div>
             </div>
@@ -237,25 +150,16 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
             {canManage && (
                 <div className="flex flex-col gap-3 bg-neutral-950/70 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 text-sm sm:text-base">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                        <span className={`inline-block px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold ${
-                            video.status === 'ACTIVE' && !video.isExpired ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        }`}>
+                        <span className={`inline-block px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold ${video.status === 'ACTIVE' && !video.isExpired ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
                             {video.isExpired ? tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired") : (video.status === 'ACTIVE' ? tr("Фаол", "Faol", "Активен", "Active") : tr("Муддати тугаган", "Muddati tugagan", "Срок истек", "Expired"))}
                         </span>
-                        
                         <span className="text-neutral-200 font-semibold text-xs sm:text-sm">
                             {isAdmin && video.isExpired ? (
-                                <span className="text-emerald-400">
-                                    {tr("Администратор ҳуқуқи", "Administrator huquqi", "Права администратора", "Administrator privileges")}
-                                </span>
+                                <span className="text-emerald-400">{tr("Администратор ҳуқуқи", "Administrator huquqi", "Права администратора", "Administrator privileges")}</span>
                             ) : diffMs > 0 ? (
-                                <span className="text-amber-400">
-                                    ⚠️ {tr("Ўзгартириш учун яна", "O'zgartirish uchun yana", "Для изменений осталось", "Time left to edit:")} {hoursLeft} {tr("соат", "soat", "часов", "hours")} {minutesLeft} {tr("дақиқа", "daqiqa", "минут", "minutes")}
-                                </span>
+                                <span className="text-amber-400">⚠️ {tr("Ўзгартириш учун яна", "O'zgartirish uchun yana", "Для изменений осталось", "Time left to edit:")} {hoursLeft} {tr("соат", "soat", "часов", "hours")} {minutesLeft} {tr("дақиқа", "daqiqa", "минут", "minutes")}</span>
                             ) : (
-                                <span className="text-red-400">
-                                    {tr("Ўзгартириш муддати тугаган (24 соат)", "O'zgartirish muddati tugagan", "Срок изменения истек", "Edit time expired")}
-                                </span>
+                                <span className="text-red-400">{tr("Ўзгартириш муддати тугаган (24 соат)", "O'zgartirish muddati tugagan", "Срок изменения истек", "Edit time expired")}</span>
                             )}
                         </span>
                     </div>
@@ -264,23 +168,11 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                         <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3 text-sm sm:text-base">
                             <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-400">
                                 <span>⚠️ {tr("Диққат! Жойлаштириш муддати тугади:", "Diqqat! Joylashtirish muddati tugadi:", "Внимание! Срок размещения истек:", "Attention! Placement expired:")}</span>
-                                <button 
-                                    onClick={() => setShowTariffs(!showTariffs)}
-                                    className="underline hover:text-amber-300 transition text-sm font-semibold cursor-pointer bg-transparent border-none p-0"
-                                >
+                                <button onClick={() => setShowTariffs(!showTariffs)} className="underline hover:text-amber-300 transition text-sm font-semibold cursor-pointer bg-transparent border-none p-0">
                                     {showTariffs ? tr("Тарифларни яшириш", "Tariflarni yashirish", "Скрыть тарифы", "Hide tariffs") : tr("Тўлов қилиш ва очиш", "To'lov qilish va ochish", "Оплатить и разблокировать", "Pay & Unlock")}
                                 </button>
                             </div>
-
-                            <p className="text-neutral-200 leading-relaxed font-medium">
-                                {tr(
-                                    "Тўлов қилинмагани сабабли видео ҳаволаси ва маълумотлари блюр қилинган. Тўловни амалга ошириб маълумотларни тўлиқ очинг!",
-                                    "To'lov qilinmagani sababli video havolasi va ma'lumotlari blur qilingan.",
-                                    "Ссылка на видео и данные размыты из-за неоплаты. Оплатите размещение, чтобы снять блюр!",
-                                    "Video link and info are blurred due to lack of payment."
-                                )}
-                            </p>
-
+                            <p className="text-neutral-200 leading-relaxed font-medium">{tr("Тўлов қилинмагани сабабли видео ҳаволаси ва маълумотлари блюр қилинган. Тўловни амалга ошириб маълумотларни тўлиқ очинг!", "To'lov qilinmagani sababli video havolasi va ma'lumotlari blur qilingan.", "Ссылка на видео и данные размыты из-за неоплаты. Оплатите размещение, чтобы снять блюр!", "Video link and info are blurred due to lack of payment.")}</p>
                             {showTariffs && (
                                 <div className="pt-3 border-t border-amber-500/20 space-y-2 text-neutral-100">
                                     <p className="font-bold text-amber-300">💡 {tr("ПЛАТФОРМА ТАРИФЛАРИ:", "PLATFORMA TARIFLARI:", "ТАРИФЫ ПЛАТФОРМЫ:", "PLATFORM TARIFFS:")}</p>
@@ -300,44 +192,13 @@ export default function VideoCard({ video, onDelete }: VideoCardProps) {
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800/80">
                     <div className="relative h-[42px] group flex items-center justify-center cursor-pointer">
                         <div className="absolute inset-0 bg-gradient-to-r from-black to-gray-600 rounded-lg z-0 shadow-[0_0_15px_rgba(57,255,20,0.15)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)]" />
-                        
-                        <button
-                            type="button"
-                            onClick={(e) => {
-                                if (!isAdmin && !isWithinFirst24Hours) {
-                                    e.preventDefault();
-                                    alert(tr(
-                                        "Видеофайлга ўзгартириш киритиш муддати (24 соат) тугаган!",
-                                        "Videofaylga o'zgartirish kiritish muddati (24 soat) tugagan!",
-                                        "Разрешенный срок для внесения изменений (24 часа) истек!",
-                                        "The time limit (24 hours) for changing has expired!"
-                                    ));
-                                    return;
-                                }
-                                router.push(`/dashboard/videos/${videoId}/edit`);
-                            }}
-                            className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer"
-                            style={{ 
-                                borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', 
-                                borderImageSlice: 1 
-                            }}
-                        >
+                        <button type="button" onClick={(e) => { if (!isAdmin && !isWithinFirst24Hours) { e.preventDefault(); alert(tr("Видеофайлга ўзгартириш киритиш муддати (24 соат) тугаган!", "Videofaylga o'zgartirish kiritish muddati (24 soat) tugagan!", "Разрешенный срок для внесения изменений (24 часа) истек!", "The time limit (24 hours) for changing has expired!")); return; } router.push(`/dashboard/videos/${videoId}/edit`); }} className="relative h-[34px] z-10 flex items-center justify-center gap-1.5 px-3 rounded-md border-[2px] border-transparent bg-clip-border text-[10px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 bg-black text-[#39FF14] group-hover:text-white whitespace-nowrap cursor-pointer" style={{ borderImageSource: 'linear-gradient(to right, #000000, #FFDA09, #39FF14, #FFDA09, #000000)', borderImageSlice: 1 }}>
                             <Edit size={12} className="relative z-10 text-[#39FF14] group-hover:text-white transition-colors shrink-0" />
-                            <span className="relative z-10">
-                                {tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}
-                            </span>
+                            <span className="relative z-10">{tr("Ўзгартириш", "O'zgartirish", "Изменить", "Edit")}</span>
                         </button>
                     </div>
-                                        
                     <div className="relative rounded-xl inline-block group">
-                        <button
-                            onClick={handleDelete}
-                            disabled={isDeleting}
-                            className="relative z-10 p-3 rounded-xl bg-neutral-950 text-neutral-200 hover:text-red-400 transition text-sm font-semibold disabled:opacity-50 cursor-pointer flex items-center justify-center"
-                            title={tr("Видеоларни ўчириш", "Videolarni o'chirish", "Удалить видео", "Delete video")}
-                        >
-                            <Trash2 size={18} />
-                        </button>
+                        <button onClick={handleDelete} disabled={isDeleting} className="relative z-10 p-3 rounded-xl bg-neutral-950 text-neutral-200 hover:text-red-400 transition text-sm font-semibold disabled:opacity-50 cursor-pointer flex items-center justify-center" title={tr("Видеоларни ўчириш", "Videolarni o'chirish", "Удалить видео", "Delete video")}><Trash2 size={18} /></button>
                         <GradientBorder />
                     </div>
                 </div>

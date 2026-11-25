@@ -81,6 +81,9 @@
 │   │   │   │   │       └── route.ts
 │   │   │   │   └── route.ts
 │   │   │   ├── upload
+│   │   │   │   ├── progress
+│   │   │   │   │   └── [uploadId]
+│   │   │   │   │       └── route.ts
 │   │   │   │   └── route.ts
 │   │   │   ├── user
 │   │   │   │   └── profile

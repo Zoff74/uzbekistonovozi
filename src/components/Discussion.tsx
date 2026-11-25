@@ -1,6 +1,6 @@
 "use client";
-
-import { useState, useEffect } from "react";
+//src\components\Discussion.tsx
+import { useState, useEffect, useRef } from "react";
 import { MessageSquare, Send, User, CornerDownRight, X } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
@@ -21,11 +21,12 @@ interface CommentItem {
 }
 
 interface DiscussionProps {
-  targetId: string; // Универсальный ID (трека, видео, альбома и т.д.)
-  targetType?: string; // "track", "video", "album" и т.д.
+  targetId: string;
+  targetType?: string;
+  onReady?: () => void;
 }
 
-export default function Discussion({ targetId, targetType = "track" }: DiscussionProps) {
+export default function Discussion({ targetId, targetType = "track", onReady }: DiscussionProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const isAuthenticated = status === "authenticated" && Boolean(session?.user);
@@ -34,27 +35,49 @@ export default function Discussion({ targetId, targetType = "track" }: Discussio
   const [newText, setNewText] = useState("");
   const [replyingTo, setReplyingTo] = useState<{ id: string; name: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
-  // Универсальный эндпоинт с query-параметром targetId
   const getUrl = `/api/discussions?targetId=${targetId}`;
 
   useEffect(() => {
-    if (!targetId) return;
+    if (!targetId) {
+      onReadyRef.current?.();
+      return;
+    }
 
     let isMounted = true;
+    let settled = false;
     setIsLoading(true);
+
+    const markReady = () => {
+      if (settled) return;
+      settled = true;
+      if (isMounted) setIsLoading(false);
+      onReadyRef.current?.();
+    };
 
     fetch(getUrl)
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
-        if (isMounted && Array.isArray(data)) setComments(data);
+        if (isMounted && Array.isArray(data)) {
+          setComments(data);
+        }
       })
       .catch((err) => console.error(err))
       .finally(() => {
-        if (isMounted) setIsLoading(false);
+        if (!isMounted) return;
+        setIsLoading(false);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            markReady();
+          });
+        });
       });
 
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, [targetId, getUrl]);
 
   const handleSend = async (e: React.FormEvent) => {
@@ -85,7 +108,7 @@ export default function Discussion({ targetId, targetType = "track" }: Discussio
 
       if (res.ok) {
         const savedComment = await res.json();
-        setComments((prev) => [savedComment, ...prev]);
+        setComments((prev) => [...prev, savedComment]);
       }
     } catch (err) {
       console.error(err);

@@ -1,5 +1,4 @@
 "use client";
-
 // src/context/PlayerContext.tsx
 import React, { createContext, useContext, useState } from "react";
 
@@ -9,9 +8,9 @@ export interface Track {
     title: string;
     singer: string;
     audioUrl: string;
-    videoUrl?: string;       // Ссылка на видеоклип (если есть)
-    videoFileId?: string;    // 👈 Идентификатор видеофайла (Telegram / стриминг)
-    fileSize?: number;       // 👈 Размер файла в байтах
+    videoUrl?: string;
+    videoFileId?: string;
+    fileSize?: number;
     cover?: string;
 }
 
@@ -41,65 +40,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             alert("Невозможно воспроизвести: медиафайл не найден");
             return;
         }
-
         const newPlaylist = queue.length > 0 ? queue : [track];
         setPlaylist(newPlaylist);
-
         const index = newPlaylist.findIndex((t) => (t.id || t._id) === (track.id || track._id));
         setCurrentIndex(index !== -1 ? index : 0);
-
-        if (currentTrack?.audioUrl === track.audioUrl && currentTrack?.videoUrl === track.videoUrl && currentTrack?.videoFileId === track.videoFileId) {
-            setIsPlaying(!isPlaying);
-        } else {
-            setCurrentTrack(track);
-            setIsPlaying(true);
-        }
+        const sameTrack = currentTrack?.audioUrl === track.audioUrl && currentTrack?.videoUrl === track.videoUrl && currentTrack?.videoFileId === track.videoFileId;
+        if (sameTrack) { setIsPlaying(!isPlaying); } else { setCurrentTrack(track); setIsPlaying(true); }
     };
 
-    const togglePlay = () => {
-        if (!currentTrack) return;
-        setIsPlaying(!isPlaying);
-    };
+    const togglePlay = () => { if (currentTrack) setIsPlaying(!isPlaying); };
 
-    const closePlayer = () => {
-        setIsPlaying(false);
-        setCurrentTrack(null);
-        setPlaylist([]);
-        setCurrentIndex(0);
-    };
+    const closePlayer = () => { setIsPlaying(false); setCurrentTrack(null); setPlaylist([]); setCurrentIndex(0); };
 
     const nextTrack = () => {
         if (playlist.length === 0) return;
         const nextIndex = (currentIndex + 1) % playlist.length;
-        const next = playlist[nextIndex];
-        setCurrentIndex(nextIndex);
-        setCurrentTrack(next);
-        setIsPlaying(true);
+        setCurrentIndex(nextIndex); setCurrentTrack(playlist[nextIndex]); setIsPlaying(true);
     };
 
     const prevTrack = () => {
         if (playlist.length === 0) return;
         const prevIndex = (currentIndex - 1 + playlist.length) % playlist.length;
-        const prev = playlist[prevIndex];
-        setCurrentIndex(prevIndex);
-        setCurrentTrack(prev);
-        setIsPlaying(true);
+        setCurrentIndex(prevIndex); setCurrentTrack(playlist[prevIndex]); setIsPlaying(true);
     };
 
     return (
-        <PlayerContext.Provider
-            value={{
-                currentTrack,
-                isPlaying,
-                playlist,
-                playTrack,
-                togglePlay,
-                setIsPlaying,
-                closePlayer,
-                nextTrack,
-                prevTrack,
-            }}
-        >
+        <PlayerContext.Provider value={{ currentTrack, isPlaying, playlist, playTrack, togglePlay, setIsPlaying, closePlayer, nextTrack, prevTrack }}>
             {children}
         </PlayerContext.Provider>
     );
@@ -107,8 +73,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
 export function usePlayer() {
     const context = useContext(PlayerContext);
-    if (!context) {
-        throw new Error("usePlayer должен использоваться внутри PlayerProvider");
-    }
+    if (!context) throw new Error("usePlayer должен использоваться внутри PlayerProvider");
     return context;
 }

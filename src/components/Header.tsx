@@ -9,21 +9,18 @@ import { useSession, signOut } from "next-auth/react";
 
 export default function Header() {
   const { data: session } = useSession();
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Состояния для выпадающих меню (десктоп)
   const [isVokalOpen, setIsVokalOpen] = useState(false);
   const [isIjodkorOpen, setIsIjodkorOpen] = useState(false);
-  
   // Состояния для мобильного раскрытия аккордеона
   const [isMobileIjodkorOpen, setIsMobileIjodkorOpen] = useState(false);
   const [isMobileVokalOpen, setIsMobileVokalOpen] = useState(false);
-
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
-  
   // Рефы для аватарок
   const desktopAvatarMenuRef = useRef<HTMLDivElement>(null);
   const mobileAvatarMenuRef = useRef<HTMLDivElement>(null);
-  
   // Рефы для десктопных меню
   const desktopVokalRef = useRef<HTMLDivElement>(null);
   const desktopIjodkorRef = useRef<HTMLDivElement>(null);
@@ -38,9 +35,9 @@ export default function Header() {
         setIsIjodkorOpen(false);
       }
       if (
-        desktopAvatarMenuRef.current && 
+        desktopAvatarMenuRef.current &&
         !desktopAvatarMenuRef.current.contains(event.target as Node) &&
-        mobileAvatarMenuRef.current && 
+        mobileAvatarMenuRef.current &&
         !mobileAvatarMenuRef.current.contains(event.target as Node)
       ) {
         setAvatarMenuOpen(false);
@@ -62,6 +59,14 @@ export default function Header() {
     return rawImage.includes("?") ? rawImage : `${rawImage}?t=${Date.now()}`;
   };
 
+  const handleLoginClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (isLoggingIn) {
+      e.preventDefault();
+      return;
+    }
+    setIsLoggingIn(true);
+  };
+
   return (
     <>
       {/* 1. ДЕСКТОПНАЯ ШАПКА (ОРИГИНАЛЬНАЯ И НЕЗАТРОНУТАЯ) */}
@@ -71,73 +76,68 @@ export default function Header() {
             <Link href="/" className="relative group cursor-pointer flex-shrink-0">
               <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-2xl blur opacity-50"></div>
               <div className="relative w-14 h-14 sm:w-13 sm:h-13 rounded-2xl bg-slate-900 flex items-center justify-center border border-emerald-500/30 overflow-hidden shadow-lg">
-                <img 
-                  src="/img/microfonyarkiy.avif" 
-                  alt="Ўзбекистон овози" 
+                <img
+                  src="/img/microfonyarkiy.avif"
+                  alt="Ўзбекистон овози"
                   className="w-10 h-10 sm:w-10 sm:h-10 object-contain"
                 />
               </div>
             </Link>
-            
+
             <div className="min-w-0 flex flex-col justify-center">
               <Link href="/" className="font-black tracking-wide bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent flex flex-col text-sm sm:text-base leading-snug py-0.5">
-  <span style={{ fontFamily: "'Bad Script', cursive, sans-serif" }} className="whitespace-nowrap overflow-visible">
-    {tr(
-      <>« <span style={{ fontSize: 32, fontFamily: "system-ui, sans-serif", fontWeight: 400, fontStyle: "normal" }}>Ў</span>ЗБЕКИСТОН ОВОЗИ »</> as any,
-      "«O'ZBEKISTON OVOZI»",
-      "«УЗБЕКИСТОН ОВОЗИ»",
-      "«UZBEKISTON OVOZI»"
-    )}
-  </span>
-  <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
-    {tr("Машҳурликка Биринчи Қадам", "Mashhurlikka Birinchi Qadam", "Первый шаг к известности", "First Step to Fame")}
-  </span>
-</Link>
-
+                <span style={{ fontFamily: "'Bad Script', cursive, sans-serif" }} className="whitespace-nowrap overflow-visible">
+                  {tr(
+                    <>« <span style={{ fontSize: 32, fontFamily: "system-ui, sans-serif", fontWeight: 400, fontStyle: "normal" }}>Ў</span>ЗБЕКИСТОН ОВОЗИ »</> as any,
+                    "«O'ZBEKISTON OVOZI»",
+                    "«УЗБЕКИСТОН ОВОЗИ»",
+                    "«UZBEKISTON OVOZI»"
+                  )}
+                </span>
+                <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
+                  {tr("Машҳурликка Биринчи Қадам", "Mashhurlikka Birinchi Qadam", "Первый шаг к известности", "First Step to Fame")}
+                </span>
+              </Link>
               <span className="text-[11px] sm:text-[10px] tracking-widest text-emerald-400 font-bold uppercase block mt-0.5">
                 New Sound System
               </span>
-
               <span className="font-bold opacity-90 text-xs sm:text-xs leading-normal mt-0.5">
                 {tr("Ўзбекистон Мусиқа Бизнесининг \nҲамкорлик Платформаси", "O'zbekiston Musiqa Biznesining \nHamkorlik Platformasi", "Профессиональная Платформа \nКоллабораций для Музыкального \nБизнеса Узбекистана", "Professional labor and collaboration \nexchange for musicians of Uzbekistan")}
               </span>
             </div>
           </div>
-          
+
           {/* ШАПКА НАВИГАЦИИ ДЛЯ ДЕСКТОПА */}
           <nav className="hidden xl:flex items-center space-x-3 text-xs font-semibold">
             <Link href="/" className="text-slate-300 hover:text-[#39FF14] transition py-2">{tr("Бош саҳифа", "Bosh sahifa", "Главная", "Home")}</Link>
-
             <Link href={getHref("/catalogMusiqachilar")} className="text-slate-300 hover:text-[#39FF14] transition py-2">
               {tr("Мусиқачи", "Musiqachi", "Музыканты", "Musicians")}
             </Link>
-
             {/* Ижодкорлар (Десктоп) */}
-            <div 
+            <div
               ref={desktopIjodkorRef}
               className="relative"
               onMouseEnter={() => setIsIjodkorOpen(true)}
               onMouseLeave={() => setIsIjodkorOpen(false)}
             >
-              <button 
+              <button
                 onClick={() => setIsIjodkorOpen((prev) => !prev)}
                 className="text-slate-300 hover:text-[#39FF14] transition flex items-center gap-1 py-2 focus:outline-none cursor-pointer"
               >
                 {tr("Ижодкор", "Ijodkor", "Творцы", "Creators")}
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isIjodkorOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
               </button>
-
               {isIjodkorOpen && (
                 <div className="absolute top-full left-0 w-52 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl py-2 z-50 flex flex-col space-y-1 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <Link 
-                    href={getHref("/catalogIjodkorlar?category=poets")} 
+                  <Link
+                    href={getHref("/catalogIjodkorlar?category=poets")}
                     onClick={() => setIsIjodkorOpen(false)}
                     className="px-4 py-2 text-slate-300 hover:text-[#39FF14] hover:bg-white/5 transition"
                   >
                     {tr("Матн муаллифлари", "Matn mualliflari", "Авторы текстов", "Lyricists")}
                   </Link>
-                  <Link 
-                    href={getHref("/catalogIjodkorlar?category=composers")} 
+                  <Link
+                    href={getHref("/catalogIjodkorlar?category=composers")}
                     onClick={() => setIsIjodkorOpen(false)}
                     className="px-4 py-2 text-slate-300 hover:text-[#39FF14] hover:bg-white/5 transition"
                   >
@@ -146,40 +146,38 @@ export default function Header() {
                 </div>
               )}
             </div>
-            
             {/* Вокал (Десктоп) */}
-            <div 
+            <div
               ref={desktopVokalRef}
               className="relative"
               onMouseEnter={() => setIsVokalOpen(true)}
               onMouseLeave={() => setIsVokalOpen(false)}
             >
-              <button 
+              <button
                 onClick={() => setIsVokalOpen((prev) => !prev)}
                 className="text-slate-300 hover:text-[#39FF14] transition flex items-center gap-1 py-2 focus:outline-none cursor-pointer"
               >
                 {tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}
                 <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isVokalOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
               </button>
-
               {isVokalOpen && (
                 <div className="absolute top-full left-0 w-48 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl py-2 z-50 flex flex-col space-y-1 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <Link 
-                    href={getHref("/catalogVokal?category=akapella")} 
+                  <Link
+                    href={getHref("/catalogVokal?category=akapella")}
                     onClick={() => setIsVokalOpen(false)}
                     className="px-4 py-2 text-slate-300 hover:text-[#39FF14] hover:bg-white/5 transition"
                   >
                     {tr("Акапелла", "Akapella", "Акапелла", "Akapella")}
                   </Link>
-                  <Link 
-                    href={getHref("/catalogVokal?category=opera")} 
+                  <Link
+                    href={getHref("/catalogVokal?category=opera")}
                     onClick={() => setIsVokalOpen(false)}
                     className="px-4 py-2 text-slate-300 hover:text-[#39FF14] hover:bg-white/5 transition"
                   >
                     {tr("Опера", "Opera", "Опера", "Opera")}
                   </Link>
-                  <Link 
-                    href={getHref("/catalogVokal?category=estrada")} 
+                  <Link
+                    href={getHref("/catalogVokal?category=estrada")}
                     onClick={() => setIsVokalOpen(false)}
                     className="px-4 py-2 text-slate-300 hover:text-[#39FF14] hover:bg-white/5 transition"
                   >
@@ -188,31 +186,30 @@ export default function Header() {
                 </div>
               )}
             </div>
-{/* Тайёр махсулотлар (Десктоп) */}
+            {/* Тайёр махсулотлар (Десктоп) */}
             <Link href={getHref("/catalogMusic")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
               <span>{tr("Таёр", "Tayor", "Готовая", "Listen to")}</span>
               <span>{tr("Мусиқа", "Musiqa", "Музыка", "Music")}</span>
             </Link>
-
             <Link href={getHref("/catalogSongs")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
               <span>{tr("Таёр", "Tayor", "Готовые", "Listen to")}</span>
               <span>{tr("Қўшиқ", "Qo'shiq", "Песни", "Songs")}</span>
             </Link>
-
             <Link href={getHref("/catalogVideos")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
               <span>{tr("Таёр", "Tayor", "Готовые", "Views")}</span>
               <span>{tr("Клип", "Klip", "Клипы", "Clips")}</span>
             </Link>
-{/* Олди-Сотди бозори. МАРКЕТ для продажи музыкальных инструментов. (Десктоп) */}
+            {/* Олди-Сотди бозори. МАРКЕТ для продажи музыкальных инструментов. (Десктоп) */}
             <Link href={getHref("/marketplace")} className="text-slate-300 hover:text-[#39FF14] transition relative py-2 flex flex-col items-center text-center leading-normal translate-y-[10px]">
               <span>{tr("Мусиқий асбоблар", "Musiqiy asboblar", "Музыкальные инструменты.", "Music instrument.")}</span>
               <span>{tr("олди-сотди бозори", "oldi-sotdi bozori", "Продажа", "Market")}</span>
             </Link>
           </nav>
-{/* ДЕСКТОПНЫЙ БЛОК СМЕНА ЯЗЫКА */}
+
+          {/* ДЕСКТОПНЫЙ БЛОК СМЕНА ЯЗЫКА */}
           <div className="hidden xl:flex flex-row items-center space-x-3">
             <div className="relative w-[130px] h-[38px] group flex items-center justify-center">
-              <div 
+              <div
                 className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
                 style={{
                   padding: '2px',
@@ -235,12 +232,12 @@ export default function Header() {
             {/* ДЕСКТОПНЫЙ БЛОК АВТОРИЗАЦИИ */}
             {session?.user ? (
               <div className="relative flex items-center gap-2" ref={desktopAvatarMenuRef}>
-                <button 
+                <button
                   onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
                   className="relative w-[38px] h-[38px] rounded-xl flex-shrink-0 transition active:scale-95 cursor-pointer flex items-center justify-center group"
                   title={tr("Профиль", "Profil", "Профиль", "Profile")}
                 >
-                  <div 
+                  <div
                     className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
                     style={{
                       padding: '2px',
@@ -251,14 +248,13 @@ export default function Header() {
                     }}
                   />
                   <div className="w-[32px] h-[32px] rounded-lg overflow-hidden relative z-10 bg-slate-900 flex items-center justify-center">
-                    <img 
-                      src={getAvatarUrl()} 
-                      alt={session.user.name || "User"} 
+                    <img
+                      src={getAvatarUrl()}
+                      alt={session.user.name || "User"}
                       className="w-full h-full object-cover"
                     />
                   </div>
                 </button>
-
                 {avatarMenuOpen && (
                   <div className="absolute right-0 mt-3 top-full w-56 bg-slate-900/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
                     <div className="px-4 py-2 border-b border-white/5">
@@ -267,16 +263,15 @@ export default function Header() {
                       </p>
                       <p className="text-[11px] text-slate-400 truncate">{session.user.email}</p>
                     </div>
-
                     <div className="py-1">
-                      <Link 
+                      <Link
                         href="/dashboard/profile"
                         onClick={() => setAvatarMenuOpen(false)}
                         className="w-full px-4 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-2.5 transition"
                       >
                         <User className="w-4 h-4 text-emerald-400" /> {tr("Профильни ўзгартириш", "Profilni o'zgartirish", "Изменить профиль", "Edit Profile")}
                       </Link>
-                      <Link 
+                      <Link
                         href="/dashboard"
                         onClick={() => setAvatarMenuOpen(false)}
                         className="w-full px-4 py-2 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 flex items-center gap-2.5 transition"
@@ -284,7 +279,6 @@ export default function Header() {
                         <Sparkles className="w-4 h-4" /> {tr("Контент яратиш ва бошқариш", "Kontent yaratish va boshqarish", "Создать и управлять контентом", "Create and manage content")}
                       </Link>
                     </div>
-
                     <div className="pt-1 border-t border-white/5">
                       <button
                         onClick={() => {
@@ -300,8 +294,8 @@ export default function Header() {
                 )}
               </div>
             ) : (
-              <div className="relative w-[130px] h-[38px] group flex items-center justify-center cursor-pointer">
-                <div 
+              <div className={`relative w-[130px] h-[38px] group flex items-center justify-center ${isLoggingIn ? "pointer-events-none opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+                <div
                   className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
                   style={{
                     padding: '2px',
@@ -311,9 +305,15 @@ export default function Header() {
                     maskComposite: 'exclude',
                   }}
                 />
-                <Link 
+                <Link
                   href="/auth/login"
-                  className="relative w-[calc(100%-6px)] h-[32px] z-10 flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-black via-black to-[#3a3a3a] text-[#39FF14] text-[11px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 group-hover:text-slate-300"
+                  onClick={handleLoginClick}
+                  aria-disabled={isLoggingIn}
+                  className={`relative w-[calc(100%-6px)] h-[32px] z-10 flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-black via-black to-[#3a3a3a] text-[#39FF14] text-[11px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden ${
+                    isLoggingIn
+                      ? "pointer-events-none opacity-50 cursor-not-allowed"
+                      : "group-hover:scale-95 group-active:scale-90 group-hover:text-slate-300"
+                  }`}
                 >
                   <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/40 to-transparent -translate-x-full group-hover:animate-shimmer" />
@@ -328,25 +328,22 @@ export default function Header() {
       </header>
 
       {/* 2. МОБИЛЬНЫЙ БЛОК НАВИГАЦИИ (ИНТЕРАКТИВНЫЙ АККОРДЕОН БЕЗ CSS-ОБРЕЗАНИЯ) */}
-
       <div className="xl:hidden w-full bg-[#030712]/95 border-b border-white/10 px-3 py-2 flex flex-col gap-2 shrink-0">
         <div className="flex items-center space-x-2.5 overflow-x-auto text-xs font-semibold scrollbar-none py-1">
-          <Link 
-            href="/" 
+          <Link
+            href="/"
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {tr("Бош саҳифа", "Bosh sahifa", "Главная", "Home")}
           </Link>
-
-          <Link 
-            href={getHref("/catalogMusiqachilar")} 
+          <Link
+            href={getHref("/catalogMusiqachilar")}
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {tr("Мусиқачи", "Musiqachi", "Музыканты", "Musicians")}
           </Link>
-
           {/* Кнопка открытия Ижодкорлар */}
-          <button 
+          <button
             type="button"
             onClick={() => {
               setIsMobileIjodkorOpen(!isMobileIjodkorOpen);
@@ -359,9 +356,8 @@ export default function Header() {
             {tr("Ижодкор", "Ijodkor", "Творцы", "Creators")}
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isMobileIjodkorOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
           </button>
-
           {/* Кнопка открытия Вокал */}
-          <button 
+          <button
             type="button"
             onClick={() => {
               setIsMobileVokalOpen(!isMobileVokalOpen);
@@ -371,82 +367,76 @@ export default function Header() {
               isMobileVokalOpen ? "border-[#39FF14] text-[#39FF14]" : "border-white/10 text-slate-300"
             }`}
           >
-             {tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}
+            {tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isMobileVokalOpen ? "rotate-180 text-[#39FF14]" : ""}`} />
           </button>
-
-          <Link 
-            href={getHref("/catalogMusic")} 
+          <Link
+            href={getHref("/catalogMusic")}
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {tr("Таёр мусиқа", "Tayor musiqa", "Готовая музыка", "Ready music")}
           </Link>
-
-          <Link 
-            href={getHref("/catalogSongs")} 
+          <Link
+            href={getHref("/catalogSongs")}
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {tr("Таёр қўшиқ", "Tayor qo'shiq", "Готовые песни", "Ready songs")}
           </Link>
-
-          <Link 
-            href={getHref("/catalogVideos")} 
+          <Link
+            href={getHref("/catalogVideos")}
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {tr("Таёр клип", "Tayor klip", "Готовые клипы", "Ready clips")}
           </Link>
-
-          <Link 
-            href={getHref("/marketplace")} 
+          <Link
+            href={getHref("/marketplace")}
             className="text-slate-300 hover:text-[#39FF14] bg-white/5 hover:bg-white/10 border border-white/10 px-3.5 py-2 rounded-xl transition whitespace-nowrap shrink-0 flex items-center justify-center"
           >
             {tr("Мусиқий асбоблар олди-сотди бозори", "Musiqiy asboblar oldi-sotdi bozori", "Музыкальные инструменты. Продажа", "Music Instruments. Sale")}
           </Link>
         </div>
-
         {/* Выпадающий подблок «Ижодкорлар» на мобильных */}
         {isMobileIjodkorOpen && (
           <div className="w-full bg-slate-900/90 border border-[#39FF14]/30 rounded-xl p-2 flex flex-col gap-1 text-xs animate-in fade-in slide-in-from-top-1">
-            <Link 
-              href={getHref("/catalogIjodkorlar?category=poets")} 
+            <Link
+              href={getHref("/catalogIjodkorlar?category=poets")}
               onClick={() => setIsMobileIjodkorOpen(false)}
               className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
             >
-              • {tr("Матн муаллифлари", "Matn mualliflari", "Авторы текстов", "Lyricists")}
+- {tr("Матн муаллифлари", "Matn mualliflari", "Авторы текстов", "Lyricists")}
             </Link>
-            <Link 
-              href={getHref("/catalogIjodkorlar?category=composers")} 
+            <Link
+              href={getHref("/catalogIjodkorlar?category=composers")}
               onClick={() => setIsMobileIjodkorOpen(false)}
               className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
             >
-              • {tr("Композитор / Бастакорлар", "Kompozitor / Bastakorlar", "Композиторы", "Composers")}
+- {tr("Композитор / Бастакорлар", "Kompozitor / Bastakorlar", "Композиторы", "Composers")}
             </Link>
           </div>
         )}
-
         {/* Выпадающий подблок «Мусиқасиз Вокал» на мобильных */}
         {isMobileVokalOpen && (
           <div className="w-full bg-slate-900/90 border border-[#39FF14]/30 rounded-xl p-2 flex flex-col gap-1 text-xs animate-in fade-in slide-in-from-top-1">
-            <Link 
-              href={getHref("/catalogVokal?category=akapella")} 
+            <Link
+              href={getHref("/catalogVokal?category=akapella")}
               onClick={() => setIsMobileVokalOpen(false)}
               className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
             >
-              • {tr("Акапелла", "Akapella", "Акапелла", "Akapella")}
+- {tr("Акапелла", "Akapella", "Акапелла", "Akapella")}
             </Link>
-            <Link 
-              href={getHref("/catalogVokal?category=opera")} 
+            <Link
+              href={getHref("/catalogVokal?category=opera")}
               onClick={() => setIsMobileVokalOpen(false)}
               className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
             >
-              • {tr("Опера", "Opera", "Опера", "Opera")}
+- {tr("Опера", "Opera", "Опера", "Opera")}
             </Link>
-            <Link 
-              href={getHref("/catalogVokal?category=estrada")} 
+            <Link
+              href={getHref("/catalogVokal?category=estrada")}
               onClick={() => setIsMobileVokalOpen(false)}
               className="px-3 py-2 text-slate-200 hover:text-[#39FF14] hover:bg-white/5 rounded-lg transition"
             >
-              • {tr("Эстрада", "Estrada", "Эстрада", "Estrada")}
+- {tr("Эстрада", "Estrada", "Эстрада", "Estrada")}
             </Link>
           </div>
         )}
@@ -455,7 +445,7 @@ export default function Header() {
       {/* 3. МОБИЛЬНАЯ ПОДЛОЖКА (ЯЗЫК И АВТОРИЗАЦИЯ) */}
       <div className="xl:hidden flex items-center justify-between bg-black/80 border-b border-white/5 px-4 py-3 flex-shrink-0">
         <div className="relative w-[130px] h-[36px] group flex items-center justify-center">
-          <div 
+          <div
             className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
             style={{
               padding: '2px',
@@ -478,12 +468,12 @@ export default function Header() {
         {/* МОБИЛЬНЫЙ БЛОК АВТОРИЗАЦИИ */}
         {session?.user ? (
           <div className="relative flex items-center gap-2" ref={mobileAvatarMenuRef}>
-            <button 
+            <button
               onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
               className="relative w-[38px] h-[38px] rounded-xl flex-shrink-0 transition active:scale-95 cursor-pointer flex items-center justify-center group"
               title={tr("Профиль", "Profil", "Профиль", "Profile")}
             >
-              <div 
+              <div
                 className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
                 style={{
                   padding: '2px',
@@ -494,14 +484,13 @@ export default function Header() {
                 }}
               />
               <div className="w-[32px] h-[32px] rounded-lg overflow-hidden relative z-10 bg-slate-900 flex items-center justify-center">
-                <img 
-                  src={getAvatarUrl()} 
-                  alt={session.user.name || "User"} 
+                <img
+                  src={getAvatarUrl()}
+                  alt={session.user.name || "User"}
                   className="w-full h-full object-cover"
                 />
               </div>
             </button>
-
             {avatarMenuOpen && (
               <div className="absolute right-0 mt-3 top-full w-56 bg-slate-900/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
                 <div className="px-4 py-2 border-b border-white/5">
@@ -510,16 +499,15 @@ export default function Header() {
                   </p>
                   <p className="text-[11px] text-slate-400 truncate">{session.user.email}</p>
                 </div>
-
                 <div className="py-1">
-                  <Link 
+                  <Link
                     href="/dashboard/profile"
                     onClick={() => setAvatarMenuOpen(false)}
                     className="w-full px-4 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-2.5 transition"
                   >
                     <User className="w-4 h-4 text-emerald-400" /> {tr("Профильни ўзгартириш", "Profilni o'zgartirish", "Изменить профиль", "Edit Profile")}
                   </Link>
-                  <Link 
+                  <Link
                     href="/dashboard"
                     onClick={() => setAvatarMenuOpen(false)}
                     className="w-full px-4 py-2 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 flex items-center gap-2.5 transition"
@@ -527,7 +515,6 @@ export default function Header() {
                     <Sparkles className="w-4 h-4" /> {tr("Контент яратиш ва бошқариш", "Kontent yaratish ва boshqarish", "Создать и управлять контентом", "Create and manage content")}
                   </Link>
                 </div>
-
                 <div className="pt-1 border-t border-white/5">
                   <button
                     onClick={() => {
@@ -543,8 +530,8 @@ export default function Header() {
             )}
           </div>
         ) : (
-          <div className="relative w-[130px] h-[38px] group flex items-center justify-center cursor-pointer">
-            <div 
+          <div className={`relative w-[130px] h-[38px] group flex items-center justify-center ${isLoggingIn ? "pointer-events-none opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+            <div
               className="absolute inset-0 rounded-xl z-0 shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all duration-500 group-hover:shadow-[inset_0_0_20px_rgba(0,0,0,1)] pointer-events-none"
               style={{
                 padding: '2px',
@@ -554,9 +541,15 @@ export default function Header() {
                 maskComposite: 'exclude',
               }}
             />
-            <Link 
+            <Link
               href="/auth/login"
-              className="relative w-[calc(100%-6px)] h-[32px] z-10 flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-black via-black to-[#3a3a3a] text-[#39FF14] text-[11px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden group-hover:scale-95 group-active:scale-90 group-hover:text-slate-300"
+              onClick={handleLoginClick}
+              aria-disabled={isLoggingIn}
+              className={`relative w-[calc(100%-6px)] h-[32px] z-10 flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-black via-black to-[#3a3a3a] text-[#39FF14] text-[11px] font-bold uppercase tracking-wider transition-all duration-300 overflow-hidden ${
+                isLoggingIn
+                  ? "pointer-events-none opacity-50 cursor-not-allowed"
+                  : "group-hover:scale-95 group-active:scale-90 group-hover:text-slate-300"
+              }`}
             >
               <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/40 to-transparent -translate-x-full group-hover:animate-shimmer" />

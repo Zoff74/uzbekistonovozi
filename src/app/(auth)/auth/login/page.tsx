@@ -130,7 +130,7 @@ export default function LoginPage() {
 
                     <div className="w-full flex flex-col justify-center items-center text-center">
                         <span className="text-[#FFDA09] !text-[18px] font-thin antialiased leading-[1.3] tracking-tighter break-words max-w-full whitespace-pre-line" style={{ fontFamily: "'Bad Script', cursive", fontWeight: '400' }}>
-                            {tr("Ташрифингиздан дилимиз равшан ! \n Келинг Хазрати инсоним . . .\n Қадамизга ҳасанот !", "Tashrifingizdan dilimiz ravshan ! \n Keling Hazrati insonim . . .\n Qadamingizga hasanot !", "Нам стало Светло на душе от вашего визита! \n Добро пожаловать, Человек с большой буквы...\n Добро пожаловать!", "Our hearts are brightened by your visit! \n Welcome...\n Welcome!")}
+                            {tr("Ташрифингиздан дилимиз равшан ! \n Келинг Хазрати Инсоним . . .\n Қадамизга ҳасанот !", "Tashrifingizdan dilimiz ravshan ! \n Keling Hazrati Insonim . . .\n Qadamingizga hasanot !", "Нам стало Светло на душе от вашего визита! \n Добро пожаловать, Человек с большой буквы...\n Добро пожаловать!", "Our hearts are brightened by your visit! \n Welcome...\n Welcome!")}
                         </span>
                     </div>
 
