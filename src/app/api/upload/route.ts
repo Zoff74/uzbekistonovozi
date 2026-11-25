@@ -32,15 +32,28 @@ const execFileAsync = promisify(execFile);
 
 const MAX_VIDEO_SIZE_MB = Number(process.env.MAX_VIDEO_SIZE_MB || 2048);
 const MAX_VIDEO_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
-const ETALON_BITRATE_KBPS = 1698;
-const HYPER_LARGE_FACTOR = 1.6;
-const LARGE_MP4_THRESHOLD_MB = Number(process.env.LARGE_MP4_THRESHOLD_MB || 90);
-const LARGE_MP4_THRESHOLD_BYTES = LARGE_MP4_THRESHOLD_MB * 1024 * 1024;
-const LARGE_MP4_MAX_BITRATE_KBPS = Number(process.env.LARGE_MP4_MAX_BITRATE_KBPS || Math.round(ETALON_BITRATE_KBPS * HYPER_LARGE_FACTOR));
-const LARGE_MP4_FALLBACK_MB = Number(process.env.LARGE_MP4_FALLBACK_MB || 180);
-const LARGE_MP4_FALLBACK_BYTES = LARGE_MP4_FALLBACK_MB * 1024 * 1024;
+const ETALON_WIDTH = 1280;
+const ETALON_HEIGHT = 720;
+const ETALON_VIDEO_BITRATE_KBPS = 1550;
+const ETALON_AUDIO_BITRATE_KBPS = 128;
 const ALLOWED_VIDEO_EXTENSIONS = [".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"];
 const PROGRESS_TTL_MS = 30 * 60 * 1000;
+
+interface QualityPreset {
+    label: string;
+    videoBitrateKbps: number;
+    maxrateKbps: number;
+    bufsizeKbps: number;
+    audioBitrateKbps: number;
+}
+
+const QUALITY_PRESETS: Record<"144p" | "240p" | "360p" | "480p" | "720p", QualityPreset> = {
+    "144p": { label: "144p", videoBitrateKbps: 350, maxrateKbps: 420, bufsizeKbps: 840, audioBitrateKbps: ETALON_AUDIO_BITRATE_KBPS },
+    "240p": { label: "240p", videoBitrateKbps: 600, maxrateKbps: 700, bufsizeKbps: 1400, audioBitrateKbps: ETALON_AUDIO_BITRATE_KBPS },
+    "360p": { label: "360p", videoBitrateKbps: 950, maxrateKbps: 1100, bufsizeKbps: 2200, audioBitrateKbps: ETALON_AUDIO_BITRATE_KBPS },
+    "480p": { label: "480p", videoBitrateKbps: 1300, maxrateKbps: 1500, bufsizeKbps: 3000, audioBitrateKbps: ETALON_AUDIO_BITRATE_KBPS },
+    "720p": { label: "720p", videoBitrateKbps: ETALON_VIDEO_BITRATE_KBPS, maxrateKbps: 1800, bufsizeKbps: 3600, audioBitrateKbps: ETALON_AUDIO_BITRATE_KBPS },
+};
 
 const imagekit = new ImageKit({ privateKey: process.env.IMAGEKIT_PRIVATE_KEY || "dummy_private_key" });
 
@@ -113,8 +126,18 @@ function extractFfmpegErrorDetail(err: any, stderrTail: string[] = []): string {
     return err?.message || String(err || "неизвестная ошибка ffmpeg");
 }
 
-function isSub480pResolution(width: number, height: number): boolean {
-    return height > 0 && height <= 480 && (width <= 0 || width <= 854);
+function isAbove720pResolution(width: number, height: number): boolean {
+    return (width > 0 && width > ETALON_WIDTH) || (height > 0 && height > ETALON_HEIGHT);
+}
+
+function selectQualityPreset(width: number, height: number, exceeds720p: boolean): QualityPreset {
+    if (exceeds720p || width <= 0 || height <= 0) return QUALITY_PRESETS["720p"];
+    const minorSide = Math.min(width, height);
+    if (minorSide <= 180) return QUALITY_PRESETS["144p"];
+    if (minorSide <= 288) return QUALITY_PRESETS["240p"];
+    if (minorSide <= 400) return QUALITY_PRESETS["360p"];
+    if (minorSide <= 540) return QUALITY_PRESETS["480p"];
+    return QUALITY_PRESETS["720p"];
 }
 
 async function probeMediaCodecs(inputPath: string, uploadId?: string): Promise<MediaProbeInfo | null> {
@@ -164,7 +187,7 @@ async function runFfmpegWithProgress(args: string[], durationSec: number, upload
                         const pct = Math.min(99.5, Math.max(0.01, rawRatio * 100));
                         setUploadProgressState(uploadId, { stage, percent: Number(pct.toFixed(4)) });
                     } else {
-                        fallbackPct = Math.min(99.5, Number((fallbackPct + Math.max(0.15, (lastSec % 10) * 0.08)).toFixed(4)));
+                        fallbackPct = Math.min(99.5, Number((fallbackPct + 0.12).toFixed(4)));
                         setUploadProgressState(uploadId, { stage, percent: fallbackPct });
                     }
                 } else if (trimmed === "progress=end") {
@@ -201,26 +224,15 @@ async function runEtalonMp4Transcode(
     width: number,
     height: number,
     videoCodec: string,
-    uploadId: string,
-    options: { forceMp4Output?: boolean; inputSizeBytes?: number } = {}
+    uploadId: string
 ): Promise<boolean> {
     const threadCount = String(Math.max(2, Math.min((os.cpus()?.length || 4) - 1, 4)));
-    const isSub480p = isSub480pResolution(width, height);
-    const exceeds720p = (width > 0 && width > 1280) || (height > 0 && height > 720);
+    const exceeds720p = isAbove720pResolution(width, height);
     const scaleFilter = exceeds720p
-        ? "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2"
+        ? `scale='min(${ETALON_WIDTH},iw)':'min(${ETALON_HEIGHT},ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`
         : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
-    const inputSize = options.inputSizeBytes || 0;
-    const sourceBitrateKbps = inputSize > 0 && durationSec > 0 ? Math.round((inputSize * 8) / (durationSec * 1000)) : 0;
-
-    const isSmallOrMedium = !exceeds720p && inputSize > 0 && inputSize <= LARGE_MP4_THRESHOLD_BYTES;
-    const cappedBitrateKbps = isSmallOrMedium && sourceBitrateKbps > 0
-        ? Math.max(250, Math.min(1550, Math.round(sourceBitrateKbps * 1.05)))
-        : 1550;
-    const maxrateKbps = Math.max(350, Math.round(cappedBitrateKbps * 1.16));
-    const bufsizeKbps = Math.max(700, Math.round(cappedBitrateKbps * 2.3));
-    const audioBitrate = isSmallOrMedium && sourceBitrateKbps > 0 && sourceBitrateKbps < 600 ? "96k" : "128k";
+    const preset = selectQualityPreset(width, height, exceeds720p);
 
     const ffmpegArgs = [
         "-threads", threadCount,
@@ -231,13 +243,17 @@ async function runEtalonMp4Transcode(
         "-profile:v", "high",
         "-level", "3.1",
         "-preset", "fast",
-        "-b:v", `${cappedBitrateKbps}k`,
-        "-maxrate", `${maxrateKbps}k`,
-        "-bufsize", `${bufsizeKbps}k`,
+        "-b:v", `${preset.videoBitrateKbps}k`,
+        "-maxrate", `${preset.maxrateKbps}k`,
+        "-bufsize", `${preset.bufsizeKbps}k`,
         "-pix_fmt", "yuv420p",
+        "-colorspace", "bt709",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-color_range", "tv",
         "-movflags", "+faststart",
         "-c:a", "aac",
-        "-b:a", audioBitrate,
+        "-b:a", `${preset.audioBitrateKbps}k`,
         "-ac", "2",
         "-ar", "44100",
         outputPath,
@@ -245,23 +261,17 @@ async function runEtalonMp4Transcode(
 
     const startMs = Date.now();
     setUploadProgressState(uploadId, { stage: "converting", percent: 0.01 });
-    console.info(`🎬 [UPLOAD VIDEO] uploadId=${uploadId} | Конвертируем/сжимаем (${videoCodec || "unknown"}, ${width || "?"}x${height || "?"}, sub480p=${isSub480p}, downscale720p=${exceeds720p}, bitrate=${cappedBitrateKbps}k, ${durationSec.toFixed(1)}s)...`);
+    console.info(`🎬 [UPLOAD VIDEO] uploadId=${uploadId} | Конвертируем в MP4 (${preset.label}, ${videoCodec || "unknown"}, ${width || "?"}x${height || "?"}, downscale720p=${exceeds720p}, v=${preset.videoBitrateKbps}k, a=${preset.audioBitrateKbps}k/44.1k, ${durationSec.toFixed(1)}s)...`);
     try {
         await runFfmpegWithProgress(ffmpegArgs, durationSec, uploadId, "converting");
-        const [inStat, outStat] = await Promise.all([fs.stat(inputPath), fs.stat(outputPath)]);
+        const outStat = await fs.stat(outputPath);
         if (outStat.size <= 1024) {
             console.error(`❌ [FFMPEG TRANSCODE EMPTY] uploadId=${uploadId} | Итоговый файл пуст или повреждён (size=${outStat.size})`);
             await fs.unlink(outputPath).catch(() => {});
             return false;
         }
-        if (!options.forceMp4Output && inStat.size > 0 && outStat.size > inStat.size * 1.15) {
-            console.warn(`⚠️ [TRANSCODE BLOATED SKIP] uploadId=${uploadId} | Итоговый файл (${(outStat.size / 1024 / 1024).toFixed(2)} МБ) больше оригинала (${(inStat.size / 1024 / 1024).toFixed(2)} МБ) — берём оригинал`);
-            await fs.unlink(outputPath).catch(() => {});
-            setUploadProgressState(uploadId, { stage: "converting", percent: 100 });
-            return false;
-        }
         setUploadProgressState(uploadId, { stage: "converting", percent: 100 });
-        console.info(`✅ [UPLOAD VIDEO] uploadId=${uploadId} | Обработка завершена за ${((Date.now() - startMs) / 1000).toFixed(1)}s (${(outStat.size / 1024 / 1024).toFixed(2)} МБ)`);
+        console.info(`✅ [UPLOAD VIDEO] uploadId=${uploadId} | MP4 готов за ${((Date.now() - startMs) / 1000).toFixed(1)}s (${(outStat.size / 1024 / 1024).toFixed(2)} МБ)`);
         return true;
     } catch (err: any) {
         const detail = extractFfmpegErrorDetail(err);
@@ -274,37 +284,29 @@ async function runEtalonMp4Transcode(
 async function normalizeVideoForWeb(inputPath: string, originalName: string, tempDir: string, uniqueId: number, uploadId: string): Promise<{ filePath: string; isTempConverted: boolean }> {
     const extByName = path.extname(originalName || inputPath).toLowerCase();
     const isMp4 = extByName === ".mp4" || inputPath.toLowerCase().endsWith(".mp4");
-    const inStat = await fs.stat(inputPath).catch(() => null);
-    const inputSize = inStat?.size || 0;
-    const sizeMb = inputSize / 1024 / 1024;
-    const probe = isMp4 ? await probeMediaCodecs(inputPath, uploadId) : null;
-    const durationSec = probe?.durationSec || 0, width = probe?.width || 0, height = probe?.height || 0, videoCodec = probe?.videoCodec || "";
-    const avgBitrateKbps = inputSize > 0 && durationSec > 0 ? (inputSize * 8) / (durationSec * 1000) : 0;
-    const isSub480pMp4 = isMp4 && isSub480pResolution(width, height) && inputSize < LARGE_MP4_FALLBACK_BYTES;
-    const exceedsResolution = (width > 0 && width > 1280) || (height > 0 && height > 720);
-    const shouldCompressMp4 = isMp4 && !isSub480pMp4 && (((inputSize > LARGE_MP4_THRESHOLD_BYTES || exceedsResolution) && avgBitrateKbps > LARGE_MP4_MAX_BITRATE_KBPS) || (durationSec <= 0 && inputSize >= LARGE_MP4_FALLBACK_BYTES));
-    if (isMp4 && !shouldCompressMp4) {
-        console.info(`⚡ [UPLOAD VIDEO] uploadId=${uploadId} | MP4 (${sizeMb.toFixed(1)} МБ, ${width || "?"}x${height || "?"}, ~${Math.round(avgBitrateKbps)} kbps) — отправляем КАК ЕСТЬ без конвертации${isSub480pMp4 ? " и апскейла 144p-480p" : ""}`);
+    const probe = await probeMediaCodecs(inputPath, uploadId);
+    const durationSec = probe?.durationSec || 0;
+    const width = probe?.width || 0;
+    const height = probe?.height || 0;
+    const videoCodec = probe?.videoCodec || "";
+    const exceeds720p = isAbove720pResolution(width, height);
+
+    if (isMp4 && !exceeds720p) {
+        console.info(`⚡ [UPLOAD VIDEO] uploadId=${uploadId} | MP4 <= 720p (${width || "?"}x${height || "?"}) — отправляем КАК ЕСТЬ без конвертации`);
         return { filePath: inputPath, isTempConverted: false };
     }
-    if (shouldCompressMp4) console.info(`🗜️ [UPLOAD VIDEO] uploadId=${uploadId} | Гипербольшой MP4 (${sizeMb.toFixed(1)} МБ, ${width || "?"}x${height || "?"}, ~${Math.round(avgBitrateKbps)} kbps > ${LARGE_MP4_MAX_BITRATE_KBPS} kbps) — ужимаем до эталона 720p`);
+
+    if (isMp4 && exceeds720p) {
+        console.info(`🗜️ [UPLOAD VIDEO] uploadId=${uploadId} | MP4 выше 720p (${width || "?"}x${height || "?"}) — приводим к эталону 720p`);
+    }
 
     const outputPath = path.join(tempDir, `web_${uniqueId}.mp4`);
-    const nonMp4Probe = !isMp4 ? await probeMediaCodecs(inputPath, uploadId) : null;
-    const finalDuration = isMp4 ? durationSec : (nonMp4Probe?.durationSec || 0);
-    const finalWidth = isMp4 ? width : (nonMp4Probe?.width || 0);
-    const finalHeight = isMp4 ? height : (nonMp4Probe?.height || 0);
-    const finalCodec = isMp4 ? videoCodec : (nonMp4Probe?.videoCodec || "");
-
     try {
-        const ok = await runEtalonMp4Transcode(inputPath, outputPath, finalDuration, finalWidth, finalHeight, finalCodec, uploadId, {
-            forceMp4Output: !isMp4,
-            inputSizeBytes: inputSize,
-        });
+        const ok = await runEtalonMp4Transcode(inputPath, outputPath, durationSec, width, height, videoCodec, uploadId);
         return ok ? { filePath: outputPath, isTempConverted: true } : { filePath: inputPath, isTempConverted: false };
     } catch (err: any) {
         await fs.unlink(outputPath).catch(() => {});
-        console.error(`❌ [NORMALIZE VIDEO FAILED] uploadId=${uploadId} | codec=${finalCodec || "unknown"} | reason=${err?.message || "ошибка ffmpeg"}`);
+        console.error(`❌ [NORMALIZE VIDEO FAILED] uploadId=${uploadId} | codec=${videoCodec || "unknown"} | reason=${err?.message || "ошибка ffmpeg"}`);
         return { filePath: inputPath, isTempConverted: false };
     }
 }
