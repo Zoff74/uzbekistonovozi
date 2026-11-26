@@ -404,7 +404,7 @@ export default function NewVideoPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-300 mb-2">{tr("Видеофайл тез юкланиши учун, видео .mp4 форматида бўлиши керак. Бошқа видео формат, автоматик конвертация қилинади. Конвертацияга озгина вақт талаб қилинади. Конвертация тугамагунча, Саҳифани ёпманг.", "Videofayl tez yuklanishi uchun,video .mp4 formatida bo'lishi kerak. Boshqa video format, avtomatik konvertasiya q'ilinadi. Konvertasiyaga ozgina vaqt talab qilinadi. Konvertasiya tugamaguncha, Sahifani yopmang.", "Для быстрой загрузки Видеофайла, оно должно быть в формате .mp4. При другом формате будет сделано авто-конвертация. Не закрывайте вкладку во время процесса конвертации.", "For fast video file loading, it must be in .mp4 format. If it’s in another format, auto‑conversion will be performed. Do not close the tab during the process.")} *</label>
+            <label className="block text-sm font-medium text-neutral-300 mb-2">{tr("Видеофайл тез юкланиши учун, видео .mp4 форматида бўлиши керак. Бошқа видео формат, автоматик равишда MP-4 форматига ўтказилади. Конвертация вақт талаб қилади. Конвертация тугамагунча, Саҳифани ёпманг.", "Videofayl tez yuklanishi uchun,video .mp4 formatida bo'lishi kerak. Boshqa video format, avtomatik ravishda MP-4 formatiga q'tkaziladi. Konvertasiya vaqt talab qiladi. Konvertasiya tugamaguncha, Sahifani yopmang.", "Для быстрой загрузки Видеофайла, оно должно быть в формате .mp4. При другом формате будет сделано авто-конвертация в МР-4. Не закрывайте вкладку во время процесса конвертации.", "For fast video file loading, it must be in .mp4 format. If it’s in another format, auto‑conversion will be performed. Do not close the tab during the process.")} *</label>
             <div className="flex items-center gap-4 bg-neutral-950 border border-neutral-800 rounded-xl p-4">
               <div className="w-10 h-10 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center text-amber-400 shrink-0"><Film size={20} /></div>
               <div className="flex-1 min-w-0">
@@ -441,7 +441,7 @@ export default function NewVideoPage() {
                       {telegramDone
                         ? tr("Telegram каналга юборилди", "Telegram kanalga yuborildi", "Загрузка в Telegram завершена", "Telegram upload finished")
                         : isActuallyConverting
-                          ? tr("Конвертация жараёни... .mp4 форматига Конвертация қилинмоқда", "Konvertatsiya jarayoni... .mp4 formatiga Konvertasiya qilinmoda", "Идёт конвертации... Идет конвертация в .mp4 формат", "Conversion progress...")
+                          ? tr("MP-4 форматига Конвертация қилинмоқда. Конвертация жараёни... ", "MP-4 formatiga Konvertasiya qilinmoda. Konvertatsiya jarayoni... ", "Идёт конвертации... Идет конвертация в .mp4 формат", "Conversion progress...")
                           : tr("Telegram каналга юборилмоқда...", "Telegram kanalga yuborilmoqda...", "Отправка в Telegram-канал...", "Sending to Telegram channel...")}
                     </span>
                     <span className="font-bold text-amber-400 tabular-nums">{formattedConversionPercent}%</span>
@@ -466,7 +466,7 @@ export default function NewVideoPage() {
                 </div>
               )}
               {isServerProcessing && !telegramDone && (
-                <p className="text-[11px] text-amber-300/80 pt-1">{tr("Диққат! Фақат MP4 файл Конвертациясиз тўғридан-тўғри юборилади. Бошқа форматлар 720p H.264 га келтирилади. Саҳифани ёпманг.", "Diqqat! Faqat MP4 fayl Konvertasiyasiz to'g'ridan-to'g'ri yuboriladi. Boshqa formatlar 720p H.264 ga keltiriladi. Sahifani yopmang.", "Внимание! Только MP4 файл отправляется напрямую без перекодирования. Несовместимый формат приводится к 720p H.264. Не закрывайте страницу.", "Ready MP4 is sent directly without re-encoding. Incompatible formats are converted to 720p H.264. Do not close the page.")}</p>
+                <p className="text-[11px] text-amber-300/80 pt-1">{tr("*Диққат! Фақат MP4 файл Конвертациясиз тўғридан-тўғри юборилади. Бошқа форматлар 720p H.264 га келтирилади. Саҳифани ёпманг.", "*Diqqat! Faqat MP4 fayl Konvertasiyasiz to'g'ridan-to'g'ri yuboriladi. Boshqa formatlar 720p H.264 ga keltiriladi. Sahifani yopmang.", "*Внимание! Только MP4 файл отправляется напрямую без перекодирования. Несовместимый формат приводится к 720p H.264. Не закрывайте страницу.", "*Ready MP4 is sent directly without re-encoding. Incompatible formats are converted to 720p H.264. Do not close the page.")}</p>
               )}
             </div>
           )}

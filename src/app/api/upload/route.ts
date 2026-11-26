@@ -322,6 +322,36 @@ async function getMTProtoClient() {
     return client;
 }
 
+async function prepareTelegramThumbJpeg(coverBuffer: Buffer, tempDir: string, uniqueId: number, uploadId: string): Promise<string> {
+    const rawCoverPath = path.join(tempDir, `cover_raw_${uniqueId}`);
+    const jpgThumbPath = path.join(tempDir, `thumb_${uniqueId}.jpg`);
+    await fs.writeFile(rawCoverPath, coverBuffer);
+    try {
+        await execFileAsync(
+            "ffmpeg",
+            [
+                "-y",
+                "-i", rawCoverPath,
+                "-vf", "scale='min(320,iw)':'min(320,ih)':force_original_aspect_ratio=decrease",
+                "-q:v", "4",
+                jpgThumbPath,
+            ],
+            { timeout: 30000 }
+        );
+        const stat = await fs.stat(jpgThumbPath);
+        if (stat.size > 0) {
+            return jpgThumbPath;
+        }
+        throw new Error("Пустой JPEG-файл миниатюры");
+    } catch (err: any) {
+        console.warn(`⚠️ [THUMB JPEG FALLBACK] uploadId=${uploadId} | ${err?.message || String(err)} — записываем исходный буфер в ${jpgThumbPath}`);
+        await fs.writeFile(jpgThumbPath, coverBuffer);
+        return jpgThumbPath;
+    } finally {
+        await fs.unlink(rawCoverPath).catch(() => {});
+    }
+}
+
 async function runVideoBackgroundJob(uploadId: string, inputPath: string, tempDir: string, uniqueId: number, originalName: string, videoChatId: string, coverBuffer: Buffer | null) {
     let convertedVideoPath = "", thumbPath = "", mtprotoClient: TelegramClient | null = null, keepAliveTimer: ReturnType<typeof setInterval> | null = null;
     try {
@@ -342,7 +372,9 @@ async function runVideoBackgroundJob(uploadId: string, inputPath: string, tempDi
         const sendStartMs = Date.now();
         mtprotoClient = await getMTProtoClient();
         const finalDisplayName = normalized.isTempConverted ? originalName.replace(/\.[^/.]+$/, "") + ".mp4" : originalName;
-        if (coverBuffer) { thumbPath = path.join(tempDir, `thumb_${uniqueId}.jpg`); await fs.writeFile(thumbPath, coverBuffer); }
+        if (coverBuffer) {
+            thumbPath = await prepareTelegramThumbJpeg(coverBuffer, tempDir, uniqueId, uploadId);
+        }
         const targetEntity = await mtprotoClient.getEntity(videoChatId);
 
         const uploadedMessage = await mtprotoClient.sendFile(targetEntity, {
