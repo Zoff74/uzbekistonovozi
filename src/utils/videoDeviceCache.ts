@@ -7,6 +7,25 @@ interface StoredVideoRecord { id: string; blob: Blob; size: number; mimeType: st
 interface PartialChunkRecord { key: string; trackId: string; index: number; data: Uint8Array; totalLength: number; mimeType: string; }
 const activeBackgroundDownloads = new Map<string, Promise<void>>();
 const activePreplayDownloads = new Map<string, Promise<{ src: string; fromCache: boolean }>>();
+const progressListeners = new Map<string, Set<(percent: number) => void>>();
+function emitProgress(cleanId: string, percent: number): void {
+  const listeners = progressListeners.get(cleanId);
+  if (!listeners) return;
+  const safe = Math.max(0, Math.min(100, Number(percent) || 0));
+  for (const fn of listeners) { try { fn(safe); } catch {} }
+}
+function subscribeProgress(cleanId: string, onProgress?: (percent: number) => void): () => void {
+  if (!onProgress) return () => {};
+  let set = progressListeners.get(cleanId);
+  if (!set) { set = new Set(); progressListeners.set(cleanId, set); }
+  set.add(onProgress);
+  return () => {
+    const cur = progressListeners.get(cleanId);
+    if (!cur) return;
+    cur.delete(onProgress);
+    if (cur.size === 0) progressListeners.delete(cleanId);
+  };
+}
 function detectVideoExt(hint?: string, name?: string): "mkv" | "mp4" {
   const s = `${hint || ""} ${name || ""}`.toLowerCase();
   return s.includes("mkv") || s.includes("matroska") || s.includes("vp9") || s.includes("opus") ? "mkv" : "mp4";
@@ -152,7 +171,7 @@ async function streamFileToOPFS(id: string, file: File): Promise<boolean> {
     }
   } catch { return false; }
 }
-async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onProgress?: (percent: number) => void, externalSignal?: AbortSignal): Promise<boolean> {
+async function backgroundPersistToOPFS(cleanId: string, streamUrl: string): Promise<boolean> {
   try {
     if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) return false;
     await requestPersistentStorage();
@@ -163,12 +182,9 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
     let receivedBytes = 0, totalLength = 0, writeCounter = 0, lastLoggedMb = 0, completedCleanly = false;
     let writable: any = null, tempHandle: any = null;
     try {
-      if (externalSignal?.aborted) throw new DOMException("Aborted", "AbortError");
       let stallTimer: ReturnType<typeof setTimeout> | null = null;
       const reqController = new AbortController();
-      const onExternalAbort = () => reqController.abort();
-      externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
-      const resetStallTimer = () => { if (stallTimer) clearTimeout(stallTimer); stallTimer = setTimeout(() => reqController.abort(), 30000); };
+      const resetStallTimer = () => { if (stallTimer) clearTimeout(stallTimer); stallTimer = setTimeout(() => reqController.abort(), 90000); };
       try {
         resetStallTimer();
         console.info(`🌐 [VIDEO CACHE] Целевой последовательный запрос в OPFS: ${streamUrl}`);
@@ -209,11 +225,11 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
             console.info(`⏳ [VIDEO CACHE] Прогресс OPFS id="${cleanId}": ${(receivedBytes / 1024 / 1024).toFixed(1)} МБ${totalLength > 0 ? ` / ${(totalLength / 1024 / 1024).toFixed(1)} МБ (${Math.round((receivedBytes / totalLength) * 100)}%)` : ""}`);
           }
           if (totalLength > 0) {
-            onProgress?.(Math.min(99.9999, (receivedBytes / totalLength) * 100));
+            emitProgress(cleanId, Math.min(99.9999, (receivedBytes / totalLength) * 100));
             if (receivedBytes >= totalLength) { await reader.cancel().catch(() => {}); completedCleanly = true; break; }
-          } else { onProgress?.(Math.min(95, 10 + (receivedBytes / (1024 * 1024)) * 2)); }
+          } else { emitProgress(cleanId, Math.min(95, 10 + (receivedBytes / (1024 * 1024)) * 2)); }
         }
-      } finally { externalSignal?.removeEventListener("abort", onExternalAbort); if (stallTimer) clearTimeout(stallTimer); }
+      } finally { if (stallTimer) clearTimeout(stallTimer); }
       if (writable) await writable.close();
     } catch (err) {
       if (writable) await writable.close().catch(() => {});
@@ -235,29 +251,25 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
     const readyFile = await getVideoFromOPFS(cleanId);
     if (readyFile && (totalLength <= 0 || readyFile.size === totalLength)) {
       console.info(`💾 [VIDEO CACHE] Сохранено в OPFS: ${finalName} (${(readyFile.size / 1024 / 1024).toFixed(2)} МБ)`);
-      onProgress?.(100);
+      emitProgress(cleanId, 100);
       return true;
     }
     await root.removeEntry(finalName).catch(() => {});
     return false;
   } catch (err: any) {
-    if (err?.name === "AbortError") { console.info(`🛑 [VIDEO CACHE] Загрузка OPFS отменена для id="${cleanId}"`); throw err; }
     console.warn(`⚠️ [VIDEO CACHE] Ошибка backgroundPersistToOPFS для id="${cleanId}":`, err?.message || err);
     return false;
   }
 }
-async function backgroundPersistToIndexedDB(cleanId: string, streamUrl: string, onProgress?: (percent: number) => void, externalSignal?: AbortSignal): Promise<boolean> {
+async function backgroundPersistToIndexedDB(cleanId: string, streamUrl: string): Promise<boolean> {
   try {
     console.info(`⬇️ [VIDEO CACHE] Переход к целостной загрузке в IndexedDB для id="${cleanId}"`);
     await clearPartialChunksFromDB(cleanId);
     const chunks: Uint8Array[] = [];
     let receivedBytes = 0, totalLength = 0, contentType = "video/mp4", completedCleanly = false;
-    if (externalSignal?.aborted) throw new DOMException("Aborted", "AbortError");
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
     const reqController = new AbortController();
-    const onExternalAbort = () => reqController.abort();
-    externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
-    const resetStallTimer = () => { if (stallTimer) clearTimeout(stallTimer); stallTimer = setTimeout(() => reqController.abort(), 30000); };
+    const resetStallTimer = () => { if (stallTimer) clearTimeout(stallTimer); stallTimer = setTimeout(() => reqController.abort(), 90000); };
     try {
       resetStallTimer();
       console.info(`🌐 [VIDEO CACHE] Целевой последовательный запрос в IndexedDB: ${streamUrl}`);
@@ -289,11 +301,11 @@ async function backgroundPersistToIndexedDB(cleanId: string, streamUrl: string, 
         receivedBytes += copy.byteLength;
         if (++step % 24 === 0) await yieldToMain();
         if (totalLength > 0) {
-          onProgress?.(Math.min(99.9999, (receivedBytes / totalLength) * 100));
+          emitProgress(cleanId, Math.min(99.9999, (receivedBytes / totalLength) * 100));
           if (receivedBytes >= totalLength) { await reader.cancel().catch(() => {}); completedCleanly = true; break; }
-        } else { onProgress?.(Math.min(95, 10 + (receivedBytes / (1024 * 1024)) * 2)); }
+        } else { emitProgress(cleanId, Math.min(95, 10 + (receivedBytes / (1024 * 1024)) * 2)); }
       }
-    } finally { externalSignal?.removeEventListener("abort", onExternalAbort); if (stallTimer) clearTimeout(stallTimer); }
+    } finally { if (stallTimer) clearTimeout(stallTimer); }
     if (!completedCleanly || receivedBytes <= 1024) return false;
     const finalBlob = new Blob(chunks as unknown as BlobPart[], { type: contentType });
     if (totalLength > 0 && finalBlob.size !== totalLength) {
@@ -302,10 +314,9 @@ async function backgroundPersistToIndexedDB(cleanId: string, streamUrl: string, 
     }
     await saveVideoToIndexedDB(cleanId, finalBlob, contentType);
     console.info(`💾 [VIDEO CACHE] Сохранено в IndexedDB: ${cleanId} (${(finalBlob.size / 1024 / 1024).toFixed(2)} МБ)`);
-    onProgress?.(100);
+    emitProgress(cleanId, 100);
     return true;
   } catch (err: any) {
-    if (err?.name === "AbortError") throw err;
     console.warn(`⚠️ [VIDEO CACHE] Ошибка backgroundPersistToIndexedDB для id="${cleanId}":`, err?.message || err);
     return false;
   }
@@ -316,8 +327,10 @@ export async function downloadVideoBeforePlayback(trackId: string, signal: Abort
   console.info(`🚀 [VIDEO CACHE] downloadVideoBeforePlayback старт: cleanId="${cleanId}", streamUrl="${streamUrl}"`);
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   await requestPersistentStorage();
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   const opfsFile = await getVideoFromOPFS(cleanId);
   if (opfsFile) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const blobUrl = URL.createObjectURL(opfsFile);
     console.info(`✅ [VIDEO CACHE] Запуск с диска (OPFS): ${cleanId} -> ${blobUrl}`);
     onProgress?.(100);
@@ -325,36 +338,52 @@ export async function downloadVideoBeforePlayback(trackId: string, signal: Abort
   }
   const cachedBlob = await getVideoFromIndexedDB(cleanId);
   if (cachedBlob) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const blobUrl = URL.createObjectURL(cachedBlob);
     console.info(`✅ [VIDEO CACHE] Запуск с диска (IndexedDB): ${cleanId} -> ${blobUrl}`);
     onProgress?.(100);
     return { src: blobUrl, fromCache: true };
   }
-  const existingJob = activePreplayDownloads.get(cleanId);
-  if (existingJob) { console.info(`🔁 [VIDEO CACHE] Подключаемся к активной загрузке для id="${cleanId}"`); return existingJob; }
-  const downloadJob = (async (): Promise<{ src: string; fromCache: boolean }> => {
-    try {
-      if (await backgroundPersistToOPFS(cleanId, streamUrl, onProgress, signal)) {
-        const readyOpfs = await getVideoFromOPFS(cleanId);
-        if (readyOpfs) return { src: URL.createObjectURL(readyOpfs), fromCache: true };
-      }
-      if (await backgroundPersistToIndexedDB(cleanId, streamUrl, onProgress, signal)) {
-        const readyIdb = await getVideoFromIndexedDB(cleanId);
-        if (readyIdb) return { src: URL.createObjectURL(readyIdb), fromCache: true };
-      }
-      throw new Error("Не удалось сохранить видеофайл на устройство перед воспроизведением");
-    } finally { activePreplayDownloads.delete(cleanId); }
-  })();
-  activePreplayDownloads.set(cleanId, downloadJob);
-  return downloadJob;
+  const unsubscribe = subscribeProgress(cleanId, onProgress);
+  try {
+    let downloadJob = activePreplayDownloads.get(cleanId);
+    if (downloadJob) { console.info(`🔁 [VIDEO CACHE] Подключаемся к активной загрузке для id="${cleanId}"`); }
+    else {
+      downloadJob = (async (): Promise<{ src: string; fromCache: boolean }> => {
+        try {
+          if (await backgroundPersistToOPFS(cleanId, streamUrl)) {
+            const readyOpfs = await getVideoFromOPFS(cleanId);
+            if (readyOpfs) return { src: URL.createObjectURL(readyOpfs), fromCache: true };
+          }
+          if (await backgroundPersistToIndexedDB(cleanId, streamUrl)) {
+            const readyIdb = await getVideoFromIndexedDB(cleanId);
+            if (readyIdb) return { src: URL.createObjectURL(readyIdb), fromCache: true };
+          }
+          throw new Error("Не удалось сохранить видеофайл на устройство перед воспроизведением");
+        } finally { activePreplayDownloads.delete(cleanId); }
+      })();
+      activePreplayDownloads.set(cleanId, downloadJob);
+    }
+    const result = await new Promise<{ src: string; fromCache: boolean }>((resolve, reject) => {
+      const onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+      signal.addEventListener("abort", onAbort, { once: true });
+      downloadJob!.then(
+        (res) => { signal.removeEventListener("abort", onAbort); resolve(res); },
+        (err) => { signal.removeEventListener("abort", onAbort); reject(err); }
+      );
+    });
+    if (signal.aborted) { revokeLocalVideoUrl(result.src); throw new DOMException("Aborted", "AbortError"); }
+    return result;
+  } finally { unsubscribe(); }
 }
 function triggerBackgroundDiskCache(cleanId: string, streamUrl: string, onProgress?: (percent: number) => void): void {
+  const unsubscribe = subscribeProgress(cleanId, onProgress);
   if (activeBackgroundDownloads.has(cleanId)) return;
   const job = (async () => {
     try {
       await yieldToMain();
-      if (!(await backgroundPersistToOPFS(cleanId, streamUrl, onProgress))) await backgroundPersistToIndexedDB(cleanId, streamUrl, onProgress);
-    } catch {} finally { activeBackgroundDownloads.delete(cleanId); }
+      if (!(await backgroundPersistToOPFS(cleanId, streamUrl))) await backgroundPersistToIndexedDB(cleanId, streamUrl);
+    } catch {} finally { activeBackgroundDownloads.delete(cleanId); unsubscribe(); }
   })();
   activeBackgroundDownloads.set(cleanId, job);
 }

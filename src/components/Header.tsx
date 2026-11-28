@@ -2,13 +2,15 @@
 // src/components/Header.tsx
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { LogIn, ChevronDown, User, LogOut, Music, Sparkles } from "lucide-react";
+import { LogIn, ChevronDown, User, LogOut, Sparkles } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { tr } from "@/utils/translate";
 import { useSession, signOut } from "next-auth/react";
+import { usePlayer } from "@/context/PlayerContext";
 
 export default function Header() {
   const { data: session } = useSession();
+  const { isVideoPlaying } = usePlayer();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Состояния для выпадающих меню (десктоп)
@@ -24,6 +26,16 @@ export default function Header() {
   // Рефы для десктопных меню
   const desktopVokalRef = useRef<HTMLDivElement>(null);
   const desktopIjodkorRef = useRef<HTMLDivElement>(null);
+
+  // Закрываем открытые меню при старте видео, чтобы не тратить ресурсы на попапы поверх плеера
+  useEffect(() => {
+    if (!isVideoPlaying) return;
+    setIsVokalOpen(false);
+    setIsIjodkorOpen(false);
+    setIsMobileIjodkorOpen(false);
+    setIsMobileVokalOpen(false);
+    setAvatarMenuOpen(false);
+  }, [isVideoPlaying]);
 
   // Закрытие выпадающих меню при клике вне их областей
   useEffect(() => {
@@ -56,7 +68,7 @@ export default function Header() {
   const getAvatarUrl = () => {
     const rawImage = session?.user?.image;
     if (!rawImage) return "/img/avatar.webp";
-    return rawImage.includes("?") ? rawImage : `${rawImage}?t=${Date.now()}`;
+    return rawImage;
   };
 
   const handleLoginClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -117,11 +129,11 @@ export default function Header() {
             <div
               ref={desktopIjodkorRef}
               className="relative"
-              onMouseEnter={() => setIsIjodkorOpen(true)}
+              onMouseEnter={() => { if (!isVideoPlaying) setIsIjodkorOpen(true); }}
               onMouseLeave={() => setIsIjodkorOpen(false)}
             >
               <button
-                onClick={() => setIsIjodkorOpen((prev) => !prev)}
+                onClick={() => { if (!isVideoPlaying) setIsIjodkorOpen((prev) => !prev); }}
                 className="text-slate-300 hover:text-[#39FF14] transition flex items-center gap-1 py-2 focus:outline-none cursor-pointer"
               >
                 {tr("Ижодкор", "Ijodkor", "Творцы", "Creators")}
@@ -150,11 +162,11 @@ export default function Header() {
             <div
               ref={desktopVokalRef}
               className="relative"
-              onMouseEnter={() => setIsVokalOpen(true)}
+              onMouseEnter={() => { if (!isVideoPlaying) setIsVokalOpen(true); }}
               onMouseLeave={() => setIsVokalOpen(false)}
             >
               <button
-                onClick={() => setIsVokalOpen((prev) => !prev)}
+                onClick={() => { if (!isVideoPlaying) setIsVokalOpen((prev) => !prev); }}
                 className="text-slate-300 hover:text-[#39FF14] transition flex items-center gap-1 py-2 focus:outline-none cursor-pointer"
               >
                 {tr("Хонанда / Вокал", "Xonanda / Vokal", "Певец / Вокалист", "Singer / Vocalist")}
@@ -233,7 +245,7 @@ export default function Header() {
             {session?.user ? (
               <div className="relative flex items-center gap-2" ref={desktopAvatarMenuRef}>
                 <button
-                  onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
+                  onClick={() => { if (!isVideoPlaying) setAvatarMenuOpen(!avatarMenuOpen); }}
                   className="relative w-[38px] h-[38px] rounded-xl flex-shrink-0 transition active:scale-95 cursor-pointer flex items-center justify-center group"
                   title={tr("Профиль", "Profil", "Профиль", "Profile")}
                 >
@@ -276,7 +288,7 @@ export default function Header() {
                         onClick={() => setAvatarMenuOpen(false)}
                         className="w-full px-4 py-2 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 flex items-center gap-2.5 transition"
                       >
-                        <Sparkles className="w-4 h-4" /> {tr("Контент яратиш ва бошқариш", "Kontent yaratish va boshqarish", "Создать и управлять контентом", "Create and manage content")}
+                        <Sparkles className="w-4 h-4" /> {tr("Контент яратиш ва бошқариш", "Kontent yaratish ва boshqarish", "Создать и управлять контентом", "Create and manage content")}
                       </Link>
                     </div>
                     <div className="pt-1 border-t border-white/5">
@@ -346,6 +358,7 @@ export default function Header() {
           <button
             type="button"
             onClick={() => {
+              if (isVideoPlaying) return;
               setIsMobileIjodkorOpen(!isMobileIjodkorOpen);
               setIsMobileVokalOpen(false);
             }}
@@ -360,6 +373,7 @@ export default function Header() {
           <button
             type="button"
             onClick={() => {
+              if (isVideoPlaying) return;
               setIsMobileVokalOpen(!isMobileVokalOpen);
               setIsMobileIjodkorOpen(false);
             }}
@@ -469,7 +483,7 @@ export default function Header() {
         {session?.user ? (
           <div className="relative flex items-center gap-2" ref={mobileAvatarMenuRef}>
             <button
-              onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
+              onClick={() => { if (!isVideoPlaying) setAvatarMenuOpen(!avatarMenuOpen); }}
               className="relative w-[38px] h-[38px] rounded-xl flex-shrink-0 transition active:scale-95 cursor-pointer flex items-center justify-center group"
               title={tr("Профиль", "Profil", "Профиль", "Profile")}
             >

@@ -2,6 +2,7 @@
 //src/components/HeaderCanvas.tsx
 
 import React, { useEffect, useRef } from "react";
+import { usePlayer } from "@/context/PlayerContext";
 
 class Spark {
   x: number; y: number; px: number; py: number;
@@ -82,16 +83,34 @@ interface HeaderCanvasProps {
 export default function HeaderCanvas({ avatarContainerRef, navRef }: HeaderCanvasProps) {
   const globalCanvasRef = useRef<HTMLCanvasElement>(null);
   const headerCanvasRef = useRef<HTMLCanvasElement>(null);
+  const { isVideoPlaying } = usePlayer();
 
   useEffect(() => {
+    const gCanvas = globalCanvasRef.current;
+    const hCanvas = headerCanvasRef.current;
+
+    if (isVideoPlaying) {
+      if (gCanvas) {
+        const gCtx = gCanvas.getContext("2d");
+        gCtx?.clearRect(0, 0, gCanvas.width, gCanvas.height);
+      }
+      if (hCanvas) {
+        const hCtx = hCanvas.getContext("2d");
+        hCtx?.clearRect(0, 0, hCanvas.width, hCanvas.height);
+      }
+      return;
+    }
+
+    let cleanupInner: (() => void) | undefined;
+
     // Запускаем анимацию с задержкой 1.5 секунды, чтобы дать странице отрисовать LCP без нагрузки
     const startDelay = setTimeout(() => {
       if (!globalCanvasRef.current || !headerCanvasRef.current || !navRef.current) return;
 
-      const gCanvas = globalCanvasRef.current;
-      const gCtx = gCanvas.getContext("2d");
-      const hCanvas = headerCanvasRef.current;
-      const hCtx = hCanvas.getContext("2d");
+      const gCanvasEl = globalCanvasRef.current;
+      const gCtx = gCanvasEl.getContext("2d");
+      const hCanvasEl = headerCanvasRef.current;
+      const hCtx = hCanvasEl.getContext("2d");
 
       if (!gCtx || !hCtx) return;
 
@@ -107,13 +126,13 @@ export default function HeaderCanvas({ avatarContainerRef, navRef }: HeaderCanva
       ];
 
       const resize = () => {
-        gCanvas.width = window.innerWidth;
-        gCanvas.height = window.innerHeight;
+        gCanvasEl.width = window.innerWidth;
+        gCanvasEl.height = window.innerHeight;
 
         const navRect = navRef.current?.getBoundingClientRect();
         if (navRect) {
-          hCanvas.width = navRect.width;
-          hCanvas.height = navRect.height;
+          hCanvasEl.width = navRect.width;
+          hCanvasEl.height = navRect.height;
         }
       };
       resize();
@@ -155,19 +174,19 @@ export default function HeaderCanvas({ avatarContainerRef, navRef }: HeaderCanva
         lastTime = currentTime - (delta % interval);
 
         if (globalParticles.length === 0) {
-          gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+          gCtx.clearRect(0, 0, gCanvasEl.width, gCanvasEl.height);
         } else {
           gCtx.globalCompositeOperation = 'destination-out';
           gCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-          gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
+          gCtx.fillRect(0, 0, gCanvasEl.width, gCanvasEl.height);
           gCtx.globalCompositeOperation = 'lighter';
         }
 
-        hCtx.clearRect(0, 0, hCanvas.width, hCanvas.height);
+        hCtx.clearRect(0, 0, hCanvasEl.width, hCanvasEl.height);
         hCtx.globalCompositeOperation = 'lighter';
 
         if (Math.random() < 0.05) {
-          spawnMultiColor(backgroundParticles, Math.random() * hCanvas.width, Math.random() * hCanvas.height, 'header', 12);
+          spawnMultiColor(backgroundParticles, Math.random() * hCanvasEl.width, Math.random() * hCanvasEl.height, 'header', 12);
         }
 
         if (Math.random() < 0.06 && avatarContainerRef.current) {
@@ -178,23 +197,26 @@ export default function HeaderCanvas({ avatarContainerRef, navRef }: HeaderCanva
         }
 
         globalParticles = globalParticles.filter(p => p.alpha > 0);
-        globalParticles.forEach(p => { p.update(gCanvas.width, gCanvas.height); p.draw(gCtx); });
+        globalParticles.forEach(p => { p.update(gCanvasEl.width, gCanvasEl.height); p.draw(gCtx); });
 
         backgroundParticles = backgroundParticles.filter(p => p.alpha > 0);
-        backgroundParticles.forEach(p => { p.update(hCanvas.width, hCanvas.height); p.draw(hCtx); });
+        backgroundParticles.forEach(p => { p.update(hCanvasEl.width, hCanvasEl.height); p.draw(hCtx); });
       };
 
       animationFrameId = requestAnimationFrame(animate);
 
-      return () => {
+      cleanupInner = () => {
         cancelAnimationFrame(animationFrameId);
         window.removeEventListener("mousedown", handleMouseDown);
         window.removeEventListener('resize', resize);
       };
     }, 1500); // 1.5 секунды фоновой форы для быстрой отрисовки текста
 
-    return () => clearTimeout(startDelay);
-  }, [avatarContainerRef, navRef]);
+    return () => {
+      clearTimeout(startDelay);
+      cleanupInner?.();
+    };
+  }, [avatarContainerRef, navRef, isVideoPlaying]);
 
   return (
     <>

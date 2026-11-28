@@ -1,6 +1,6 @@
 "use client";
 //src\components\Discussion.tsx
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { MessageSquare, Send, User, CornerDownRight, X, ChevronDown, ChevronUp } from "lucide-react";
 import { tr } from "@/utils/translate";
 import { useSession } from "next-auth/react";
@@ -98,9 +98,9 @@ export default function Discussion({ targetId, targetType = "track", onReady }: 
     return { rootComments: roots, repliesByRootId: grouped };
   }, [comments]);
 
-  const toggleThread = (rootId: string) => {
+  const toggleThread = useCallback((rootId: string) => {
     setExpandedThreads((prev) => ({ ...prev, [rootId]: !prev[rootId] }));
-  };
+  }, []);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,7 +141,7 @@ export default function Discussion({ targetId, targetType = "track", onReady }: 
       </div>
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         {isLoading ? (
-          <div className="text-center text-xs text-neutral-500 my-auto animate-pulse">{tr("Юкланмоқда...", "Yuklanmoqda...", "Загрузка...", "Loading...")}</div>
+          <div className="text-center text-xs text-neutral-500 my-auto">{tr("Юкланмоқда...", "Yuklanmoqda...", "Загрузка...", "Loading...")}</div>
         ) : rootComments.length === 0 ? (
           <div className="text-center text-xs text-neutral-500 my-auto">{tr("Ҳали изох - коментлар йўқ. Биринчи бўлиб ёзинг!", "Hali izoh - kommentlar yo'q. Birinchi bo'lib yozing!", "Пока нет комментариев. Будьте первыми!", "No comments yet. Be the first!")}</div>
         ) : (

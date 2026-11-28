@@ -15,6 +15,13 @@ function formatDownloadPercent(value: number): string {
   return `${Math.max(0, Math.min(100, value)).toFixed(4).replace(".", ",")}%`;
 }
 
+function formatTime(time: number): string {
+  if (!Number.isFinite(time) || time <= 0) return "0:00";
+  const minutes = Math.floor(time / 60);
+  const seconds = Math.floor(time % 60);
+  return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+}
+
 export default function Player() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
@@ -23,6 +30,7 @@ export default function Player() {
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
   const lastTimeUpdateRef = useRef<number>(0);
   const activeBlobUrlRef = useRef<string | null>(null);
+  const lastLoadedTrackKeyRef = useRef<string>("");
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -32,7 +40,6 @@ export default function Player() {
   const [showAudioChatModal, setShowAudioChatModal] = useState(false);
   const [streamError, setStreamError] = useState<boolean>(false);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
-  const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const [isReadingFromDevice, setIsReadingFromDevice] = useState<boolean>(false);
   const [deviceDownloadPercent, setDeviceDownloadPercent] = useState<number>(0);
   const [chatReady, setChatReady] = useState<boolean>(false);
@@ -55,16 +62,19 @@ export default function Player() {
       } catch {}
     }
     setTimeout(() => {
-      revokeLocalVideoUrl(blobUrl);
-    }, 50);
+      if (activeBlobUrlRef.current !== blobUrl) {
+        revokeLocalVideoUrl(blobUrl);
+      }
+    }, 250);
   }, []);
 
   const syncAudioState = useCallback(() => {
     const el = mediaRef.current;
     if (!el) return;
     const effectiveVolume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
-    if (el.muted !== (isMuted || effectiveVolume === 0)) {
-      el.muted = isMuted || effectiveVolume === 0;
+    const nextMuted = isMuted || effectiveVolume === 0;
+    if (el.muted !== nextMuted) {
+      el.muted = nextMuted;
     }
     if (Math.abs(el.volume - effectiveVolume) > 0.001) {
       el.volume = effectiveVolume;
@@ -73,10 +83,32 @@ export default function Player() {
 
   const handleChatReady = useCallback(() => {
     console.log("💬 [PLAYER] Чат готов (onReady):", { trackId });
-    setChatReady(true);
+    setChatReady((prev) => (prev ? prev : true));
   }, [trackId]);
 
   useEffect(() => {
+    if (!trackId || !hasVideo) {
+      const previousBlobUrl = activeBlobUrlRef.current;
+      activeBlobUrlRef.current = null;
+      lastLoadedTrackKeyRef.current = "";
+      setIsMinimizedVideo(false);
+      setStreamError(false);
+      setCurrentTime(0);
+      setDuration(0);
+      setDeviceDownloadPercent(0);
+      setIsReadingFromDevice(false);
+      setChatReady(true);
+      setResolvedVideoSrc("");
+      detachAndRevokeBlob(previousBlobUrl);
+      return;
+    }
+
+    const sessionKey = `${trackId}:${retryTrigger}`;
+    if (lastLoadedTrackKeyRef.current === sessionKey && activeBlobUrlRef.current) {
+      return;
+    }
+    lastLoadedTrackKeyRef.current = sessionKey;
+
     let active = true;
     const abortController = new AbortController();
     const previousBlobUrl = activeBlobUrlRef.current;
@@ -87,20 +119,12 @@ export default function Player() {
     setCurrentTime(0);
     setDuration(0);
     setDeviceDownloadPercent(0);
-    setIsBuffering(Boolean(trackId && hasVideo));
-    setIsReadingFromDevice(Boolean(trackId && hasVideo));
-    setChatReady(!hasVideo || !trackId);
+    setIsReadingFromDevice(true);
+    setChatReady(false);
     setResolvedVideoSrc("");
     detachAndRevokeBlob(previousBlobUrl);
 
     console.log("🎬 [PLAYER] Старт эффекта загрузки видео:", { trackId, hasVideo, retryTrigger });
-
-    if (!hasVideo || !trackId) {
-      return () => {
-        active = false;
-        abortController.abort();
-      };
-    }
 
     (async () => {
       try {
@@ -109,13 +133,14 @@ export default function Player() {
           trackId,
           abortController.signal,
           (percent) => {
-            if (!active) return;
-            setDeviceDownloadPercent(Math.max(0, Math.min(100, Number(percent) || 0)));
+            if (!active || abortController.signal.aborted) return;
+            const safePct = Math.max(0, Math.min(100, Number(percent) || 0));
+            setDeviceDownloadPercent((prev) => (Math.abs(prev - safePct) >= 0.05 ? safePct : prev));
           }
         );
-        if (!active) {
+        if (!active || abortController.signal.aborted) {
           console.log("⏹️ [PLAYER] Отмена эффекта после downloadVideoBeforePlayback:", trackId);
-          detachAndRevokeBlob(downloadResult.src);
+          revokeLocalVideoUrl(downloadResult.src);
           return;
         }
         activeBlobUrlRef.current = downloadResult.src;
@@ -128,11 +153,10 @@ export default function Player() {
         setResolvedVideoSrc(downloadResult.src);
         setIsReadingFromDevice(false);
       } catch (err: any) {
-        if (err?.name === "AbortError" || !active) return;
+        if (err?.name === "AbortError" || !active || abortController.signal.aborted) return;
         console.error("🔥 [PLAYER] Ошибка при скачивании/чтении видео на устройство:", { trackId, err });
         if (!active) return;
         setIsReadingFromDevice(false);
-        setIsBuffering(false);
         setResolvedVideoSrc("");
         setStreamError(true);
       }
@@ -148,6 +172,7 @@ export default function Player() {
     return () => {
       const currentUrl = activeBlobUrlRef.current;
       activeBlobUrlRef.current = null;
+      lastLoadedTrackKeyRef.current = "";
       detachAndRevokeBlob(currentUrl);
     };
   }, [detachAndRevokeBlob]);
@@ -186,16 +211,7 @@ export default function Player() {
     }
   }, [isPlaying, trackId, hasVideo, streamError, retryTrigger, resolvedVideoSrc, chatReady, syncAudioState]);
 
-  const handleWaiting = useCallback(() => {
-    setIsBuffering(true);
-  }, []);
-
-  const handlePlaying = useCallback(() => {
-    setIsBuffering(false);
-  }, []);
-
   const handleCanPlay = useCallback(() => {
-    setIsBuffering(false);
     const el = mediaRef.current;
     if (el && Number.isFinite(el.duration) && el.duration > 0) {
       setDuration((prev) => (Math.abs(prev - el.duration) > 0.25 ? el.duration : prev));
@@ -210,7 +226,6 @@ export default function Player() {
       errorCode: videoEl?.error?.code,
       errorMessage: videoEl?.error?.message,
     });
-    setIsBuffering(false);
     setIsReadingFromDevice(false);
     setResolvedVideoSrc("");
     setStreamError(true);
@@ -220,19 +235,13 @@ export default function Player() {
 
   const mediaSrc = hasVideo ? (streamError ? "" : resolvedVideoSrc) : (trackId ? `/api/tracks/stream/${trackId}` : currentTrack.audioUrl);
 
-  const formatTime = (time: number) => {
-    if (isNaN(time) || time === 0) return "0:00";
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
-  };
-
   const handleTimeUpdate = () => {
     if (!mediaRef.current) return;
     const now = performance.now();
-    if (now - lastTimeUpdateRef.current < 400) return;
+    if (now - lastTimeUpdateRef.current < 500) return;
     lastTimeUpdateRef.current = now;
-    setCurrentTime(mediaRef.current.currentTime);
+    const nextTime = mediaRef.current.currentTime;
+    setCurrentTime((prev) => (Math.abs(prev - nextTime) >= 0.35 ? nextTime : prev));
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -277,9 +286,9 @@ export default function Player() {
       )}
 
       {hasVideo ? (
-        <div className={isMinimizedVideo ? "fixed bottom-6 right-6 z-50 w-80 bg-neutral-900 border border-neutral-700 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)]" : "fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-2 sm:p-6"}>
-          <div className={isMinimizedVideo ? "flex flex-col w-full bg-neutral-900" : "relative w-full max-w-6xl h-[90vh] bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row"}>
-            <div className={isMinimizedVideo ? "flex flex-col w-full" : "flex-1 flex flex-col h-full bg-black/50 border-r border-neutral-800"}>
+        <div data-keep-motion="true" className={isMinimizedVideo ? "fixed bottom-6 right-6 z-50 w-80 bg-neutral-900 border border-neutral-700 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)]" : "fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-2 sm:p-6"}>
+          <div data-keep-motion="true" className={isMinimizedVideo ? "flex flex-col w-full bg-neutral-900" : "relative w-full max-w-6xl h-[90vh] bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col lg:flex-row"}>
+            <div data-keep-motion="true" className={isMinimizedVideo ? "flex flex-col w-full" : "flex-1 flex flex-col h-full bg-black/50 border-r border-neutral-800"}>
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800 bg-neutral-950">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 overflow-hidden shrink-0">
@@ -290,7 +299,6 @@ export default function Player() {
                     <p className="text-[11px] sm:text-xs text-neutral-400 truncate">{currentTrack.singer}</p>
                   </div>
                 </div>
-
                 <div className="flex items-center gap-2 shrink-0">
                   {!isMinimizedVideo && (
                     <button onClick={() => setIsMinimizedVideo(true)} aria-label={tr("Кичрайтириш", "Kichraytirish", "Свернуть", "Minimize")} className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition cursor-pointer border-none flex items-center gap-1 text-xs font-medium"><Minimize2 size={16} /></button>
@@ -309,7 +317,6 @@ export default function Player() {
                     </button>
                   </div>
                 )}
-
                 <video
                   ref={mediaRef as React.RefObject<HTMLVideoElement>}
                   src={showVideoSurface && mediaSrc ? mediaSrc : undefined}
@@ -327,13 +334,10 @@ export default function Player() {
                     }
                   }}
                   onCanPlay={handleCanPlay}
-                  onWaiting={handleWaiting}
-                  onPlaying={handlePlaying}
                   onError={handleVideoError}
                   onEnded={() => nextTrack()}
                   className={showVideoSurface ? (isMinimizedVideo ? "w-full h-full object-cover" : "w-full h-full object-contain cursor-pointer") : "hidden"}
                 />
-
                 {isReadingFromDevice && !streamError && (
                   <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-3 p-4 text-center z-10 pointer-events-none">
                     <div className="flex flex-col items-center gap-1">
@@ -348,13 +352,6 @@ export default function Player() {
                     </div>
                   </div>
                 )}
-
-                {isBuffering && !streamError && showVideoSurface && chatReady && !isReadingFromDevice && (
-                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center pointer-events-none z-10">
-                    <span className="text-xs text-emerald-300 font-medium">{tr("Буферизация...", "Buferizatsiya...", "Буферизация...", "Buffering...")}</span>
-                  </div>
-                )}
-
                 {waitingForChat && !isReadingFromDevice && (
                   <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-2.5 p-4 text-center z-10 pointer-events-none">
                     <span className="text-xs sm:text-sm font-medium text-emerald-300">
@@ -386,7 +383,6 @@ export default function Player() {
                     </div>
                     <span className="text-xs text-neutral-400 w-10">{formatTime(duration)}</span>
                   </div>
-
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <button onClick={prevTrack} aria-label={tr("Олдинги", "Oldingi", "Предыдущий", "Previous")} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none"><SkipBack size={20} /></button>
@@ -395,7 +391,6 @@ export default function Player() {
                       </button>
                       <button onClick={nextTrack} aria-label={tr("Кейинги", "Keyingi", "Следующий", "Next")} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none"><SkipForward size={20} /></button>
                     </div>
-
                     <div className="flex items-center gap-3">
                       <button onClick={() => setIsMuted(!isMuted)} aria-label={isMuted || volume === 0 ? tr("Овозни ёқиш", "Ovozni yoqish", "Включить звук", "Unmute") : tr("Овозни ўчириш", "Ovozni o'chirish", "Выключить звук", "Mute")} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none">
                         {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
@@ -408,9 +403,8 @@ export default function Player() {
                 </div>
               )}
             </div>
-
             {!isMinimizedVideo && (
-              <div className="w-full lg:w-96 flex flex-col h-72 lg:h-full p-3 bg-neutral-950">
+              <div data-keep-motion="true" className="w-full lg:w-96 flex flex-col h-72 lg:h-full p-3 bg-neutral-950">
                 <MemoDiscussion targetId={trackId} targetType="video" onReady={handleChatReady} />
               </div>
             )}
@@ -433,7 +427,6 @@ export default function Player() {
               onEnded={() => nextTrack()}
             />
           )}
-
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 w-full">
             <div className="flex items-center gap-3 min-w-[200px]">
               <div className="w-12 h-12 rounded-lg bg-neutral-800 flex-shrink-0 flex items-center justify-center overflow-hidden border border-neutral-800">
@@ -444,35 +437,29 @@ export default function Player() {
                 <p className="text-xs text-neutral-400 truncate">{currentTrack.singer}</p>
               </div>
             </div>
-
             <div className="flex items-center gap-4 flex-1 max-w-2xl">
               <button onClick={prevTrack} aria-label={tr("Олдинги", "Oldingi", "Предыдущий", "Previous")} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none p-0"><SkipBack size={20} /></button>
               <button onClick={togglePlay} aria-label={isPlaying ? tr("Пауза", "Pauza", "Пауза", "Pause") : tr("Ижро этиш", "Ijro etish", "Воспроизвести", "Play")} className="p-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-neutral-950 cursor-pointer transition flex-shrink-0 border-none">
                 {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
               </button>
               <button onClick={nextTrack} aria-label={tr("Кейинги", "Keyingi", "Следующий", "Next")} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none p-0"><SkipForward size={20} /></button>
-
               <span className="text-xs text-neutral-400 w-10 text-right">{formatTime(currentTime)}</span>
               <div onClick={handleProgressClick} className="w-full h-2 bg-neutral-700 rounded-full overflow-hidden relative cursor-pointer">
                 <div className="absolute top-0 left-0 bottom-0 bg-amber-500" style={{ width: `${progressPercent}%` }} />
               </div>
               <span className="text-xs text-neutral-400 w-10">{formatTime(duration)}</span>
             </div>
-
             <div className="flex items-center gap-3 min-w-[160px] justify-end">
               <button onClick={() => setShowAudioChatModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition cursor-pointer border-none text-xs font-medium">
                 <MessageSquare size={16} className="text-amber-500" />
                 <span>{tr("Муҳокама", "Muhokama", "Чат", "Chat")}</span>
               </button>
-
               <button onClick={() => setIsMuted(!isMuted)} aria-label={isMuted || volume === 0 ? tr("Овозни ёқиш", "Ovozni yoqish", "Включить звук", "Unmute") : tr("Овозни ўчириш", "Ovozni o'chirish", "Выключить звук", "Mute")} className="text-neutral-400 hover:text-white transition cursor-pointer bg-transparent border-none p-0">
                 {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
               </button>
-
               <div onClick={handleVolumeClick} className="w-16 sm:w-20 h-2 bg-neutral-700 rounded-full overflow-hidden relative cursor-pointer">
                 <div className="absolute top-0 left-0 bottom-0 bg-amber-500" style={{ width: `${volumePercent}%` }} />
               </div>
-
               <button onClick={closePlayer} aria-label={tr("Ёпиш", "Yopish", "Закрыть", "Close")} className="p-2 rounded-xl bg-neutral-800 hover:bg-red-500/20 text-neutral-400 hover:text-red-400 transition cursor-pointer ml-1 border-none"><X size={18} /></button>
             </div>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 // src/context/PlayerContext.tsx
-import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 
 export interface Track {
     id?: string;
@@ -17,6 +17,8 @@ export interface Track {
 interface PlayerContextType {
     currentTrack: Track | null;
     isPlaying: boolean;
+    isVideoMode: boolean;
+    isVideoPlaying: boolean;
     playlist: Track[];
     playTrack: (track: Track, queue?: Track[]) => void;
     togglePlay: () => void;
@@ -33,11 +35,31 @@ function getTrackKey(track: Track | null | undefined): string {
     return String(track._id || track.id || track.videoFileId || track.videoUrl || track.audioUrl || "").trim();
 }
 
+function hasVideoSource(track: Track | null | undefined): boolean {
+    if (!track) return false;
+    return Boolean(track.videoUrl || track.videoFileId || (track as any).telegramUrl);
+}
+
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [playlist, setPlaylist] = useState<Track[]>([]);
     const [currentIndex, setCurrentIndex] = useState<number>(0);
+
+    const isVideoMode = useMemo(() => hasVideoSource(currentTrack), [currentTrack]);
+    const isVideoPlaying = isVideoMode && isPlaying;
+
+    useEffect(() => {
+        if (typeof document === "undefined") return;
+        if (isVideoPlaying) {
+            document.documentElement.setAttribute("data-video-active", "true");
+        } else {
+            document.documentElement.removeAttribute("data-video-active");
+        }
+        return () => {
+            document.documentElement.removeAttribute("data-video-active");
+        };
+    }, [isVideoPlaying]);
 
     const playTrack = useCallback((track: Track, queue: Track[] = []) => {
         if (!track.audioUrl && !track.videoUrl && !track.videoFileId) {
@@ -110,6 +132,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         () => ({
             currentTrack,
             isPlaying,
+            isVideoMode,
+            isVideoPlaying,
             playlist,
             playTrack,
             togglePlay,
@@ -118,7 +142,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             nextTrack,
             prevTrack,
         }),
-        [currentTrack, isPlaying, playlist, playTrack, togglePlay, closePlayer, nextTrack, prevTrack]
+        [currentTrack, isPlaying, isVideoMode, isVideoPlaying, playlist, playTrack, togglePlay, setIsPlaying, closePlayer, nextTrack, prevTrack]
     );
 
     return (

@@ -1,6 +1,7 @@
 "use client";
 //src\components\FireworkCanvas.tsx
 import { useEffect, useRef } from "react";
+import { usePlayer } from "@/context/PlayerContext";
 
 class Spark {
   x: number; y: number; px: number; py: number;
@@ -79,6 +80,13 @@ interface FireworkCanvasProps {
 
 export default function FireworkCanvas({ disableClick = false }: FireworkCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { currentTrack } = usePlayer();
+  const isVideoActive = Boolean(
+    currentTrack &&
+      (currentTrack.videoUrl || (currentTrack as any).telegramUrl || (currentTrack as any).videoFileId)
+  );
+  const isVideoActiveRef = useRef(isVideoActive);
+  isVideoActiveRef.current = isVideoActive;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,7 +94,18 @@ export default function FireworkCanvas({ disableClick = false }: FireworkCanvasP
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let animationFrameId: number;
+    const resetCanvas = () => {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    if (isVideoActive) {
+      resetCanvas();
+      return;
+    }
+
+    let animationFrameId = 0;
     let particles: Spark[] = [];
 
     const colors = [
@@ -107,24 +126,24 @@ export default function FireworkCanvas({ disableClick = false }: FireworkCanvasP
       for (let i = 0; i < count; i++) {
         const color = colors[i % colors.length];
         //Сила разлета искр. 3.0- отвечает за то, как далеко разлетаются искры от центра взрыва.
-        list.push(new Spark(x, y, type, colors, 3.0, false, false, color)); 
+        list.push(new Spark(x, y, type, colors, 3.0, false, false, color));
       }
     };
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (disableClick) return; // Если передан флаг, клик игнорируется
+      if (disableClick || isVideoActiveRef.current) return; // Если передан флаг или активно видео, клик игнорируется
 
       const target = e.target as HTMLElement;
       if (
-        target.closest('a') || 
-        target.closest('button') || 
-        target.closest('[role="button"]') || 
+        target.closest('a') ||
+        target.closest('button') ||
+        target.closest('[role="button"]') ||
         target.closest('.cursor-pointer') ||
         target.closest('svg')
       ) {
         return;
       }
-      
+
       spawnMultiColor(particles, e.clientX, e.clientY, 'click', 408); // Увеличенные в 2 раза искры по клику (было 204)
     };
 
@@ -135,6 +154,11 @@ export default function FireworkCanvas({ disableClick = false }: FireworkCanvasP
     const interval = 1000 / fps;
 
     const animate = (currentTime: number) => {
+      if (isVideoActiveRef.current) {
+        resetCanvas();
+        return;
+      }
+
       animationFrameId = requestAnimationFrame(animate);
 
       const delta = currentTime - lastTime;
@@ -142,44 +166,44 @@ export default function FireworkCanvas({ disableClick = false }: FireworkCanvasP
       lastTime = currentTime - (delta % interval);
 
       if (particles.length === 0) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        resetCanvas();
       } else {
         ctx.globalCompositeOperation = 'destination-out';
+        ctx.globalAlpha = 1;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.globalCompositeOperation = 'lighter';
       }
 
-      // < 0.06 - Это шанс срабатывания салюта на каждом кадре. Если поставить число больше (например, 0.15), салюты будут взрываться гораздо чаще. Если меньше (например, 0.03) — реже.
-      // Шанс срабатывания (остается 0.06 - довольно часто)
+      // < 0.03 - шанс срабатывания салюта на каждом кадре.
       if (Math.random() < 0.03) {
-        // КОЛИЧЕСТВО ИСКР УВЕЛИЧЕНО В 2 РАЗА (было 12 -> стало 16)
         spawnMultiColor(particles, Math.random() * canvas.width, Math.random() * canvas.height, 'header', 16);
       }
 
       particles = particles.filter(p => p.alpha > 0);
-      particles.forEach(p => { 
-        p.update(canvas.width, canvas.height); 
-        p.draw(ctx); 
+      particles.forEach(p => {
+        p.update(canvas.width, canvas.height);
+        p.draw(ctx);
       });
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
     };
 
-    const timer = setTimeout(() => {
-      animationFrameId = requestAnimationFrame(animate);
-    }, 500);
+    animationFrameId = requestAnimationFrame(animate);
 
     return () => {
-      clearTimeout(timer);
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("mousedown", handleMouseDown);
       window.removeEventListener('resize', resize);
+      particles = [];
+      resetCanvas();
     };
-  }, [disableClick]);
+  }, [disableClick, isVideoActive]);
 
   return (
-    <canvas 
-      ref={canvasRef} 
-      className="fixed inset-0 pointer-events-none z-[9999]" 
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 pointer-events-none z-[9999]"
     />
   );
 }

@@ -324,3 +324,12 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 .group-hover\:animate-shimmer {
     animation: shimmer 1.5s infinite ease-in-out;
 }
+
+html[data-video-active="true"] *:not([data-keep-motion="true"]):not([data-keep-motion="true"] *) {
+    animation: none !important;
+    animation-play-state: paused !important;
+    transition: none !important;
+    transition-duration: 0ms !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+}
