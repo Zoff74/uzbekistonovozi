@@ -40,20 +40,24 @@ export default function Discussion({ targetId, targetType = "track", onReady }: 
       return;
     }
     let isMounted = true;
+    const abortController = new AbortController();
     setIsLoading(true);
-    fetch(`/api/discussions?targetId=${encodeURIComponent(targetId)}`)
+    fetch(`/api/discussions?targetId=${encodeURIComponent(targetId)}`, { signal: abortController.signal })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         if (isMounted && Array.isArray(data)) setComments(data);
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+        if (err?.name !== "AbortError") console.error(err);
+      })
       .finally(() => {
-        if (!isMounted) return;
+        if (!isMounted || abortController.signal.aborted) return;
         setIsLoading(false);
         onReadyRef.current?.();
       });
     return () => {
       isMounted = false;
+      abortController.abort();
     };
   }, [targetId]);
 

@@ -30,6 +30,16 @@ function getCacheFilePath(fileId: string): string {
     return path.join(STREAM_CACHE_DIR, `${fileId.replace(/[^a-zA-Z0-9_-]/g, "_")}.bin`);
 }
 
+function getCacheMetaPath(fileId: string): string {
+    return path.join(STREAM_CACHE_DIR, `${fileId.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`);
+}
+
+function normalizeStreamMimeType(rawMime?: string): string {
+    const cleaned = String(rawMime || "").trim().toLowerCase();
+    if (!cleaned || cleaned === "application/octet-stream") return "video/mp4";
+    return cleaned;
+}
+
 async function getSharedTelegramClient(): Promise<TelegramClient> {
     if (g.__tgSharedVideoClient && g.__tgSharedVideoClient.connected) return g.__tgSharedVideoClient;
     if (g.__tgSharedVideoClientPromise) return g.__tgSharedVideoClientPromise;
@@ -85,7 +95,8 @@ async function resolveVideoMedia(client: TelegramClient, fileId: string): Promis
     const totalFileSize = Number(media?.document?.size || 0);
     if (!media?.document || !totalFileSize) return null;
 
-    const entry: CachedMediaEntry = { media, totalFileSize, mimeType: media.document.mimeType || "video/mp4", expiresAt: now + 10 * 60 * 1000 };
+    const rawMime = media.document.mimeType || (video?.videoUrl && String(video.videoUrl).toLowerCase().endsWith(".mkv") ? "video/x-matroska" : "video/mp4");
+    const entry: CachedMediaEntry = { media, totalFileSize, mimeType: normalizeStreamMimeType(rawMime), expiresAt: now + 10 * 60 * 1000 };
     mediaCache.set(fileId, entry);
     return entry;
 }
@@ -106,16 +117,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         if (!fileId || fileId === "undefined" || fileId === "null") return NextResponse.json({ error: "Невалидный fileId" }, { status: 400 });
 
         const cacheFilePath = getCacheFilePath(fileId);
+        const cacheMetaPath = getCacheMetaPath(fileId);
         const rangeHeader = request.headers.get("range");
 
         try {
             const cachedStat = await fsp.stat(cacheFilePath);
             if (cachedStat.size > 0) {
+                let cachedMime = g.__tgVideoMediaCache.get(fileId)?.mimeType || "video/mp4";
+                try {
+                    const metaRaw = await fsp.readFile(cacheMetaPath, "utf8");
+                    const meta = JSON.parse(metaRaw);
+                    if (meta?.mimeType) cachedMime = normalizeStreamMimeType(meta.mimeType);
+                } catch {}
+
                 const parsed = parseRange(rangeHeader, cachedStat.size);
                 if (!parsed) return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${cachedStat.size}` } });
                 const { start, end } = parsed;
                 const nodeStream = fs.createReadStream(cacheFilePath, { start, end });
-                const headers: Record<string, string> = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Content-Length": String(end - start + 1), "X-Total-Size": String(cachedStat.size), "X-Cache": "HIT", "Cache-Control": "public, max-age=3600" };
+                const headers: Record<string, string> = { "Content-Type": cachedMime, "Accept-Ranges": "bytes", "Content-Length": String(end - start + 1), "X-Total-Size": String(cachedStat.size), "X-Cache": "HIT", "Cache-Control": "public, max-age=3600" };
                 if (rangeHeader) headers["Content-Range"] = `bytes ${start}-${end}/${cachedStat.size}`;
                 return new NextResponse(Readable.toWeb(nodeStream) as ReadableStream, { status: rangeHeader ? 206 : 200, headers });
             }
@@ -197,7 +216,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         const finalizeBgCache = async (completedFullFile: boolean) => {
             if (bgWriteStream && !bgWriteStream.destroyed) bgWriteStream.end();
             if (isFullSequentialFromZero && !bgWriteFailed && completedFullFile) {
-                try { const st = await fsp.stat(partFilePath); if (st.size >= totalFileSize) await fsp.rename(partFilePath, cacheFilePath); } catch {}
+                try {
+                    const st = await fsp.stat(partFilePath);
+                    if (st.size >= totalFileSize) {
+                        await fsp.rename(partFilePath, cacheFilePath);
+                        await fsp.writeFile(cacheMetaPath, JSON.stringify({ mimeType, totalFileSize }), "utf8").catch(() => {});
+                    }
+                } catch {}
             } else if (isFullSequentialFromZero) {
                 await fsp.unlink(partFilePath).catch(() => {});
             }

@@ -7,9 +7,14 @@ interface StoredVideoRecord { id: string; blob: Blob; size: number; mimeType: st
 interface PartialChunkRecord { key: string; trackId: string; index: number; data: Uint8Array; totalLength: number; mimeType: string; }
 const activeBackgroundDownloads = new Map<string, Promise<void>>();
 const activePreplayDownloads = new Map<string, Promise<{ src: string; fromCache: boolean }>>();
-function normalizeVideoMimeType(rawMime?: string): string {
+function detectVideoExt(hint?: string, name?: string): "mkv" | "mp4" {
+  const s = `${hint || ""} ${name || ""}`.toLowerCase();
+  return s.includes("mkv") || s.includes("matroska") || s.includes("vp9") || s.includes("opus") ? "mkv" : "mp4";
+}
+function normalizeVideoMimeType(rawMime?: string, ext?: "mkv" | "mp4"): string {
   const cleaned = (rawMime || "").trim().toLowerCase();
-  return !cleaned || cleaned === "application/octet-stream" ? "video/mp4" : cleaned;
+  if (!cleaned || cleaned === "application/octet-stream") return ext === "mkv" ? "video/x-matroska" : "video/mp4";
+  return cleaned;
 }
 function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -63,9 +68,10 @@ async function saveVideoToIndexedDB(id: string, blob: Blob, mimeType: string): P
   try {
     await requestPersistentStorage();
     const db = await openVideoDB();
+    const ext = detectVideoExt(mimeType || blob.type);
     return await new Promise((resolve) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
-      const req = tx.objectStore(STORE_NAME).put({ id, blob, size: blob.size, mimeType: normalizeVideoMimeType(mimeType || blob.type), savedAt: Date.now() } as StoredVideoRecord);
+      const req = tx.objectStore(STORE_NAME).put({ id, blob, size: blob.size, mimeType: normalizeVideoMimeType(mimeType || blob.type, ext), savedAt: Date.now() } as StoredVideoRecord);
       req.onsuccess = () => resolve(true);
       req.onerror = (e) => { console.error("⚠️ [VIDEO CACHE] Ошибка записи в IndexedDB:", e); resolve(false); };
     });
@@ -87,23 +93,25 @@ async function clearPartialChunksFromDB(trackId: string): Promise<void> {
 async function getVideoFromOPFS(id: string): Promise<File | null> {
   try {
     if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) { console.info(`ℹ️ [VIDEO CACHE] OPFS недоступен в браузере`); return null; }
-    console.info(`🔎 [VIDEO CACHE] Поиск в OPFS: uzov_video_${id}.mp4...`);
     const root = await navigator.storage.getDirectory();
-    const file = await (await root.getFileHandle(`uzov_video_${id}.mp4`, { create: false })).getFile();
-    if (file && file.size > 1024) {
-      console.info(`📁 [VIDEO CACHE] Найдено в OPFS: uzov_video_${id}.mp4 (${(file.size / 1024 / 1024).toFixed(2)} МБ)`);
-      return file;
+    for (const name of [`uzov_video_${id}.mkv`, `uzov_video_${id}.mp4`]) {
+      try {
+        console.info(`🔎 [VIDEO CACHE] Поиск в OPFS: ${name}...`);
+        const file = await (await root.getFileHandle(name, { create: false })).getFile();
+        if (file && file.size > 1024) { console.info(`📁 [VIDEO CACHE] Найдено в OPFS: ${name} (${(file.size / 1024 / 1024).toFixed(2)} МБ)`); return file; }
+      } catch {}
     }
-    console.info(`📭 [VIDEO CACHE] Файл в OPFS пуст или меньше 1 КБ: uzov_video_${id}.mp4`);
+    console.info(`📭 [VIDEO CACHE] Файл не найден в OPFS для id="${id}"`);
     return null;
-  } catch { console.info(`📭 [VIDEO CACHE] Файл не найден в OPFS: uzov_video_${id}.mp4`); return null; }
+  } catch { console.info(`📭 [VIDEO CACHE] Файл не найден в OPFS для id="${id}"`); return null; }
 }
-async function saveVideoToOPFS(id: string, blob: Blob): Promise<boolean> {
+async function saveVideoToOPFS(id: string, blob: Blob, extHint?: "mkv" | "mp4"): Promise<boolean> {
   try {
     await requestPersistentStorage();
     if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) return false;
     const root = await navigator.storage.getDirectory();
-    const fileHandle = await root.getFileHandle(`uzov_video_${id}.mp4`, { create: true });
+    const fileName = `uzov_video_${id}.${extHint || detectVideoExt(blob.type)}`;
+    const fileHandle = await root.getFileHandle(fileName, { create: true });
     if (typeof (fileHandle as any).createWritable !== "function") return false;
     const writable = await (fileHandle as any).createWritable();
     await writable.write(blob);
@@ -117,7 +125,8 @@ async function streamFileToOPFS(id: string, file: File): Promise<boolean> {
     await requestPersistentStorage();
     if (typeof navigator === "undefined" || !navigator.storage?.getDirectory || typeof file.stream !== "function") return false;
     const root = await navigator.storage.getDirectory();
-    const fileHandle = await root.getFileHandle(`uzov_video_${id}.mp4`, { create: true });
+    const fileName = `uzov_video_${id}.${detectVideoExt(file.type, file.name)}`;
+    const fileHandle = await root.getFileHandle(fileName, { create: true });
     if (typeof (fileHandle as any).createWritable !== "function") return false;
     const writable = await (fileHandle as any).createWritable();
     const reader = file.stream().getReader();
@@ -138,7 +147,7 @@ async function streamFileToOPFS(id: string, file: File): Promise<boolean> {
       return Boolean(verified && (file.size <= 0 || verified.size === file.size));
     } catch (err) {
       await writable.close().catch(() => {});
-      await root.removeEntry(`uzov_video_${id}.mp4`).catch(() => {});
+      await root.removeEntry(fileName).catch(() => {});
       throw err;
     }
   } catch { return false; }
@@ -148,14 +157,11 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
     if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) return false;
     await requestPersistentStorage();
     const root = await navigator.storage.getDirectory();
-    const tempName = `uzov_part_${cleanId}.mp4`;
-    const finalName = `uzov_video_${cleanId}.mp4`;
-    const tempHandle = await root.getFileHandle(tempName, { create: true });
-    if (typeof (tempHandle as any).createWritable !== "function") { console.warn(`⚠️ [VIDEO CACHE] createWritable недоступен для OPFS (${cleanId})`); return false; }
+    let ext: "mkv" | "mp4" = "mp4", tempName = `uzov_part_${cleanId}.mp4`, finalName = `uzov_video_${cleanId}.mp4`;
     try { localStorage.removeItem(`uzov_meta_${cleanId}`); } catch {}
     await clearPartialChunksFromDB(cleanId);
-    const writable = await (tempHandle as any).createWritable({ keepExistingData: false });
     let receivedBytes = 0, totalLength = 0, writeCounter = 0, lastLoggedMb = 0, completedCleanly = false;
+    let writable: any = null, tempHandle: any = null;
     try {
       if (externalSignal?.aborted) throw new DOMException("Aborted", "AbortError");
       let stallTimer: ReturnType<typeof setTimeout> | null = null;
@@ -169,6 +175,12 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
         const res = await fetch(streamUrl, { cache: "no-store", signal: reqController.signal });
         console.info(`📡 [VIDEO CACHE] Ответ fetch (${cleanId}): HTTP ${res.status}, Content-Length=${res.headers.get("Content-Length") || "?"}, X-Total-Size=${res.headers.get("X-Total-Size") || "?"}`);
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        ext = detectVideoExt(res.headers.get("Content-Type") || "", res.headers.get("Content-Disposition") || streamUrl);
+        tempName = `uzov_part_${cleanId}.${ext}`;
+        finalName = `uzov_video_${cleanId}.${ext}`;
+        tempHandle = await root.getFileHandle(tempName, { create: true });
+        if (typeof (tempHandle as any).createWritable !== "function") { console.warn(`⚠️ [VIDEO CACHE] createWritable недоступен для OPFS (${cleanId})`); return false; }
+        writable = await (tempHandle as any).createWritable({ keepExistingData: false });
         totalLength = Number(res.headers.get("X-Total-Size") || res.headers.get("Content-Length") || 0);
         const reader = res.body.getReader();
         let firstChunkLogged = false;
@@ -202,9 +214,9 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
           } else { onProgress?.(Math.min(95, 10 + (receivedBytes / (1024 * 1024)) * 2)); }
         }
       } finally { externalSignal?.removeEventListener("abort", onExternalAbort); if (stallTimer) clearTimeout(stallTimer); }
-      await writable.close();
+      if (writable) await writable.close();
     } catch (err) {
-      await writable.close().catch(() => {});
+      if (writable) await writable.close().catch(() => {});
       await root.removeEntry(tempName).catch(() => {});
       throw err;
     }
@@ -212,8 +224,8 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
       await root.removeEntry(tempName).catch(() => {});
       return false;
     }
-    if (typeof (tempHandle as any).move === "function") await (tempHandle as any).move(finalName);
-    else {
+    if (tempHandle && typeof (tempHandle as any).move === "function") await (tempHandle as any).move(finalName);
+    else if (tempHandle) {
       const completedFile = await tempHandle.getFile();
       const finalWritable = await (await root.getFileHandle(finalName, { create: true }) as any).createWritable();
       await finalWritable.write(completedFile);
@@ -222,7 +234,7 @@ async function backgroundPersistToOPFS(cleanId: string, streamUrl: string, onPro
     }
     const readyFile = await getVideoFromOPFS(cleanId);
     if (readyFile && (totalLength <= 0 || readyFile.size === totalLength)) {
-      console.info(`💾 [VIDEO CACHE] Сохранено в OPFS: ${cleanId} (${(readyFile.size / 1024 / 1024).toFixed(2)} МБ)`);
+      console.info(`💾 [VIDEO CACHE] Сохранено в OPFS: ${finalName} (${(readyFile.size / 1024 / 1024).toFixed(2)} МБ)`);
       onProgress?.(100);
       return true;
     }
@@ -253,7 +265,8 @@ async function backgroundPersistToIndexedDB(cleanId: string, streamUrl: string, 
       console.info(`📡 [VIDEO CACHE] Ответ fetch IDB (${cleanId}): HTTP ${res.status}`);
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       totalLength = Number(res.headers.get("X-Total-Size") || res.headers.get("Content-Length") || 0);
-      contentType = normalizeVideoMimeType(res.headers.get("Content-Type") || "video/mp4");
+      const ext = detectVideoExt(res.headers.get("Content-Type") || "", streamUrl);
+      contentType = normalizeVideoMimeType(res.headers.get("Content-Type") || "", ext);
       const reader = res.body.getReader();
       let step = 0;
       while (true) {
@@ -363,8 +376,9 @@ export async function loadVideoToDevice(trackId: string, signal: AbortSignal, on
 export async function precacheUploadedVideo(trackId: string, file: File): Promise<void> {
   const cleanId = String(trackId || "").trim();
   if (!cleanId || !file || file.size <= 1024) return;
-  if (!(await streamFileToOPFS(cleanId, file)) && !(await saveVideoToOPFS(cleanId, file))) {
-    await saveVideoToIndexedDB(cleanId, file, normalizeVideoMimeType(file.type));
+  const ext = detectVideoExt(file.type, file.name);
+  if (!(await streamFileToOPFS(cleanId, file)) && !(await saveVideoToOPFS(cleanId, file, ext))) {
+    await saveVideoToIndexedDB(cleanId, file, normalizeVideoMimeType(file.type, ext));
   }
   console.info(`⚡ [VIDEO CACHE] Загруженное автором видео сохранено в локальный кэш: ${cleanId}`);
 }

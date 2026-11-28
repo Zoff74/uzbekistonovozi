@@ -1,6 +1,6 @@
 "use client";
 // src/context/PlayerContext.tsx
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 
 export interface Track {
     id?: string;
@@ -28,44 +28,101 @@ interface PlayerContextType {
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
+function getTrackKey(track: Track | null | undefined): string {
+    if (!track) return "";
+    return String(track._id || track.id || track.videoFileId || track.videoUrl || track.audioUrl || "").trim();
+}
+
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [playlist, setPlaylist] = useState<Track[]>([]);
     const [currentIndex, setCurrentIndex] = useState<number>(0);
 
-    const playTrack = (track: Track, queue: Track[] = []) => {
+    const playTrack = useCallback((track: Track, queue: Track[] = []) => {
         if (!track.audioUrl && !track.videoUrl && !track.videoFileId) {
             console.error("У трека нет ни audioUrl, ни videoUrl, ни videoFileId!", track);
             alert("Невозможно воспроизвести: медиафайл не найден");
             return;
         }
         const newPlaylist = queue.length > 0 ? queue : [track];
+        const targetKey = getTrackKey(track);
+        const index = newPlaylist.findIndex((t) => getTrackKey(t) === targetKey);
+
         setPlaylist(newPlaylist);
-        const index = newPlaylist.findIndex((t) => (t.id || t._id) === (track.id || track._id));
         setCurrentIndex(index !== -1 ? index : 0);
-        const sameTrack = currentTrack?.audioUrl === track.audioUrl && currentTrack?.videoUrl === track.videoUrl && currentTrack?.videoFileId === track.videoFileId;
-        if (sameTrack) { setIsPlaying(!isPlaying); } else { setCurrentTrack(track); setIsPlaying(true); }
-    };
 
-    const togglePlay = () => { if (currentTrack) setIsPlaying(!isPlaying); };
+        setCurrentTrack((prevTrack) => {
+            const sameTrack =
+                prevTrack &&
+                getTrackKey(prevTrack) === targetKey &&
+                prevTrack.audioUrl === track.audioUrl &&
+                prevTrack.videoUrl === track.videoUrl &&
+                prevTrack.videoFileId === track.videoFileId;
 
-    const closePlayer = () => { setIsPlaying(false); setCurrentTrack(null); setPlaylist([]); setCurrentIndex(0); };
+            if (sameTrack) {
+                setIsPlaying((prevPlaying) => !prevPlaying);
+                return prevTrack;
+            }
+            setIsPlaying(true);
+            return track;
+        });
+    }, []);
 
-    const nextTrack = () => {
-        if (playlist.length === 0) return;
-        const nextIndex = (currentIndex + 1) % playlist.length;
-        setCurrentIndex(nextIndex); setCurrentTrack(playlist[nextIndex]); setIsPlaying(true);
-    };
+    const togglePlay = useCallback(() => {
+        setIsPlaying((prev) => (currentTrack ? !prev : false));
+    }, [currentTrack]);
 
-    const prevTrack = () => {
-        if (playlist.length === 0) return;
-        const prevIndex = (currentIndex - 1 + playlist.length) % playlist.length;
-        setCurrentIndex(prevIndex); setCurrentTrack(playlist[prevIndex]); setIsPlaying(true);
-    };
+    const closePlayer = useCallback(() => {
+        setIsPlaying(false);
+        setCurrentTrack(null);
+        setPlaylist([]);
+        setCurrentIndex(0);
+    }, []);
+
+    const nextTrack = useCallback(() => {
+        setPlaylist((prevPlaylist) => {
+            if (prevPlaylist.length === 0) return prevPlaylist;
+            setCurrentIndex((prevIndex) => {
+                const nextIdx = (prevIndex + 1) % prevPlaylist.length;
+                setCurrentTrack(prevPlaylist[nextIdx]);
+                setIsPlaying(true);
+                return nextIdx;
+            });
+            return prevPlaylist;
+        });
+    }, []);
+
+    const prevTrack = useCallback(() => {
+        setPlaylist((prevPlaylist) => {
+            if (prevPlaylist.length === 0) return prevPlaylist;
+            setCurrentIndex((prevIndex) => {
+                const prevIdx = (prevIndex - 1 + prevPlaylist.length) % prevPlaylist.length;
+                setCurrentTrack(prevPlaylist[prevIdx]);
+                setIsPlaying(true);
+                return prevIdx;
+            });
+            return prevPlaylist;
+        });
+    }, []);
+
+    const contextValue = useMemo(
+        () => ({
+            currentTrack,
+            isPlaying,
+            playlist,
+            playTrack,
+            togglePlay,
+            setIsPlaying,
+            closePlayer,
+            nextTrack,
+            prevTrack,
+        }),
+        [currentTrack, isPlaying, playlist, playTrack, togglePlay, closePlayer, nextTrack, prevTrack]
+    );
 
     return (
-        <PlayerContext.Provider value={{ currentTrack, isPlaying, playlist, playTrack, togglePlay, setIsPlaying, closePlayer, nextTrack, prevTrack }}>
+        <PlayerContext.Provider value={contextValue}>
             {children}
         </PlayerContext.Provider>
     );

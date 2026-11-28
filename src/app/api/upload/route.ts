@@ -224,6 +224,7 @@ async function runEtalonMp4Transcode(
     width: number,
     height: number,
     videoCodec: string,
+    audioCodec: string,
     uploadId: string
 ): Promise<boolean> {
     const threadCount = String(Math.max(2, Math.min((os.cpus()?.length || 4) - 1, 4)));
@@ -233,6 +234,10 @@ async function runEtalonMp4Transcode(
         : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
     const preset = selectQualityPreset(width, height, exceeds720p);
+    const isSourceAac = audioCodec === "aac";
+    const audioArgs = isSourceAac
+        ? ["-c:a", "copy"]
+        : ["-c:a", "aac", "-b:a", `${preset.audioBitrateKbps}k`, "-ac", "2", "-ar", "44100"];
 
     const ffmpegArgs = [
         "-threads", threadCount,
@@ -252,16 +257,13 @@ async function runEtalonMp4Transcode(
         "-color_trc", "bt709",
         "-color_range", "tv",
         "-movflags", "+faststart",
-        "-c:a", "aac",
-        "-b:a", `${preset.audioBitrateKbps}k`,
-        "-ac", "2",
-        "-ar", "44100",
+        ...audioArgs,
         outputPath,
     ];
 
     const startMs = Date.now();
     setUploadProgressState(uploadId, { stage: "converting", percent: 0.01 });
-    console.info(`🎬 [UPLOAD VIDEO] uploadId=${uploadId} | Конвертируем в MP4 (${preset.label}, ${videoCodec || "unknown"}, ${width || "?"}x${height || "?"}, downscale720p=${exceeds720p}, v=${preset.videoBitrateKbps}k, a=${preset.audioBitrateKbps}k/44.1k, ${durationSec.toFixed(1)}s)...`);
+    console.info(`🎬 [UPLOAD VIDEO] uploadId=${uploadId} | Конвертируем в MP4 (${preset.label}, v=${videoCodec || "unknown"}, a=${isSourceAac ? "copy(aac)" : `aac(${audioCodec || "unknown"})`}, ${width || "?"}x${height || "?"}, downscale720p=${exceeds720p}, v=${preset.videoBitrateKbps}k, ${durationSec.toFixed(1)}s)...`);
     try {
         await runFfmpegWithProgress(ffmpegArgs, durationSec, uploadId, "converting");
         const outStat = await fs.stat(outputPath);
@@ -289,6 +291,7 @@ async function normalizeVideoForWeb(inputPath: string, originalName: string, tem
     const width = probe?.width || 0;
     const height = probe?.height || 0;
     const videoCodec = probe?.videoCodec || "";
+    const audioCodec = probe?.audioCodec || "";
     const exceeds720p = isAbove720pResolution(width, height);
 
     if (isMp4 && !exceeds720p) {
@@ -302,7 +305,7 @@ async function normalizeVideoForWeb(inputPath: string, originalName: string, tem
 
     const outputPath = path.join(tempDir, `web_${uniqueId}.mp4`);
     try {
-        const ok = await runEtalonMp4Transcode(inputPath, outputPath, durationSec, width, height, videoCodec, uploadId);
+        const ok = await runEtalonMp4Transcode(inputPath, outputPath, durationSec, width, height, videoCodec, audioCodec, uploadId);
         return ok ? { filePath: outputPath, isTempConverted: true } : { filePath: inputPath, isTempConverted: false };
     } catch (err: any) {
         await fs.unlink(outputPath).catch(() => {});

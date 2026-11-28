@@ -22,6 +22,7 @@ export default function Player() {
 
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
   const lastTimeUpdateRef = useRef<number>(0);
+  const activeBlobUrlRef = useRef<string | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -41,12 +42,33 @@ export default function Player() {
   const trackId = String(currentTrack?._id || currentTrack?.id || "").trim();
   const hasVideo = Boolean(currentTrack?.videoUrl || (currentTrack as any)?.telegramUrl || (currentTrack as any)?.videoFileId);
 
+  const detachAndRevokeBlob = useCallback((blobUrl: string | null) => {
+    if (!blobUrl) return;
+    const el = mediaRef.current;
+    if (el && el.tagName === "VIDEO") {
+      try {
+        el.pause();
+        if (el.getAttribute("src") === blobUrl || el.currentSrc === blobUrl) {
+          el.removeAttribute("src");
+          el.load();
+        }
+      } catch {}
+    }
+    setTimeout(() => {
+      revokeLocalVideoUrl(blobUrl);
+    }, 50);
+  }, []);
+
   const syncAudioState = useCallback(() => {
     const el = mediaRef.current;
     if (!el) return;
     const effectiveVolume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
-    el.muted = isMuted || effectiveVolume === 0;
-    el.volume = effectiveVolume;
+    if (el.muted !== (isMuted || effectiveVolume === 0)) {
+      el.muted = isMuted || effectiveVolume === 0;
+    }
+    if (Math.abs(el.volume - effectiveVolume) > 0.001) {
+      el.volume = effectiveVolume;
+    }
   }, [volume, isMuted]);
 
   const handleChatReady = useCallback(() => {
@@ -56,8 +78,9 @@ export default function Player() {
 
   useEffect(() => {
     let active = true;
-    let createdBlobUrl: string | null = null;
     const abortController = new AbortController();
+    const previousBlobUrl = activeBlobUrlRef.current;
+    activeBlobUrlRef.current = null;
 
     setIsMinimizedVideo(false);
     setStreamError(false);
@@ -68,6 +91,7 @@ export default function Player() {
     setIsReadingFromDevice(Boolean(trackId && hasVideo));
     setChatReady(!hasVideo || !trackId);
     setResolvedVideoSrc("");
+    detachAndRevokeBlob(previousBlobUrl);
 
     console.log("🎬 [PLAYER] Старт эффекта загрузки видео:", { trackId, hasVideo, retryTrigger });
 
@@ -91,10 +115,10 @@ export default function Player() {
         );
         if (!active) {
           console.log("⏹️ [PLAYER] Отмена эффекта после downloadVideoBeforePlayback:", trackId);
-          revokeLocalVideoUrl(downloadResult.src);
+          detachAndRevokeBlob(downloadResult.src);
           return;
         }
-        createdBlobUrl = downloadResult.src;
+        activeBlobUrlRef.current = downloadResult.src;
         setDeviceDownloadPercent(100);
         console.log("✅ [PLAYER] Видео готово с устройства (ждём готовность чата перед стартом):", {
           trackId,
@@ -117,26 +141,26 @@ export default function Player() {
     return () => {
       active = false;
       abortController.abort();
-      revokeLocalVideoUrl(createdBlobUrl);
     };
-  }, [trackId, hasVideo, retryTrigger]);
+  }, [trackId, hasVideo, retryTrigger, detachAndRevokeBlob]);
+
+  useEffect(() => {
+    return () => {
+      const currentUrl = activeBlobUrlRef.current;
+      activeBlobUrlRef.current = null;
+      detachAndRevokeBlob(currentUrl);
+    };
+  }, [detachAndRevokeBlob]);
 
   useEffect(() => {
     syncAudioState();
-  }, [syncAudioState, resolvedVideoSrc, streamError, retryTrigger]);
+  }, [syncAudioState]);
 
   useEffect(() => {
     const media = mediaRef.current;
     if (!media || !currentTrack) return;
-    syncAudioState();
     if (hasVideo && (!resolvedVideoSrc || !chatReady || streamError)) {
-      console.log("⏸️ [PLAYER] Пауза до готовности видео с устройства и чата:", {
-        trackId,
-        hasSrc: Boolean(resolvedVideoSrc),
-        chatReady,
-        streamError,
-      });
-      media.pause();
+      if (!media.paused) media.pause();
       return;
     }
     if (isPlaying && !streamError) {
@@ -157,7 +181,7 @@ export default function Player() {
         media.addEventListener("canplay", startPlay, { once: true });
         return () => media.removeEventListener("canplay", startPlay);
       }
-    } else {
+    } else if (!media.paused) {
       media.pause();
     }
   }, [isPlaying, trackId, hasVideo, streamError, retryTrigger, resolvedVideoSrc, chatReady, syncAudioState]);
@@ -167,17 +191,16 @@ export default function Player() {
   }, []);
 
   const handlePlaying = useCallback(() => {
-    syncAudioState();
     setIsBuffering(false);
-  }, [syncAudioState]);
+  }, []);
 
   const handleCanPlay = useCallback(() => {
-    syncAudioState();
     setIsBuffering(false);
-    if (mediaRef.current) {
-      setDuration(mediaRef.current.duration || 0);
+    const el = mediaRef.current;
+    if (el && Number.isFinite(el.duration) && el.duration > 0) {
+      setDuration((prev) => (Math.abs(prev - el.duration) > 0.25 ? el.duration : prev));
     }
-  }, [syncAudioState]);
+  }, []);
 
   const handleVideoError = useCallback(() => {
     const videoEl = mediaRef.current as HTMLVideoElement | null;
@@ -207,7 +230,7 @@ export default function Player() {
   const handleTimeUpdate = () => {
     if (!mediaRef.current) return;
     const now = performance.now();
-    if (now - lastTimeUpdateRef.current < 300) return;
+    if (now - lastTimeUpdateRef.current < 400) return;
     lastTimeUpdateRef.current = now;
     setCurrentTime(mediaRef.current.currentTime);
   };
@@ -299,7 +322,9 @@ export default function Player() {
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={() => {
                     syncAudioState();
-                    if (mediaRef.current) setDuration(mediaRef.current.duration || 0);
+                    if (mediaRef.current && Number.isFinite(mediaRef.current.duration)) {
+                      setDuration(mediaRef.current.duration || 0);
+                    }
                   }}
                   onCanPlay={handleCanPlay}
                   onWaiting={handleWaiting}
@@ -311,7 +336,6 @@ export default function Player() {
 
                 {isReadingFromDevice && !streamError && (
                   <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-3 p-4 text-center z-10 pointer-events-none">
-                    <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                     <div className="flex flex-col items-center gap-1">
                       <span className="text-xs sm:text-sm font-medium text-emerald-300 flex items-center gap-1.5">
                         <HardDrive size={15} className="text-emerald-400 shrink-0" />
@@ -320,20 +344,19 @@ export default function Player() {
                       <span className="text-sm sm:text-base font-bold text-emerald-400 tabular-nums">{formattedDownloadPercent}</span>
                     </div>
                     <div className="w-56 sm:w-64 h-2 bg-neutral-800 rounded-full overflow-hidden border border-neutral-700/70">
-                      <div className="h-full bg-emerald-400 transition-all duration-150" style={{ width: `${deviceDownloadPercent}%` }} />
+                      <div className="h-full bg-emerald-400" style={{ width: `${deviceDownloadPercent}%` }} />
                     </div>
                   </div>
                 )}
 
                 {isBuffering && !streamError && showVideoSurface && chatReady && !isReadingFromDevice && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center pointer-events-none z-10">
-                    <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-xs text-emerald-300 font-medium">{tr("Буферизация...", "Buferizatsiya...", "Буферизация...", "Buffering...")}</span>
                   </div>
                 )}
 
                 {waitingForChat && !isReadingFromDevice && (
                   <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-2.5 p-4 text-center z-10 pointer-events-none">
-                    <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                     <span className="text-xs sm:text-sm font-medium text-emerald-300">
                       {tr("Сабр қилинг, Видео клип юкланмоқда...", "Sabr qiling, Video yuklanmoqda...", "Загрузка чата, видео запустится после формирования чата...", "Loading chat, video will start after chat is ready...")}
                     </span>

@@ -6,12 +6,18 @@ import { dbConnect } from "@/lib/mongoose";
 import { Comment } from "@/models/Comment";
 import "@/models/User";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+
+function formatCommentDate(rawDate: unknown): string {
+  const date = new Date(rawDate as string | number | Date);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}.${date.getFullYear()}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const targetId = searchParams.get("targetId");
+    const targetId = String(searchParams.get("targetId") || "").trim();
 
     if (!targetId) {
       return NextResponse.json({ error: "targetId is required" }, { status: 400 });
@@ -23,30 +29,26 @@ export async function GET(request: Request) {
       .populate("userId", "username image")
       .populate({
         path: "parentId",
+        select: "text userId",
         populate: { path: "userId", select: "username" },
       })
       .sort({ createdAt: 1 })
       .lean();
 
-    const formattedComments = comments.map((c: any) => {
-      const date = new Date(c.createdAt);
-      const formattedDate = `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}, ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-
-      return {
-        id: c._id.toString(),
-        parentId: c.parentId ? (typeof c.parentId === "object" && c.parentId._id ? c.parentId._id.toString() : String(c.parentId)) : null,
-        user: {
-          name: c.userId?.username || "Foydalanuvchi",
-          image: c.userId?.image || null,
-        },
-        text: c.text,
-        replyTo: c.parentId && typeof c.parentId === "object" ? {
-          userName: c.parentId.userId?.username || "Foydalanuvchi",
-          text: c.parentId.text,
-        } : null,
-        createdAt: formattedDate,
-      };
-    });
+    const formattedComments = comments.map((c: any) => ({
+      id: c._id.toString(),
+      parentId: c.parentId ? (typeof c.parentId === "object" && c.parentId._id ? c.parentId._id.toString() : String(c.parentId)) : null,
+      user: {
+        name: c.userId?.username || "Foydalanuvchi",
+        image: c.userId?.image || null,
+      },
+      text: c.text,
+      replyTo: c.parentId && typeof c.parentId === "object" ? {
+        userName: c.parentId.userId?.username || "Foydalanuvchi",
+        text: c.parentId.text,
+      } : null,
+      createdAt: formatCommentDate(c.createdAt),
+    }));
 
     return NextResponse.json(formattedComments);
   } catch (error) {
@@ -63,9 +65,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { targetId, targetType, text, parentId } = body;
+    const targetId = String(body?.targetId || "").trim();
+    const targetType = String(body?.targetType || "track").trim() || "track";
+    const text = String(body?.text || "").trim();
+    const parentId = body?.parentId ? String(body.parentId).trim() : null;
 
-    if (!targetId || !text || !text.trim()) {
+    if (!targetId || !text) {
       return NextResponse.json({ error: "targetId and text are required" }, { status: 400 });
     }
 
@@ -74,39 +79,37 @@ export async function POST(request: Request) {
 
     const newComment = await Comment.create({
       targetId,
-      targetType: targetType || "track",
+      targetType,
       userId,
-      text: text.trim(),
-      parentId: parentId || null,
+      text,
+      parentId,
     });
 
-    await newComment.populate("userId", "username image");
+    let replyTo: { userName: string; text: string } | null = null;
     if (parentId) {
-      await newComment.populate({
-        path: "parentId",
-        populate: { path: "userId", select: "username" },
-      });
+      const parentDoc: any = await Comment.findById(parentId)
+        .select("text userId")
+        .populate("userId", "username")
+        .lean();
+      if (parentDoc) {
+        replyTo = {
+          userName: parentDoc.userId?.username || "Foydalanuvchi",
+          text: parentDoc.text,
+        };
+      }
     }
 
-    const populatedUser: any = newComment.userId;
-    const parentComment: any = newComment.parentId;
-
-    const date = new Date(newComment.createdAt);
-    const formattedDate = `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}, ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-
+    const sessionUser: any = session.user;
     const formattedResponse = {
       id: newComment._id.toString(),
-      parentId: parentComment ? (typeof parentComment === "object" && parentComment._id ? parentComment._id.toString() : String(parentComment)) : null,
+      parentId: parentId || null,
       user: {
-        name: populatedUser?.username || "Foydalanuvchi",
-        image: populatedUser?.image || null,
+        name: sessionUser?.username || sessionUser?.name || "Foydalanuvchi",
+        image: sessionUser?.image || null,
       },
       text: newComment.text,
-      replyTo: parentComment && typeof parentComment === "object" ? {
-        userName: parentComment.userId?.username || "Foydalanuvchi",
-        text: parentComment.text,
-      } : null,
-      createdAt: formattedDate,
+      replyTo,
+      createdAt: formatCommentDate(newComment.createdAt),
     };
 
     return NextResponse.json(formattedResponse, { status: 201 });
